@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <random>
 #include <string>
 #include <vector>
@@ -64,11 +65,34 @@ bool datagen_is_draw(const Position &pos, const std::vector<uint64_t> &hist)
     return false;
 }
 
-// Play `openingPlies` uniformly-random legal plies from startpos. Returns false if a terminal position is
-// hit (caller retries) so every game starts from a legal, non-terminal, varied position.
-bool random_opening(Position &pos, std::vector<uint64_t> &hist, std::mt19937_64 &rng, int openingPlies)
+// Load an openings file (EPD/FEN, one position per line) into memory. set_fen ignores trailing EPD
+// opcodes, so raw EPD lines work directly. Returns an empty vector if the path is empty/unreadable.
+std::vector<std::string> load_opening_book(const std::string &path)
 {
-    pos.set_fen(START_FEN);
+    std::vector<std::string> book;
+    if (path.empty())
+    {
+        return book;
+    }
+    std::ifstream file(path);
+    std::string   line;
+    while (std::getline(file, line))
+    {
+        if (!line.empty() && line[0] != '#')
+        {
+            book.push_back(line);
+        }
+    }
+    return book;
+}
+
+// Set up a game start: a book position (if a book is loaded) or the standard start, then `openingPlies`
+// uniformly-random legal plies for variety. Returns false if a terminal position is hit (caller retries)
+// so every game starts from a legal, non-terminal, varied position.
+bool random_opening(Position &pos, std::vector<uint64_t> &hist, std::mt19937_64 &rng, int openingPlies,
+                    const std::string &start_fen)
+{
+    pos.set_fen(start_fen);
     hist.clear();
     for (int i = 0; i < openingPlies; i++)
     {
@@ -96,7 +120,7 @@ int run_datagen(int argc, char **argv)
     // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=openingPlies
     if (argc < 3)
     {
-        fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies]\n", argv[0]);
+        fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd]\n", argv[0]);
         return 1;
     }
     long        games        = atol(argv[1]);
@@ -104,6 +128,13 @@ int run_datagen(int argc, char **argv)
     uint64_t    seed         = argc > 3 ? strtoull(argv[3], nullptr, 10) : 0x9E3779B97F4A7C15ULL;
     int         nodes        = argc > 4 ? atoi(argv[4]) : 5000;
     int         openingPlies = argc > 5 ? atoi(argv[5]) : 8;
+    std::string bookPath     = argc > 6 ? argv[6] : "";
+
+    std::vector<std::string> openingBook = load_opening_book(bookPath);
+    if (!bookPath.empty())
+    {
+        fprintf(stderr, "datagen: loaded %zu opening positions from %s\n", openingBook.size(), bookPath.c_str());
+    }
 
     FILE *out = std::fopen(outPath, "w");
     if (!out)
@@ -129,8 +160,10 @@ int run_datagen(int argc, char **argv)
 
     for (long g = 0; g < games; g++)
     {
-        Position pos;
-        while (!random_opening(pos, hist, rng, openingPlies))
+        Position           pos;
+        const std::string &startFen =
+            openingBook.empty() ? std::string(START_FEN) : openingBook[rng() % openingBook.size()];
+        while (!random_opening(pos, hist, rng, openingPlies, startFen))
         { /* retry until non-terminal */
         }
         TT.clear();
