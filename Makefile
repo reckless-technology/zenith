@@ -28,3 +28,7 @@ bench: $(BIN)
 
 clean:
 	rm -f $(BIN) $(BIN)-debug
+
+baseline: $(BIN)
+	cp $(BIN) $(BIN)-base
+	@echo "baseline -> $(BIN)-base"
