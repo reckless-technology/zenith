@@ -15,10 +15,11 @@ then layers NNUE and parallel search on top.
 
 ## Language: C++ (clean-sheet, independent)
 
-Chosen over C++ (parity performance, but memory-safe concurrency — decisive for the lockless TT and
-Lazy SMP) and Go (GC pauses are unacceptable on the search hot path). Zero-cost abstractions, `criterion`
-benches, and a first-class test harness. Portable magic bitboards keep the core arch-independent; release
-builds are per-microarchitecture (`x86-64-v3` etc.).
+C++20, chosen for parity performance with the top engines and zero-overhead control over memory layout and
+concurrency — decisive for the (planned) lockless TT and Lazy SMP — over managed languages like Go, whose
+GC pauses are unacceptable on the search hot path. Zero-cost abstractions, a built-in fixed-depth `bench`
+node signature, and a binary-vs-binary SPRT harness. Portable magic bitboards keep the core arch-independent;
+release builds are per-microarchitecture (`x86-64-v3` etc.).
 
 ## Architecture
 
@@ -30,15 +31,16 @@ bitboard.{h,cpp} precomputed attacks; rook/bishop MAGIC bitboards (runtime-gener
 position.{h,cpp} bitboard board + mailbox, Zobrist, FEN, copy-make, attacks-to / in-check
 movegen.{h,cpp}  pseudo-legal generation + make/legality filter (perft-gated); staged ordering later
 eval.{h,cpp}     evaluate(): tapered HCE now, NNUE later (same call site)
-tt.{h,cpp}       lockless transposition table (Hyatt XOR, atomic cells) — shared across threads
+tt.{h,cpp}       transposition table (depth-preferred, bounds); lockless atomic cells arrive with Lazy SMP (Phase 3)
 search.{h,cpp}   iterative deepening, PVS, TT, quiescence, pruning/reductions
 ```
 
 ### Board representation
 - Bitboards (`by_color[2]`, `by_type[6]`) + a `[Piece; 64]` mailbox for O(1) lookup.
 - **Zobrist** hashing, maintained incrementally in make/unmake.
-- **Copy-free make/unmake** with an undo stack (captured piece, castling, ep, halfmove, key) — faster
-  than copy-make for deep search, and the standard for the alpha-beta hot path.
+- **Copy-make**: `Position` is a value type; search copies the parent and applies `make_move` to the copy,
+  "undoing" by discarding it (no undo stack, no `unmake_move`). ~1.8 Mnps today. A copy-free make/unmake
+  with an undo stack is a possible later optimization for the deep alpha-beta hot path.
 - Sliding attacks via **magic bitboards** generated at startup (portable; PEXT is a drop-in for BMI2 CPUs).
 
 ### Search (the classical strength engine)
@@ -56,9 +58,9 @@ Fail-soft **PVS** inside iterative deepening with **aspiration windows**. On top
 - **Lazy SMP** for multi-thread scaling (shared TT; per-thread everything else).
 
 ### Evaluation
-`trait Evaluator { fn eval(&self, pos) -> i32 }`.
-- **v1 (now):** tapered mg/eg — material, PST, mobility, king safety (attack units), pawn structure
-  (passed/isolated/doubled/phalanx), bishop pair, rooks on open/semi-open files, threats.
+A single `int evaluate(const Position&)` seam (centipawns, side-to-move POV) — the one call site NNUE replaces.
+- **v1 (now):** PeSTO tapered mg/eg material + PST, plus bishop pair, mobility, and tempo. (King safety,
+  pawn structure, rooks on open/semi-open files, and threats are HCE terms to add before NNUE lands.)
 - **v2:** **NNUE** (768→N perspective net, king-bucketed, SCReLU, int16/int8 quantized, incremental
   accumulator) — the same `Evaluator` seam; trained via the pipeline below.
 
@@ -66,14 +68,14 @@ Fail-soft **PVS** inside iterative deepening with **aspiration windows**. On top
 
 | Phase | Deliverable | Verification |
 |--|--|--|
-| **0 Board** | magic movegen, make/unmake, Zobrist | **perft** == known counts (startpos, Kiwipete, CPW 3–6) |
+| **0 Board** | magic movegen, copy-make, Zobrist | **perft** == known counts (startpos, Kiwipete, CPW 3–6) |
 | **1 Search** | PVS+TT+qsearch+ordering+core pruning, UCI, time mgmt | plays legal games; `bench` signature; mate suites |
 | **2 Strength** | full pruning/reduction stack, SEE, singular, LMR table | **SPRT** each change (self-play, [0,5]/[−3,1] bounds) |
-| **3 Parallel** | Lazy SMP + lockless TT | `-race`-equivalent (loom/ASAN); N-thread speedup |
+| **3 Parallel** | Lazy SMP + lockless TT | ThreadSanitizer-clean; N-thread speedup |
 | **4 NNUE** | trainer (PyTorch) + data-gen (self-play) + incremental infer | eval MSE vs search; **SPRT** vs HCE (expect +500–700) |
 | **5 Tuning** | SPSA/Texel tuning of search params + eval; opening-book; syzygy TB | Fishtest-style gauntlets vs reference engines |
 
-**Testing is the product.** A binary-vs-binary SPRT harness (fastchess) gates *every* change; no change
+**Testing is the product.** A binary-vs-binary SPRT harness (`cutechess-cli`, via `tools/sprt.sh`) gates *every* change; no change
 lands on strength intuition. Fixed-depth `bench` node signature guards determinism; perft guards movegen;
 a mate-in-N suite guards search correctness.
 
