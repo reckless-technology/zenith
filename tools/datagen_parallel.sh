@@ -2,7 +2,7 @@
 # Fan self-play data generation out across CPU cores. Each worker is an independent ./zenith datagen
 # process with its own seed, writing one shard. Zenith generates its own dataset (no external data).
 #
-#   tools/datagen_parallel.sh <gamesPerWorker> <outDir> [workers] [nodes] [openingPlies]
+#   tools/datagen_parallel.sh <gamesPerWorker> <outDir> [workers] [nodes] [openingPlies] [book.epd]
 set -euo pipefail
 
 gamesPerWorker="${1:?games per worker}"
@@ -10,6 +10,7 @@ outDir="${2:?output directory}"
 workers="${3:-$(nproc)}"
 nodes="${4:-5000}"
 openingPlies="${5:-8}"
+book="${6:-}"
 engine="${ENGINE:-./zenith}"
 
 mkdir -p "$outDir"
@@ -19,7 +20,7 @@ pids=()
 for worker in $(seq 1 "$workers"); do
     seed=$((worker * 2654435761))
     "$engine" datagen "$gamesPerWorker" "$outDir/shard_$(printf '%02d' "$worker").txt" \
-        "$seed" "$nodes" "$openingPlies" 2>"$outDir/shard_$(printf '%02d' "$worker").log" &
+        "$seed" "$nodes" "$openingPlies" "$book" 2>"$outDir/shard_$(printf '%02d' "$worker").log" &
     pids+=($!)
 done
 

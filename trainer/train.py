@@ -52,18 +52,20 @@ def _featurise_lines(lines):
     return own_indices[:kept], opponent_indices[:kept], scores[:kept], results[:kept]
 
 
-def load_dataset(data_glob, cache_path=None):
+def load_dataset(data_globs, cache_path=None):
     """Featurise all shards into padded index arrays. One pass, one process (robust and debuggable); a
-    per-shard progress line is printed. If `cache_path` is given it is loaded when present and written
-    otherwise, so repeated training runs on the same data skip featurisation entirely."""
+    per-shard progress line is printed. `data_globs` is one glob or a list of globs. If `cache_path` is
+    given it is loaded when present and written otherwise, so repeated runs skip featurisation entirely."""
     if cache_path and os.path.exists(cache_path):
         cached = np.load(cache_path)
         print(f"loaded featurised cache {cache_path}: {cached['scores'].shape[0]:,} positions")
         return cached["own"], cached["opponent"], cached["scores"], cached["results"]
 
-    paths = sorted(glob.glob(data_glob))
+    if isinstance(data_globs, str):
+        data_globs = [data_globs]
+    paths = sorted(path for pattern in data_globs for path in glob.glob(pattern))
     if not paths:
-        raise SystemExit(f"no data files matched: {data_glob}")
+        raise SystemExit(f"no data files matched: {data_globs}")
 
     own_parts, opponent_parts, score_parts, result_parts = [], [], [], []
     total = 0
@@ -165,16 +167,34 @@ def train(args):
     optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs)
 
+    # Deterministic train/validation split so val loss is comparable across runs (overfit detector).
     position_count = own_indices.shape[0]
-    print(f"training on {position_count:,} positions for {args.epochs} epochs, batch {args.batch_size}")
+    shuffle = torch.randperm(position_count, generator=torch.Generator().manual_seed(0))
+    val_count = int(position_count * args.val_fraction)
+    val_index = shuffle[:val_count]
+    train_index = shuffle[val_count:]
+    print(f"training on {train_index.numel():,} positions ({val_index.numel():,} held out for validation), "
+          f"{args.epochs} epochs, batch {args.batch_size}, hidden {args.hidden_size}")
+
+    def mean_loss_over(index):
+        model.eval()
+        total, seen = 0.0, 0
+        with torch.no_grad():
+            for start in range(0, index.numel(), args.batch_size):
+                batch = index[start : start + args.batch_size]
+                prediction = model(own_indices[batch].to(device), opponent_indices[batch].to(device))
+                loss = torch.sum((torch.sigmoid(prediction) - target[batch].to(device)) ** 2)
+                total += loss.item()
+                seen += batch.numel()
+        return total / max(seen, 1)
 
     for epoch in range(args.epochs):
         model.train()
-        permutation = torch.randperm(position_count)
+        permutation = train_index[torch.randperm(train_index.numel())]
         running_loss = 0.0
         batches = 0
         epoch_start = time.time()
-        for start in range(0, position_count, args.batch_size):
+        for start in range(0, permutation.numel(), args.batch_size):
             batch = permutation[start : start + args.batch_size]
             batch_own = own_indices[batch].to(device, non_blocking=True)
             batch_opponent = opponent_indices[batch].to(device, non_blocking=True)
@@ -189,7 +209,8 @@ def train(args):
             running_loss += loss.item()
             batches += 1
         scheduler.step()
-        print(f"epoch {epoch + 1:3d}/{args.epochs}  loss {running_loss / batches:.6f}  "
+        val_loss = mean_loss_over(val_index) if val_count else 0.0
+        print(f"epoch {epoch + 1:3d}/{args.epochs}  train {running_loss / batches:.6f}  val {val_loss:.6f}  "
               f"lr {scheduler.get_last_lr()[0]:.2e}  {time.time() - epoch_start:.1f}s")
 
     torch.save(model.state_dict(), args.out.replace(".nnue", ".pt"))
@@ -198,7 +219,7 @@ def train(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True, help="glob of fen;score;wdl shard files")
+    parser.add_argument("--data", required=True, nargs="+", help="one or more globs of fen;score;wdl shards")
     parser.add_argument("--out", required=True, help="output .nnue path")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=16384)
@@ -206,6 +227,7 @@ def main():
     parser.add_argument("--wdl-lambda", type=float, default=0.5)
     parser.add_argument("--hidden-size", type=int, default=HIDDEN_SIZE)
     parser.add_argument("--cache", default=None, help="optional .npz featurisation cache (load if present, else write)")
+    parser.add_argument("--val-fraction", type=float, default=0.01, help="fraction held out for validation loss")
     parser.add_argument("--device", default="cuda")
     train(parser.parse_args())
 

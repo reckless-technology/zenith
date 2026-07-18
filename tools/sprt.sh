@@ -31,11 +31,14 @@ done
 # Optional per-engine EvalFile (NNUE net). Absent => that side uses its built-in evaluator (HCE for zenith).
 cand_net_arg=(); [ -n "${CAND_NET:-}" ] && cand_net_arg=(option.EvalFile="$CAND_NET")
 base_net_arg=(); [ -n "${BASE_NET:-}" ] && base_net_arg=(option.EvalFile="$BASE_NET")
+# Optional per-engine working directory (e.g. pawnstar loads its net via a relative path).
+cand_dir_arg=(); [ -n "${CAND_DIR:-}" ] && cand_dir_arg=(dir="$CAND_DIR")
+base_dir_arg=(); [ -n "${BASE_DIR:-}" ] && base_dir_arg=(dir="$BASE_DIR")
 
 echo "SPRT  cand=$CAND ${CAND_NET:+net=$CAND_NET}  base=$BASE ${BASE_NET:+net=$BASE_NET}  TC=$TC elo[$ELO0,$ELO1] rounds=$ROUNDS"
 exec "$FASTCHESS" \
-    -engine cmd="$CAND" name=cand "${cand_net_arg[@]}" \
-    -engine cmd="$BASE" name=base "${base_net_arg[@]}" \
+    -engine cmd="$CAND" name=cand "${cand_net_arg[@]}" "${cand_dir_arg[@]}" \
+    -engine cmd="$BASE" name=base "${base_net_arg[@]}" "${base_dir_arg[@]}" \
     -each proto=uci tc="$TC" \
     -rounds "$ROUNDS" -games 2 -repeat \
     -openings file="$OPENINGS" format=epd order=random \
