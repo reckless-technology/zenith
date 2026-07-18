@@ -1,0 +1,113 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Zenith is a from-scratch UCI chess engine in **C++20** (~1,750 lines, `src/*.{h,cpp}`). The classical core
+is complete and perft-verified; NNUE and parallel search are the planned next phases. Read
+[DESIGN.md](DESIGN.md) for the roadmap and [NNUE_TRAINING.md](NNUE_TRAINING.md) for the Phase-4 GPU handoff.
+
+## Build / test / run
+
+```bash
+make            # -> ./zenith   (clang++, -O3 -flto -march=native, whole-program single-shot compile)
+make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
+make clean
+./zenith        # interactive UCI loop
+
+./zenith perft         # movegen correctness vs known counts (startpos, Kiwipete, CPW 3/4/5) — must PASS
+./zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
+make baseline          # snapshot ./zenith -> ./zenith-base
+tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
+```
+
+The build is **one `clang++` invocation over all of `src/*.cpp`** so LTO sees everything — there are no
+object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
+`tools/sprt.sh` needs `cutechess-cli` on PATH and an openings EPD (`$OPENINGS`, default
+`~/pawnstar_nnue/openings.epd`); tune via env vars `TC` / `ELO0` / `ELO1` / `CONCURRENCY`.
+
+## The testing discipline (this is the point of the project)
+
+No strength change lands on intuition. Every change to search/eval must:
+1. keep `./zenith perft` passing (movegen invariant — never regress this),
+2. produce a new, deterministic `./zenith bench` node signature, and
+3. pass a self-play **SPRT** vs the prior baseline (`tools/sprt.sh`).
+
+When you touch search or eval, expect to run all three. Perft and bench are fast local gates; SPRT is the
+real verdict on whether a change gains Elo.
+
+## Architecture
+
+Single translation unit per file, flat `src/`. Init order in `main.cpp` matters:
+`init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `TT.resize()`.
+
+- **types.h** — `Color`/`PieceType`/`Piece` (mailbox code = `color*6 + type`, `NO_PIECE=12`), packed 16-bit
+  `Move` (from|to|flag, CPW flag encoding), value scale (`VALUE_MATE=32000`, `MAX_PLY=128`), and all the
+  `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/`shift<Dir>`/file+rank masks).
+- **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
+  bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable; PEXT is a drop-in later.
+- **position.\*** — board = `byColor[2]` + `byType[6]` bitboards **plus** a `board[64]` mailbox, kept in
+  sync. Incremental **Zobrist** `key`. `attackers_to`/`attacked_by`/`in_check`/`gives_check`, FEN I/O.
+- **movegen.\*** — `generate_legal(pos, list, noisyOnly=false)` emits **fully legal** moves into a fixed
+  `MoveList` (`Move moves[256]`). `noisyOnly` = captures+promotions for quiescence.
+- **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
+  when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
+  tempo). This single call site is the NNUE seam.
+- **nnue.\*** — quantised 768→512 SCReLU perspective net: loader (`ZNNUE1` magic), feature indexing, and
+  the integer forward. v1 recomputes the accumulator from the board each call (**full refresh**, ~3× slower
+  than HCE); an incremental accumulator is the planned speed optimisation. `nnueeval <net>` CLI reads FENs
+  from stdin and prints evals (used by the verification gate).
+- **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
+  emits `fen;stm_score_cp;wdl` records (one per quiet position). Fan out with `tools/datagen_parallel.sh`.
+- **tt.\*** — `TranspositionTable TT` (global), depth-preferred, `Bound` exact/lower/upper. Mate scores are
+  stored distance-from-node: **always go through `score_to_tt`/`score_from_tt`** across the TT boundary.
+- **search.\*** — the strength engine, all in `Searcher`: iterative deepening + aspiration windows,
+  fail-soft PVS `negamax`, `qsearch` (SEE-pruned), and ordering/pruning (TT move → MVV-LVA/SEE → killers →
+  countermove → butterfly+continuation history; null-move, reverse-futility, futility, LMP, LMR,
+  check extensions, mate-distance pruning). `see()` is a local static-exchange eval.
+- **uci.\*** — protocol loop + `bench`/`perft` CLI. Search runs on a **detached `std::thread`**; `stop` is
+  an atomic checked via `time_up()`. Options: `Hash`, `Clear Hash`, `Move Overhead` (Threads/Ponder
+  accepted but ignored in v1).
+
+### Two things the code does that the docs describe differently — trust the code
+
+- **Copy-make, not an undo stack.** `Position` is a value type; search does `Position child = pos;
+  child.make_move(m);` and "undoes" by discarding the copy (see `position.h` and every recursion site in
+  `search.cpp`). DESIGN.md's "copy-free make/unmake with an undo stack" is aspirational — there is **no**
+  `unmake_move`. If you add one, it's a real architectural change, not a bug fix.
+- **DESIGN.md has stale Rust-era phrasing.** It says "C++" but references `trait Evaluator`, `criterion`
+  benches, Go GC, `-race`, and loom — leftovers from an earlier draft. The engine is C++20; the *structure*
+  DESIGN.md describes is accurate, the language/tooling asides are not.
+
+### Repetition / draw history
+
+Draw detection needs positions played *before* the search root. `uci.cpp` accumulates pre-root keys in
+`gameHist` (rebuilt on each `position` command) and hands them to `searcher.hist`. Inside `negamax`, the
+current `pos.key` is `push_back`/`pop_back`-ed around each recursive call so `is_draw()` can scan back to
+the last irreversible move. If you add a make/recurse site, maintain this `hist` push/pop or repetition
+detection breaks.
+
+## NNUE training pipeline (independent — no shared code/net/data with any other engine)
+
+`datagen` (C++) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.cpp` (engine). The
+venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
+
+- **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
+  768→512, SCReLU). `src/nnue.cpp` must reproduce `feature_index` and `integer_eval` **byte-for-byte**.
+- **Verification gate (never skip):** `trainer/verify.py` runs `./zenith nnueeval` and diffs against the
+  Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(colour-mirror)`.
+- **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
+  noise), not the loader. The pilot net loses to HCE because minimax amplifies leaf-eval noise; see the
+  `zenith-nnue-pilot-status` memory. Fix = more/cleaner data + better training, not engine code.
+- Every net change is still SPRT-gated (`tools/sprt.sh`, fastchess): `CAND_NET`/`BASE_NET` set `EvalFile`
+  per side (unset ⇒ that side uses HCE). Fixed-depth matches isolate eval quality from NNUE's speed cost.
+
+## Conventions
+
+- Search values are side-to-move-relative (negamax). Mate scores are `±(VALUE_MATE - ply)`; test with
+  `is_mate_score`, never bare comparisons.
+- Continuation-history / countermove key is `(piece, to-square)` of the move that reached a node, encoded
+  `piece*64 + to` (range 768); contHist is indexed `prevPT*768 + curPT`.
+- Prefer the existing bit helpers in `types.h` over hand-rolled bit twiddling; sliding attacks always go
+  through the magic-bitboard functions, never a raw ray loop.

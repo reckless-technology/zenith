@@ -99,27 +99,37 @@ validated end-to-end, or straight away if we want speed.
 
 ---
 
-## 5. Resume checklist (do these in order on the GPU box)
+## 5. Resume checklist
 
+Done (v1 pipeline built + validated 2026-07-18):
 ```
-[ ] git clone <this repo>; make ; ./zenith perft        # confirm the core builds + is correct here
-[ ] check the v0.2 SPRT verdict if it finished on the old box (see below); adopt or revert
-[ ] write src/datagen.cpp (§2); ./zenith datagen 200000 data/shard0.txt   (fan out over cores)
-[ ] write trainer/train.py (§3); train on the GPU; export zenith-v1.nnue
-[ ] write src/nnue.{h,cpp} (§4): loader + incremental accumulator + scalar forward
-[ ] add TestNNUEReference gate (0 cp vs trainer); add incremental==refresh gate
-[ ] wire evaluate() -> nnue when EvalFile set; add UCI `EvalFile` option
-[ ] SPRT nnue vs HCE  -> expect +500–700; then AVX2 kernel; then bigger net/data (v2: HalfKA + king buckets)
+[x] make ; ./zenith perft                                   # core builds + correct
+[x] src/datagen.cpp (§2) + tools/datagen_parallel.sh        # ./zenith datagen; fan over cores
+[x] trainer/train.py + trainer/features.py (§3, PyTorch)    # quantised .nnue export
+[x] src/nnue.{h,cpp} (§4): loader + SCReLU integer forward  # FULL REFRESH (not yet incremental)
+[x] verification gate: trainer/verify.py == 0 cp            # engine int eval == trainer, bit-identical
+[x] wire evaluate() -> nnue when EvalFile set; UCI EvalFile option; nnueeval CLI
+[x] SPRT harness (tools/sprt.sh, fastchess): NNUE vs HCE, cross-engine
 ```
 
-## State at handoff (2026-07)
+Open (the climb — this is now a data/training program, not engine code):
+```
+[ ] cut eval NOISE: the pilot net (4M pos, HCE self-play) LOSES to HCE (~-325 Elo) because it correlates
+    only 0.92 with its labels (~267cp noise) and minimax amplifies leaf noise. Fix: more + cleaner data
+    (deeper search labels, dedup), more/better training (lower wdl-lambda, more epochs), larger net.
+[ ] incremental accumulator (make full-refresh ~3x faster) + later an AVX2 kernel
+[ ] once NNUE beats HCE: SPRT vs pawnstar; then bigger net + more data; v2 HalfKA + king buckets
+```
 
-- `main` = v0.2: perft-correct core + PVS search + PeSTO HCE + continuation-history/countermove/futility.
-  Builds clean, ASan/UBSan-clean, plays full games.
-- A self-play SPRT of **v0.2 vs v0.1** was running on the old box at 8+0.08 [0,5]; early read ~+49 Elo over
-  50 games (positive, not yet conclusive). If it finished, the verdict is in
-  `~/pawnstar_nnue/zenith_sprt.log` on that machine. v0.2 is committed either way; revert the
-  `search v0.2` commit only if the SPRT ultimately rejected it.
-- Harness (`tools/sprt.sh`) needs `cutechess-cli` + an openings EPD — install those on the GPU box too if
-  running SPRTs there (SPRT is CPU-bound; training is the GPU job).
+## State (2026-07-18)
+
+- `main` = perft-correct classical core + PVS search + PeSTO HCE, **plus the full NNUE pipeline** wired in.
+  Builds clean; `datagen`, PyTorch trainer, and the quantised engine loader are all in place and verified
+  (0 cp engine-vs-trainer, perfect colour-mirror symmetry, tactics found).
+- The **first pilot net loses to HCE** (~−325 Elo at fixed depth) — an eval-noise problem, not a bug (see
+  §5 and the `zenith-nnue-pilot-status` agent memory). Larger/cleaner data (`data/v2`, 6000-node labels)
+  and better training are the active work; the goal remains beating pawnstar C++.
+- Harness: `tools/sprt.sh` uses **fastchess** (cutechess-cli is not installed here);
+  `~/pawnstar_nnue/openings.epd` is the default book. SPRT is CPU-bound; training is the GPU job — they can
+  run concurrently.
 ```
