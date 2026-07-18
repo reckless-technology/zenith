@@ -1,0 +1,5 @@
+# Zenith NNUE trainer (independent PyTorch pipeline). Install into a venv:
+#   python3 -m venv .venv && . .venv/bin/activate && pip install -r trainer/requirements.txt
+# A CUDA build of torch is pulled automatically on Linux (works on the RTX 4070).
+torch>=2.3
+numpy>=1.26

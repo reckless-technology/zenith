@@ -1,15 +1,44 @@
 #!/usr/bin/env bash
-# Self-play SPRT: a candidate Zenith build vs a baseline build (measures the Elo of a change).
-# Usage: tools/sprt.sh [cand] [base] [rounds]   Env: TC (default 8+0.08), ELO0/ELO1 (default 0/5), CONCURRENCY.
+# Self-play / cross-engine SPRT via fastchess (cutechess-cli is not installed on this box). Measures the
+# Elo of a change: a candidate engine/net vs a baseline. Works for:
+#   * NNUE vs HCE:      CAND=./zenith CAND_NET=nets/x.nnue  BASE=./zenith            (BASE_NET unset -> HCE)
+#   * version vs version: two zenith binaries
+#   * vs pawnstar:      BASE=/home/jonny/work/pawnstar/build/pawnstar BASE_NET=.../pawnstar-v12.bin
+#
+# Usage:  tools/sprt.sh [rounds]
+# Env:    CAND (default ./zenith), BASE (default ./zenith-base), CAND_NET, BASE_NET (EvalFile paths),
+#         TC (default 8+0.08), ELO0/ELO1 (default 0/5), CONCURRENCY, OPENINGS.
 set -euo pipefail
-CAND="${1:-./zenith}"; BASE="${2:-./zenith-base}"; ROUNDS="${3:-4000}"
-TC="${TC:-8+0.08}"; ELO0="${ELO0:-0}"; ELO1="${ELO1:-5}"
-OPEN="${OPENINGS:-$HOME/pawnstar_nnue/openings.epd}"; CC="${CONCURRENCY:-5}"
-for f in "$CAND" "$BASE"; do [ -x "$f" ] || { echo "missing binary: $f" >&2; exit 1; }; done
-echo "SPRT cand=$CAND base=$BASE TC=$TC elo[$ELO0,$ELO1] rounds=$ROUNDS"
-exec cutechess-cli \
-  -engine cmd="$CAND" name=cand -engine cmd="$BASE" name=base \
-  -each proto=uci tc="$TC" -rounds "$ROUNDS" -games 2 -repeat \
-  -openings file="$OPEN" format=epd order=random -draw movenumber=40 movecount=8 score=20 \
-  -resign movecount=3 score=600 -sprt elo0="$ELO0" elo1="$ELO1" alpha=0.05 beta=0.05 \
-  -concurrency "$CC" -ratinginterval 20
+
+CAND="${CAND:-./zenith}"
+BASE="${BASE:-./zenith-base}"
+ROUNDS="${1:-2000}"
+TC="${TC:-8+0.08}"
+ELO0="${ELO0:-0}"
+ELO1="${ELO1:-5}"
+OPENINGS="${OPENINGS:-$HOME/pawnstar_nnue/openings.epd}"
+CONCURRENCY="${CONCURRENCY:-$(( $(nproc) - 2 ))}"
+
+FASTCHESS="$(command -v fastchess || true)"
+[ -z "$FASTCHESS" ] && [ -x "$HOME/pawnstar_nnue/fastchess/fastchess" ] && FASTCHESS="$HOME/pawnstar_nnue/fastchess/fastchess"
+[ -z "$FASTCHESS" ] && { echo "fastchess not found (PATH or ~/pawnstar_nnue/fastchess/fastchess)" >&2; exit 1; }
+
+for engine in "$CAND" "$BASE"; do
+    command -v "$engine" >/dev/null 2>&1 || [ -x "$engine" ] || { echo "missing engine: $engine" >&2; exit 1; }
+done
+[ -f "$OPENINGS" ] || { echo "missing openings: $OPENINGS" >&2; exit 1; }
+
+# Optional per-engine EvalFile (NNUE net). Absent => that side uses its built-in evaluator (HCE for zenith).
+cand_net_arg=(); [ -n "${CAND_NET:-}" ] && cand_net_arg=(option.EvalFile="$CAND_NET")
+base_net_arg=(); [ -n "${BASE_NET:-}" ] && base_net_arg=(option.EvalFile="$BASE_NET")
+
+echo "SPRT  cand=$CAND ${CAND_NET:+net=$CAND_NET}  base=$BASE ${BASE_NET:+net=$BASE_NET}  TC=$TC elo[$ELO0,$ELO1] rounds=$ROUNDS"
+exec "$FASTCHESS" \
+    -engine cmd="$CAND" name=cand "${cand_net_arg[@]}" \
+    -engine cmd="$BASE" name=base "${base_net_arg[@]}" \
+    -each proto=uci tc="$TC" \
+    -rounds "$ROUNDS" -games 2 -repeat \
+    -openings file="$OPENINGS" format=epd order=random \
+    -draw movenumber=40 movecount=8 score=20 -resign movecount=3 score=600 \
+    -sprt elo0="$ELO0" elo1="$ELO1" alpha=0.05 beta=0.05 \
+    -concurrency "$CONCURRENCY" -ratinginterval 20
