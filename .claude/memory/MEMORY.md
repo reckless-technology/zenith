@@ -1,0 +1,11 @@
+# Memory index
+
+One line per memory. Full content lives in the linked file.
+
+- [prefer-full-names](prefer-full-names.md) — spell out names, avoid terse abbreviations
+- [clang-format-consistency](clang-format-consistency.md) — always clang-format all C++ with the repo .clang-format
+- [zenith-goal-independence](zenith-goal-independence.md) — beat pawnstar C++ while staying fully independent (own trainer/data/arch/net)
+- [pawnstar-reference-opponent](pawnstar-reference-opponent.md) — where the opponent, SPRT harness, GPU, and tooling live
+- [training-setup](training-setup.md) — venv/torch, datagen command, GitHub remote + gh CI
+- [pgrep-wait-loop-self-match](pgrep-wait-loop-self-match.md) — `pgrep -f` wait loops deadlock by matching themselves; use `pgrep -x`
+- [zenith-nnue-pilot-status](zenith-nnue-pilot-status.md) — pipeline validated; pilot net loses to HCE on eval noise (not a bug)
