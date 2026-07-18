@@ -26,6 +26,8 @@ class Searcher {
     int seldepth = 0;
     int64_t moveOverhead = 20;
 
+    Searcher() : contHist(768 * 768, 0) {}
+
     // Repetition/50-move context: keys of positions played before the root (from UCI), extended in-tree.
     std::vector<uint64_t> hist;
 
@@ -39,6 +41,8 @@ class Searcher {
 
     Move killers[MAX_PLY][2];
     int history[2][64][64];
+    Move counterMoves[768];               // [prev (piece,to)] -> refutation move
+    std::vector<int> contHist;            // [prev (piece,to)][cur (piece,to)] 1-ply continuation history
     Move pvTable[MAX_PLY][MAX_PLY];
     int pvLen[MAX_PLY];
     Move rootBest;
@@ -48,7 +52,7 @@ class Searcher {
     void set_time(const Position& root, const SearchLimits& lim);
 
     bool is_draw(const Position& pos) const;
-    int negamax(Position& pos, int depth, int alpha, int beta, int ply, bool cutnode);
+    int negamax(Position& pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove);
     int qsearch(Position& pos, int alpha, int beta, int ply);
     void update_pv(int ply, Move m);
 };

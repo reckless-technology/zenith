@@ -174,7 +174,7 @@ int Searcher::qsearch(Position& pos, int alpha, int beta, int ply) {
     return best;
 }
 
-int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bool cutnode) {
+int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove) {
     if (time_up()) {
         stop = true;
         return 0;
@@ -196,6 +196,13 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
     nodes++;
     bool inCheck = pos.in_check();
 
+    // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
+    int prevPT = -1;
+    if (!prevMove.is_none()) {
+        Piece pp = pos.board[prevMove.to()];
+        if (pp != NO_PIECE) prevPT = pp * 64 + prevMove.to();
+    }
+
     TTEntry tte;
     bool ttHit = TT.probe(pos.key, tte);
     int ttScore = ttHit ? score_from_tt(tte.score, ply) : VALUE_NONE;
@@ -216,7 +223,7 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
         Position np = pos;
         np.make_null();
         hist.push_back(pos.key);
-        int score = -negamax(np, depth - R, -beta, -beta + 1, ply + 1, !cutnode);
+        int score = -negamax(np, depth - R, -beta, -beta + 1, ply + 1, !cutnode, Move::none());
         hist.pop_back();
         if (stop) return 0;
         if (score >= beta) return is_mate_score(score) ? beta : score;
@@ -241,8 +248,12 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
             s = 800000;
         else if (m == killers[ply][1])
             s = 700000;
-        else
-            s = history[pos.stm][m.from()][m.to()];
+        else if (prevPT >= 0 && m == counterMoves[prevPT])
+            s = 650000;
+        else {
+            int curPT = pos.board[m.from()] * 64 + m.to();
+            s = history[pos.stm][m.from()][m.to()] + (prevPT >= 0 ? contHist[prevPT * 768 + curPT] : 0);
+        }
         scores[i] = s;
     }
 
@@ -268,6 +279,11 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
             !is_mate_score(bestScore))
             continue;
 
+        // Futility pruning: at low depth, skip quiet moves that a margin cannot lift to alpha.
+        if (!root && !pvNode && !inCheck && quiet && depth <= 6 && moveCount > 1 &&
+            !is_mate_score(bestScore) && eval + 100 + 90 * depth <= alpha)
+            continue;
+
         // SEE pruning of clearly-losing captures at low depth.
         if (!root && depth <= 6 && m.is_capture() && !is_mate_score(bestScore) && see(pos, m) < -100 * depth)
             continue;
@@ -281,7 +297,7 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
         hist.push_back(pos.key);
         int score;
         if (moveCount == 1) {
-            score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false);
+            score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false, m);
         } else {
             int R = 0;
             if (depth >= 3 && moveCount >= 4 && quiet && !inCheck) {
@@ -290,11 +306,11 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
                 if (cutnode) R++;
                 R = std::clamp(R, 0, newDepth - 1);
             }
-            score = -negamax(child, newDepth - R, -alpha - 1, -alpha, ply + 1, true);
+            score = -negamax(child, newDepth - R, -alpha - 1, -alpha, ply + 1, true, m);
             if (score > alpha && R > 0)
-                score = -negamax(child, newDepth, -alpha - 1, -alpha, ply + 1, !cutnode);
+                score = -negamax(child, newDepth, -alpha - 1, -alpha, ply + 1, !cutnode, m);
             if (score > alpha && score < beta)
-                score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false);
+                score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false, m);
         }
         hist.pop_back();
         if (stop) return 0;
@@ -308,18 +324,23 @@ int Searcher::negamax(Position& pos, int depth, int alpha, int beta, int ply, bo
                 alpha = score;
                 if (pvNode) update_pv(ply, m);
                 if (score >= beta) {
-                    // Beta cutoff: reward the quiet cutoff move, punish the quiets that failed.
+                    // Beta cutoff: reward the quiet cutoff move (main + continuation history, killer,
+                    // countermove), punish the quiets that failed before it.
                     if (quiet) {
                         if (killers[ply][0] != m) {
                             killers[ply][1] = killers[ply][0];
                             killers[ply][0] = m;
                         }
+                        if (prevPT >= 0) counterMoves[prevPT] = m;
                         int bonus = std::min(depth * depth, 400);
-                        int& h = history[pos.stm][m.from()][m.to()];
-                        h += bonus - h * std::abs(bonus) / 16384;
+                        auto grav = [&](int& e, int b) { e += b - e * std::abs(b) / 16384; };
+                        int curPT = pos.board[m.from()] * 64 + m.to();
+                        grav(history[pos.stm][m.from()][m.to()], bonus);
+                        if (prevPT >= 0) grav(contHist[prevPT * 768 + curPT], bonus);
                         for (int q = 0; q < nQuiets - 1; q++) {
-                            int& hq = history[pos.stm][quiets[q].from()][quiets[q].to()];
-                            hq += -bonus - hq * std::abs(bonus) / 16384;
+                            Move qm = quiets[q];
+                            grav(history[pos.stm][qm.from()][qm.to()], -bonus);
+                            if (prevPT >= 0) grav(contHist[prevPT * 768 + pos.board[qm.from()] * 64 + qm.to()], -bonus);
                         }
                     }
                     break;
@@ -340,6 +361,8 @@ Move Searcher::go(Position root, const SearchLimits& lim) {
     seldepth = 0;
     std::memset(killers, 0, sizeof(killers));
     std::memset(history, 0, sizeof(history));
+    std::memset(counterMoves, 0, sizeof(counterMoves));
+    std::fill(contHist.begin(), contHist.end(), 0);
     start = std::chrono::steady_clock::now();
     set_time(root, lim);
     TT.new_search();
@@ -357,7 +380,7 @@ Move Searcher::go(Position root, const SearchLimits& lim) {
             beta = std::min(VALUE_INF, score + delta);
         }
         while (true) {
-            int s = negamax(root, depth, alpha, beta, 0, false);
+            int s = negamax(root, depth, alpha, beta, 0, false, Move::none());
             if (stop) break;
             score = s;
             if (s <= alpha) {

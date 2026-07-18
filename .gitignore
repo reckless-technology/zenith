@@ -1,3 +1,4 @@
 /zenith
 /zenith-debug
 *.o
+/zenith-base
