@@ -17,6 +17,11 @@ CORRECT and validated: 0cp gate (engine == trainer, bit-identical), colour-mirro
 hugely — one iteration added +211 Elo and flipped the timed result positive; (3) 512 hidden is the sweet
 spot for this data (768 overfits); (4) speed matters — int16+AVX2 refresh (641k->1.08M nps) added ~+41 timed.
 
-**Current best net: `nets/zenith-v5.nnue` (committed).** Gap to pawnstar: −377 timed (was −489). Next levers:
-more self-play iterations (v6 with v5 labels), incremental accumulator (speed), then search (singular/IIR/SMP).
+**Current best net: `nets/zenith-v6.nnue` (committed).** Speed: AVX2 refresh + incremental accumulator
+(embedded in Position, `nnuecheck` verifies incremental==refresh) + pseudo-legal movegen with legality
+filtered in-search (removes is_legal's redundant copy-make — SPRT +126 Elo, synergistic with the
+accumulator since is_legal was copying+updating the 2KB accumulator per move). nps 641k→1.08M→1.98M.
+
+**Gap to pawnstar (timed 8+0.08): −489 (v4) → −385 (v6 self-play) → −308 (v6 after speedup).** v6 beats HCE
++223 timed. Next levers: singular extensions, more self-play iterations, Lazy SMP + lockless TT, SPSA tuning.
 Related: [[zenith-goal-independence]] [[training-setup]]
