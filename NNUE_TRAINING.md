@@ -121,15 +121,19 @@ Open (the climb — this is now a data/training program, not engine code):
 [ ] once NNUE beats HCE: SPRT vs pawnstar; then bigger net + more data; v2 HalfKA + king buckets
 ```
 
-## State (2026-07-18)
+## State (2026-07-19)
 
-- `main` = perft-correct classical core + PVS search + PeSTO HCE, **plus the full NNUE pipeline** wired in.
-  Builds clean; `datagen`, PyTorch trainer, and the quantised engine loader are all in place and verified
-  (0 cp engine-vs-trainer, perfect colour-mirror symmetry, tactics found).
-- The **first pilot net loses to HCE** (~−325 Elo at fixed depth) — an eval-noise problem, not a bug (see
-  §5 and the `zenith-nnue-pilot-status` agent memory). Larger/cleaner data (`data/v2`, 6000-node labels)
-  and better training are the active work; the goal remains beating pawnstar C++.
-- Harness: `tools/sprt.sh` uses **fastchess** (cutechess-cli is not installed here);
-  `~/pawnstar_nnue/openings.epd` is the default book. SPRT is CPU-bound; training is the GPU job — they can
-  run concurrently.
+- `main` = perft-correct classical core + PVS search + **the full NNUE pipeline** (datagen incl. book &
+  net-in-the-loop, PyTorch trainer, quantised AVX2 loader), all verified (0 cp engine-vs-trainer,
+  colour-mirror symmetric, tactics found). Current release net: `nets/zenith-v6.nnue`.
+- **Net progression (fixed-depth-8 Elo vs the PeSTO HCE):** pilot −325 (underfit/noisy) → v2 −38 → v4 (46M)
+  **+139** → v5 (72M, self-play) **+301 (+166 timed — wins timed)** → v6 (78M window) **+284, +60 over v5**.
+- **Key results & lessons:** more data is the dominant lever; **self-play (net-in-the-loop) compounds**
+  (v5-vs-v4 +211) but with **diminishing returns** (v6-vs-v5 +60); 512 hidden is the sweet spot (768
+  overfits); int16+AVX2 refresh nearly doubled nps (641k→1.08M). vs pawnstar: **−489 → −377/−385** timed.
+- **Strategic read:** the remaining gap to pawnstar is now **speed + search + parallelism bound, not eval
+  quality** (v6's better eval did not close the timed pawnstar gap). Next levers, each SPRT-gated:
+  incremental accumulator (or make/unmake) for speed, singular extensions / IIR, Lazy SMP + lockless TT.
+- Harness: `tools/sprt.sh` uses **fastchess**; `~/pawnstar_nnue/openings.epd` is the default book. SPRT is
+  CPU-bound, training is the GPU job — they run concurrently.
 ```

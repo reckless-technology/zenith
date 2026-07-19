@@ -326,6 +326,13 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         return ttScore;
     }
 
+    // Internal iterative reduction: with no TT move to anchor ordering at higher depths, search shallower
+    // first so the cheaper search populates the TT move for the re-search.
+    if (depth >= 4 && ttMove.is_none() && !inCheck)
+    {
+        depth--;
+    }
+
     int eval = inCheck ? VALUE_NONE : (ttHit && tte.eval != VALUE_NONE ? tte.eval : evaluate(pos));
 
     // Reverse futility pruning (static null move).
