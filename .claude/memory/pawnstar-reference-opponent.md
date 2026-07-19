@@ -12,6 +12,10 @@ Reference opponent + tooling on this box:
   `~/pawnstar_nnue/openings.epd` (174MB EPD). NOTE: `cutechess-cli` is NOT installed, but `tools/sprt.sh`
   assumes it — use fastchess or adapt the harness.
 - **Hardware:** NVIDIA RTX 4070 Laptop GPU (8GB); 32 CPU cores; clang++ 18, g++ 13.
-- Off-limits for independence: pawnstar's `~/pawnstar_nnue/data` (5.7B positions) and its `bullet` trainer.
+- **`~/pawnstar_nnue/data/*.data` is the PUBLIC PlentyChess dataset** (bulletformat, 5.7B positions, from
+  huggingface Yoshie2000/plentychess_data_bulletformat) — NOT pawnstar's private data. It is fine for
+  Zenith to train on (public third-party data, independent of the pawnstar engine); the user directed it.
+  Use `./zenith bullet2text <in.data> <out.txt> [max] [stride]` to convert to Zenith's fen;score;wdl.
+- Off-limits for independence: pawnstar's engine code/nets and its `bullet` trainer (Zenith uses its own).
 
 Related: [[zenith-goal-independence]] [[training-setup]]
