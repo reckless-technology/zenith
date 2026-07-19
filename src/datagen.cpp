@@ -275,6 +275,10 @@ int run_bullet2text(int argc, char **argv)
     const char *outPath    = argv[2];
     uint64_t    maxRecords = argc > 3 ? strtoull(argv[3], nullptr, 10) : ~0ULL;
     uint64_t    stride     = argc > 4 ? std::max<uint64_t>(1, strtoull(argv[4], nullptr, 10)) : 1;
+    if (maxRecords == 0)
+    {
+        maxRecords = ~0ULL; // 0 means "all records" (with the given stride)
+    }
 
     FILE *in  = std::fopen(inPath, "rb");
     FILE *out = std::fopen(outPath, "w");
