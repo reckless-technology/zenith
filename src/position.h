@@ -1,4 +1,5 @@
 #pragma once
+#include "accumulator.h"
 #include "types.h"
 #include <string>
 
@@ -29,6 +30,10 @@ class Position
     int      fullmove = 1;     // full-move number (FEN output only)
     int      ply      = 0;     // plies from the search root (for mate scoring / repetition window)
     uint64_t key      = 0;
+
+    // NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
+    // Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
+    NnueAccumulator acc;
 
     Position()
     {

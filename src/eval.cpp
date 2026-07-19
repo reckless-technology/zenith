@@ -86,10 +86,11 @@ void init_eval()
 
 int evaluate(const Position &pos)
 {
-    // NNUE replaces the whole hand-crafted evaluation when a net is loaded (UCI EvalFile).
+    // NNUE replaces the whole hand-crafted evaluation when a net is loaded (UCI EvalFile). Read the
+    // incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
     if (nnue::is_loaded())
     {
-        return nnue::evaluate(pos);
+        return nnue::evaluate(pos.acc, pos.stm);
     }
 
     int mg[2] = {0, 0}, eg[2] = {0, 0}, phase = 0;

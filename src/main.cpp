@@ -42,6 +42,15 @@ int main(int argc, char **argv)
             }
             return nnue::eval_fens_from_stdin(argv[2]);
         }
+        if (!strcmp(argv[1], "nnuecheck"))
+        {
+            if (argc < 3)
+            {
+                fprintf(stderr, "usage: %s nnuecheck <net.nnue>   (incremental == refresh gate)\n", argv[0]);
+                return 1;
+            }
+            return nnue::run_self_check(argv[2]);
+        }
     }
     uci_loop();
     return 0;

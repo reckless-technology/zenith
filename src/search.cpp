@@ -1,6 +1,7 @@
 #include "search.h"
 #include "bitboard.h"
 #include "eval.h"
+#include "nnue.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -568,6 +569,10 @@ Move Searcher::go(Position root, const SearchLimits &lim)
     start = std::chrono::steady_clock::now();
     set_time(root, lim);
     TT.new_search();
+    if (nnue::is_loaded())
+    {
+        nnue::refresh(root.acc, root); // authoritative root accumulator (robust to a net loaded mid-game)
+    }
 
     rootBest      = Move::none();
     Move best     = Move::none();

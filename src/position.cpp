@@ -1,5 +1,6 @@
 #include "position.h"
 #include "bitboard.h"
+#include "nnue.h"
 #include <cctype>
 #include <sstream>
 
@@ -62,6 +63,10 @@ void Position::put(Color c, PieceType pt, int sq)
     Piece p   = make_piece(c, pt);
     board[sq] = p;
     key ^= Zobrist::Piece[p][sq];
+    if (nnue::is_loaded())
+    {
+        nnue::add_feature(acc, c, pt, sq);
+    }
 }
 
 void Position::remove(int sq)
@@ -72,6 +77,10 @@ void Position::remove(int sq)
     byType[type_of(p)] ^= b;
     key ^= Zobrist::Piece[p][sq];
     board[sq] = NO_PIECE;
+    if (nnue::is_loaded())
+    {
+        nnue::remove_feature(acc, color_of(p), type_of(p), sq);
+    }
 }
 
 void Position::move_piece(int from, int to)
@@ -84,6 +93,10 @@ void Position::move_piece(int from, int to)
     key ^= Zobrist::Piece[p][from] ^ Zobrist::Piece[p][to];
     board[to]   = p;
     board[from] = NO_PIECE;
+    if (nnue::is_loaded())
+    {
+        nnue::move_feature(acc, color_of(p), type_of(p), from, to);
+    }
 }
 
 Bitboard Position::attackers_to(int sq, Color c, Bitboard occ) const
@@ -313,6 +326,11 @@ void Position::set_fen(const std::string &fen)
     if (epSq != NO_SQ)
     {
         key ^= Zobrist::EpFile[file_of(epSq)];
+    }
+    // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
+    if (nnue::is_loaded())
+    {
+        nnue::refresh(acc, *this);
     }
 }
 
