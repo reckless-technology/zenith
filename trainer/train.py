@@ -164,8 +164,10 @@ def train(args):
     device = torch.device("cuda" if use_cuda else "cpu")
     print(f"device: {device}")
 
-    own_indices = torch.from_numpy(own_indices.astype(np.int64))
-    opponent_indices = torch.from_numpy(opponent_indices.astype(np.int64))
+    # Keep the feature indices as int16 in RAM (4x smaller than int64) and cast each batch to long on the
+    # GPU — lets us hold ~200M+ positions in memory instead of ~70M.
+    own_indices = torch.from_numpy(own_indices)
+    opponent_indices = torch.from_numpy(opponent_indices)
     scores = torch.from_numpy(scores)
     results = torch.from_numpy(results)
 
@@ -190,7 +192,7 @@ def train(args):
         with torch.no_grad():
             for start in range(0, index.numel(), args.batch_size):
                 batch = index[start : start + args.batch_size]
-                prediction = model(own_indices[batch].to(device), opponent_indices[batch].to(device))
+                prediction = model(own_indices[batch].to(device).long(), opponent_indices[batch].to(device).long())
                 loss = torch.sum((torch.sigmoid(prediction) - target[batch].to(device)) ** 2)
                 total += loss.item()
                 seen += batch.numel()
@@ -204,8 +206,8 @@ def train(args):
         epoch_start = time.time()
         for start in range(0, permutation.numel(), args.batch_size):
             batch = permutation[start : start + args.batch_size]
-            batch_own = own_indices[batch].to(device, non_blocking=True)
-            batch_opponent = opponent_indices[batch].to(device, non_blocking=True)
+            batch_own = own_indices[batch].to(device, non_blocking=True).long()
+            batch_opponent = opponent_indices[batch].to(device, non_blocking=True).long()
             batch_target = target[batch].to(device, non_blocking=True)
 
             prediction = model(batch_own, batch_opponent)
