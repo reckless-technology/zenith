@@ -276,7 +276,8 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
     return best;
 }
 
-int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove)
+int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove,
+                      Move excluded)
 {
     if (time_up())
     {
@@ -328,7 +329,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     bool    ttHit   = TT.probe(pos.key, tte);
     int     ttScore = ttHit ? score_from_tt(tte.score, ply) : VALUE_NONE;
     Move    ttMove  = ttHit ? Move(tte.move) : Move::none();
-    if (!pvNode && ttHit && tte.depth >= depth &&
+    if (excluded.is_none() && !pvNode && ttHit && tte.depth >= depth &&
         (tte.bound == BOUND_EXACT || (tte.bound == BOUND_LOWER && ttScore >= beta) ||
          (tte.bound == BOUND_UPPER && ttScore <= alpha)))
     {
@@ -433,6 +434,10 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         std::swap(moves[i], moves[bi]);
         std::swap(scores[i], scores[bi]);
         Move m = moves[i];
+        if (m == excluded)
+        {
+            continue; // singular exclusion search: skip the move being tested for singularity
+        }
 
         // A single make_move serves both legality and search: skip pseudo-legal moves that leave our own
         // king in check (castling is already generated fully legal). Skipping BEFORE incrementing
@@ -467,7 +472,22 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
 
         bool childCheck = child.in_check();
         int  ext        = childCheck ? 1 : 0;
-        int  newDepth   = depth - 1 + ext;
+
+        // Singular extension: if the TT move is much better than every alternative — an exclusion search
+        // (this position without the TT move) at reduced depth fails low below a margin — extend it.
+        if (!root && m == ttMove && excluded.is_none() && depth >= 8 && ttHit && tte.depth >= depth - 3 &&
+            (tte.bound == BOUND_LOWER || tte.bound == BOUND_EXACT) && !is_mate_score(ttScore))
+        {
+            int singularBeta = ttScore - 3 * depth;
+            int singularScore =
+                negamax(pos, (depth - 1) / 2, singularBeta - 1, singularBeta, ply, cutnode, prevMove, ttMove);
+            if (singularScore < singularBeta)
+            {
+                ext = 1;
+            }
+        }
+
+        int newDepth = depth - 1 + ext;
 
         hist.push_back(pos.key);
         int score;
@@ -568,7 +588,10 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     }
 
     Bound b = bestScore >= beta ? BOUND_LOWER : (alpha > origAlpha ? BOUND_EXACT : BOUND_UPPER);
-    TT.store(pos.key, bestScore, inCheck ? VALUE_NONE : eval, depth, b, bestMove, ply);
+    if (excluded.is_none())
+    {
+        TT.store(pos.key, bestScore, inCheck ? VALUE_NONE : eval, depth, b, bestMove, ply);
+    }
     if (root)
     {
         rootBest = bestMove;

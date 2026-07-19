@@ -58,7 +58,8 @@ class Searcher
     void    set_time(const Position &root, const SearchLimits &lim);
 
     bool is_draw(const Position &pos) const;
-    int  negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove);
+    int  negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove,
+                 Move excluded = Move::none());
     int  qsearch(Position &pos, int alpha, int beta, int ply);
     void update_pv(int ply, Move m);
 };
