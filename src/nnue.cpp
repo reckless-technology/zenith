@@ -7,6 +7,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
 
 namespace nnue
 {
@@ -42,32 +45,43 @@ inline int feature_index(Color perspective, Color piece_colour, PieceType piece_
     return relative_colour * 384 + piece_type * 64 + relative_square;
 }
 
-// Recompute both perspective accumulators from the board (full refresh).
-void refresh_accumulators(const Position &position, int32_t own_accumulator[HIDDEN_SIZE],
-                          int32_t opponent_accumulator[HIDDEN_SIZE])
+// Add one feature column into an accumulator (int16, so bit-identical to the scalar/reference path).
+inline void add_column(int16_t *accumulator, const int16_t *column)
 {
+#if defined(__AVX2__)
+    for (int i = 0; i < HIDDEN_SIZE; i += 16)
+    {
+        __m256i acc = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(accumulator + i));
+        __m256i col = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(column + i));
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(accumulator + i), _mm256_add_epi16(acc, col));
+    }
+#else
     for (int i = 0; i < HIDDEN_SIZE; i++)
     {
-        own_accumulator[i]      = network.feature_transformer_bias[i];
-        opponent_accumulator[i] = network.feature_transformer_bias[i];
+        accumulator[i] += column[i];
     }
+#endif
+}
+
+// Recompute both perspective accumulators from the board (full refresh). int16 accumulators fit these
+// nets (verified by the 0 cp gate against the int64 reference).
+void refresh_accumulators(const Position &position, int16_t own_accumulator[HIDDEN_SIZE],
+                          int16_t opponent_accumulator[HIDDEN_SIZE])
+{
+    std::memcpy(own_accumulator, network.feature_transformer_bias, sizeof(network.feature_transformer_bias));
+    std::memcpy(opponent_accumulator, network.feature_transformer_bias, sizeof(network.feature_transformer_bias));
     Color    side_to_move = position.stm;
     Bitboard occupied     = position.occupied();
     while (occupied)
     {
-        int            square       = pop_lsb(occupied);
-        Piece          piece        = position.board[square];
-        Color          piece_colour = color_of(piece);
-        PieceType      piece_type   = type_of(piece);
-        const int16_t *own_column =
-            network.feature_transformer_weight[feature_index(side_to_move, piece_colour, piece_type, square)];
-        const int16_t *opponent_column =
-            network.feature_transformer_weight[feature_index(~side_to_move, piece_colour, piece_type, square)];
-        for (int i = 0; i < HIDDEN_SIZE; i++)
-        {
-            own_accumulator[i] += own_column[i];
-            opponent_accumulator[i] += opponent_column[i];
-        }
+        int       square       = pop_lsb(occupied);
+        Piece     piece        = position.board[square];
+        Color     piece_colour = color_of(piece);
+        PieceType piece_type   = type_of(piece);
+        add_column(own_accumulator,
+                   network.feature_transformer_weight[feature_index(side_to_move, piece_colour, piece_type, square)]);
+        add_column(opponent_accumulator,
+                   network.feature_transformer_weight[feature_index(~side_to_move, piece_colour, piece_type, square)]);
     }
 }
 
@@ -120,8 +134,8 @@ bool is_loaded()
 
 int evaluate(const Position &position)
 {
-    int32_t own_accumulator[HIDDEN_SIZE];
-    int32_t opponent_accumulator[HIDDEN_SIZE];
+    int16_t own_accumulator[HIDDEN_SIZE];
+    int16_t opponent_accumulator[HIDDEN_SIZE];
     refresh_accumulators(position, own_accumulator, opponent_accumulator);
 
     int64_t accumulated = 0;
