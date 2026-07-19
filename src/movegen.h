@@ -44,3 +44,7 @@ struct MoveList
 
 // Fully legal moves. noisyOnly restricts to captures + promotions (for quiescence).
 void generate_legal(const Position &pos, MoveList &list, bool noisyOnly = false);
+
+// Pseudo-legal moves (castling already fully legal). The search makes each move once and skips those that
+// leave the mover's king in check — avoiding generate_legal's extra copy-make per move.
+void generate_pseudo(const Position &pos, MoveList &list, bool noisyOnly = false);

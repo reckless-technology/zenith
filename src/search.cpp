@@ -203,11 +203,7 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
     }
 
     MoveList moves;
-    generate_legal(pos, moves, !inCheck); // in check: all evasions; else captures + promotions
-    if (inCheck && moves.size() == 0)
-    {
-        return -VALUE_MATE + ply;
-    }
+    generate_pseudo(pos, moves, !inCheck); // in check: all evasions; else captures + promotions
 
     // MVV-LVA ordering.
     int scores[256];
@@ -226,6 +222,7 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         scores[i] = s;
     }
 
+    int legalCount = 0;
     for (int i = 0; i < moves.size(); i++)
     {
         int bi = i;
@@ -240,13 +237,20 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         std::swap(scores[i], scores[bi]);
         Move m = moves[i];
 
+        // One make_move for legality + search: skip moves leaving our king in check.
+        Position child = pos;
+        child.make_move(m);
+        if (child.attacked_by(child.king_sq(pos.stm), ~pos.stm))
+        {
+            continue;
+        }
+        legalCount++;
+
         if (!inCheck && m.is_capture() && see(pos, m) < 0)
         {
             continue; // skip losing captures
         }
 
-        Position child = pos;
-        child.make_move(m);
         int score = -qsearch(child, -beta, -alpha, ply + 1);
         if (stop)
         {
@@ -264,6 +268,10 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
                 }
             }
         }
+    }
+    if (inCheck && legalCount == 0)
+    {
+        return -VALUE_MATE + ply; // checkmate (all evasions were illegal)
     }
     return best;
 }
@@ -362,11 +370,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     }
 
     MoveList moves;
-    generate_legal(pos, moves);
-    if (moves.size() == 0)
-    {
-        return inCheck ? -VALUE_MATE + ply : draw_value();
-    }
+    generate_pseudo(pos, moves); // legality is filtered in the loop via the single make_move
 
     // Score moves: TT move, captures (MVV-LVA), killers, history.
     int scores[256];
@@ -407,12 +411,14 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         scores[i] = s;
     }
 
-    int  bestScore = -VALUE_INF;
-    Move bestMove  = Move::none();
-    int  origAlpha = alpha;
-    int  moveCount = 0;
-    Move quiets[64];
-    int  nQuiets = 0;
+    const Color us        = pos.stm;
+    const Color them      = ~pos.stm;
+    int         bestScore = -VALUE_INF;
+    Move        bestMove  = Move::none();
+    int         origAlpha = alpha;
+    int         moveCount = 0;
+    Move        quiets[64];
+    int         nQuiets = 0;
 
     for (int i = 0; i < moves.size(); i++)
     {
@@ -426,7 +432,17 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         }
         std::swap(moves[i], moves[bi]);
         std::swap(scores[i], scores[bi]);
-        Move m     = moves[i];
+        Move m = moves[i];
+
+        // A single make_move serves both legality and search: skip pseudo-legal moves that leave our own
+        // king in check (castling is already generated fully legal). Skipping BEFORE incrementing
+        // moveCount keeps the legal-move ordering/pruning identical to a legal generator.
+        Position child = pos;
+        child.make_move(m);
+        if (child.attacked_by(child.king_sq(us), them))
+        {
+            continue;
+        }
         bool quiet = m.is_quiet();
         moveCount++;
 
@@ -449,8 +465,6 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
             continue;
         }
 
-        Position child = pos;
-        child.make_move(m);
         bool childCheck = child.in_check();
         int  ext        = childCheck ? 1 : 0;
         int  newDepth   = depth - 1 + ext;
@@ -546,6 +560,11 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
                 }
             }
         }
+    }
+
+    if (moveCount == 0)
+    {
+        return inCheck ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
     }
 
     Bound b = bestScore >= beta ? BOUND_LOWER : (alpha > origAlpha ? BOUND_EXACT : BOUND_UPPER);

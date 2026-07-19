@@ -14,7 +14,12 @@ void add_promotions(MoveList &l, int from, int to, bool cap)
     l.add(Move(from, to, base + (BISHOP - KNIGHT)));
 }
 
-void gen_pseudo(const Position &pos, MoveList &l, bool noisy)
+} // namespace
+
+// Pseudo-legal moves. Castling is emitted fully legal (king not in/through check); every other move is
+// legal iff it does not leave the mover's own king in check — the search tests that with a single
+// make_move (see negamax/qsearch), avoiding the separate copy-make that generate_legal does per move.
+void generate_pseudo(const Position &pos, MoveList &l, bool noisy)
 {
     const Color    us = pos.stm, them = ~us;
     const Bitboard occ   = pos.occupied();
@@ -141,12 +146,10 @@ void gen_pseudo(const Position &pos, MoveList &l, bool noisy)
     }
 }
 
-} // namespace
-
 void generate_legal(const Position &pos, MoveList &list, bool noisyOnly)
 {
     MoveList pseudo;
-    gen_pseudo(pos, pseudo, noisyOnly);
+    generate_pseudo(pos, pseudo, noisyOnly);
     for (Move m : pseudo)
     {
         if (pos.is_legal(m))
