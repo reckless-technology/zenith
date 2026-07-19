@@ -11,6 +11,7 @@ workers="${3:-$(nproc)}"
 nodes="${4:-5000}"
 openingPlies="${5:-8}"
 book="${6:-}"
+net="${7:-}"
 engine="${ENGINE:-./zenith}"
 
 mkdir -p "$outDir"
@@ -20,7 +21,7 @@ pids=()
 for worker in $(seq 1 "$workers"); do
     seed=$((worker * 2654435761))
     "$engine" datagen "$gamesPerWorker" "$outDir/shard_$(printf '%02d' "$worker").txt" \
-        "$seed" "$nodes" "$openingPlies" "$book" 2>"$outDir/shard_$(printf '%02d' "$worker").log" &
+        "$seed" "$nodes" "$openingPlies" "$book" "$net" 2>"$outDir/shard_$(printf '%02d' "$worker").log" &
     pids+=($!)
 done
 

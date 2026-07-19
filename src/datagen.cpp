@@ -1,6 +1,7 @@
 #include "datagen.h"
 #include "eval.h"
 #include "movegen.h"
+#include "nnue.h"
 #include "position.h"
 #include "search.h"
 #include "tt.h"
@@ -120,7 +121,8 @@ int run_datagen(int argc, char **argv)
     // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=openingPlies
     if (argc < 3)
     {
-        fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd]\n", argv[0]);
+        fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd] [net.nnue]\n",
+                argv[0]);
         return 1;
     }
     long        games        = atol(argv[1]);
@@ -129,11 +131,19 @@ int run_datagen(int argc, char **argv)
     int         nodes        = argc > 4 ? atoi(argv[4]) : 5000;
     int         openingPlies = argc > 5 ? atoi(argv[5]) : 8;
     std::string bookPath     = argc > 6 ? argv[6] : "";
+    std::string netPath      = argc > 7 ? argv[7] : "";
 
     std::vector<std::string> openingBook = load_opening_book(bookPath);
     if (!bookPath.empty())
     {
         fprintf(stderr, "datagen: loaded %zu opening positions from %s\n", openingBook.size(), bookPath.c_str());
+    }
+    // Optional NNUE net: self-play labels then come from the network (net-in-the-loop), which is how the
+    // engine bootstraps above its hand-crafted teacher. Absent => the HCE labels the data.
+    if (!netPath.empty())
+    {
+        fprintf(stderr, "datagen: %s NNUE %s for labels\n", nnue::load(netPath) ? "loaded" : "FAILED to load",
+                netPath.c_str());
     }
 
     FILE *out = std::fopen(outPath, "w");

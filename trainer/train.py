@@ -40,14 +40,22 @@ def _featurise_lines(lines):
         line = line.strip()
         if not line:
             continue
-        fen, score_text, wdl_text = line.rsplit(";", 2)
-        _, own, opponent = position_features(fen)
+        parts = line.rsplit(";", 2)
+        if len(parts) != 3:
+            continue  # tolerate truncated last lines (e.g. datagen killed mid-write)
+        fen, score_text, wdl_text = parts
+        try:
+            _, own, opponent = position_features(fen)
+            score = float(score_text)
+            result = float(wdl_text)
+        except (ValueError, KeyError, IndexError):
+            continue
         if len(own) > MAX_ACTIVE_FEATURES:
             continue
         own_indices[kept, : len(own)] = own
         opponent_indices[kept, : len(opponent)] = opponent
-        scores[kept] = float(score_text)
-        results[kept] = float(wdl_text)
+        scores[kept] = score
+        results[kept] = result
         kept += 1
     return own_indices[:kept], opponent_indices[:kept], scores[:kept], results[:kept]
 
