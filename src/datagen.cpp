@@ -6,6 +6,8 @@
 #include "search.h"
 #include "tt.h"
 #include "types.h"
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -254,5 +256,100 @@ int run_datagen(int argc, char **argv)
     }
 
     std::fclose(out);
+    return 0;
+}
+
+// --- bulletformat -> fen;score;wdl -------------------------------------------------------------------
+// bulletformat ChessBoard (32 bytes): occ u64 | pcs[16] (4-bit pieces in occ set-bit order) | score i16
+// | result u8 (0/1/2) | ksq u8 | opp_ksq u8 | extra[3]. Board is stored from the side-to-move's POV:
+// nibble bit 3 = own(0)/opp(1), bits 0-2 = piece type; square is stm-relative. Emitting "white to move"
+// with own=white/opp=black reproduces exactly the stm/ntm feature indices Zenith's engine computes.
+int run_bullet2text(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        fprintf(stderr, "usage: %s bullet2text <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
+        return 1;
+    }
+    const char *inPath     = argv[1];
+    const char *outPath    = argv[2];
+    uint64_t    maxRecords = argc > 3 ? strtoull(argv[3], nullptr, 10) : ~0ULL;
+    uint64_t    stride     = argc > 4 ? std::max<uint64_t>(1, strtoull(argv[4], nullptr, 10)) : 1;
+
+    FILE *in  = std::fopen(inPath, "rb");
+    FILE *out = std::fopen(outPath, "w");
+    if (!in || !out)
+    {
+        fprintf(stderr, "bullet2text: cannot open %s / %s\n", inPath, outPath);
+        return 1;
+    }
+
+    const char   *pieceChars = "PNBRQK";
+    unsigned char rec[32];
+    uint64_t      readCount = 0, written = 0;
+    std::string   line;
+    while (written < maxRecords && std::fread(rec, 1, 32, in) == 32)
+    {
+        if ((readCount++ % stride) != 0)
+        {
+            continue; // subsample the (5.7B-position) dataset for a diverse manageable slice
+        }
+        uint64_t occ;
+        int16_t  score;
+        std::memcpy(&occ, rec, 8);
+        std::memcpy(&score, rec + 24, 2);
+        uint8_t result = rec[26];
+
+        char board[64];
+        std::memset(board, 0, sizeof(board));
+        uint64_t o   = occ;
+        int      idx = 0;
+        while (o)
+        {
+            int sq = __builtin_ctzll(o);
+            o &= o - 1;
+            uint8_t nibble = (rec[8 + idx / 2] >> (4 * (idx % 2))) & 0xF;
+            idx++;
+            char c    = pieceChars[nibble & 7];
+            board[sq] = (nibble & 8) ? char(std::tolower(c)) : c; // bit3 set => opponent (rendered black)
+        }
+
+        line.clear();
+        for (int r = 7; r >= 0; r--)
+        {
+            int empty = 0;
+            for (int f = 0; f < 8; f++)
+            {
+                char c = board[r * 8 + f];
+                if (!c)
+                {
+                    empty++;
+                }
+                else
+                {
+                    if (empty)
+                    {
+                        line += char('0' + empty);
+                        empty = 0;
+                    }
+                    line += c;
+                }
+            }
+            if (empty)
+            {
+                line += char('0' + empty);
+            }
+            if (r)
+            {
+                line += '/';
+            }
+        }
+        std::fprintf(out, "%s w - - 0 1;%d;%.1f\n", line.c_str(), (int)score, result / 2.0);
+        written++;
+    }
+    std::fclose(in);
+    std::fclose(out);
+    fprintf(stderr, "bullet2text: wrote %llu records (stride %llu) to %s\n", (unsigned long long)written,
+            (unsigned long long)stride, outPath);
     return 0;
 }

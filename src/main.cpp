@@ -33,6 +33,10 @@ int main(int argc, char **argv)
         {
             return run_datagen(argc - 1, argv + 1);
         }
+        if (!strcmp(argv[1], "bullet2text"))
+        {
+            return run_bullet2text(argc - 1, argv + 1);
+        }
         if (!strcmp(argv[1], "nnueeval"))
         {
             if (argc < 3)
