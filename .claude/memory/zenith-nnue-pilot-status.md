@@ -17,11 +17,19 @@ CORRECT and validated: 0cp gate (engine == trainer, bit-identical), colour-mirro
 hugely — one iteration added +211 Elo and flipped the timed result positive; (3) 512 hidden is the sweet
 spot for this data (768 overfits); (4) speed matters — int16+AVX2 refresh (641k->1.08M nps) added ~+41 timed.
 
-**Current best net: `nets/zenith-v6.nnue` (committed).** Speed: AVX2 refresh + incremental accumulator
-(embedded in Position, `nnuecheck` verifies incremental==refresh) + pseudo-legal movegen with legality
-filtered in-search (removes is_legal's redundant copy-make — SPRT +126 Elo, synergistic with the
-accumulator since is_legal was copying+updating the 2KB accumulator per move). nps 641k→1.08M→1.98M.
+**Current best net: `nets/zenith-pc2.nnue` (committed, 512 hidden).** Trained on the public PlentyChess
+dataset (via `bullet2text`), which broke the self-play plateau: pc1 (70M) was +154 over the best self-play
+net v6; pc2 (187M) +30 more. More data then saturated the 512 net.
 
-**Gap to pawnstar (timed 8+0.08): −489 (v4) → −385 (v6 self-play) → −308 (v6 after speedup).** v6 beats HCE
-+223 timed. Next levers: singular extensions, more self-play iterations, Lazy SMP + lockless TT, SPSA tuning.
+**512 is the sweet spot (do not chase bigger nets here):** a 1024 net (pc3) on the same 187M was TIED at
+fixed depth and LOST timed (−54 vs pc2 vs pawnstar), because 1024 costs −37% nps (1.98M→1.25M) and speed
+dominates. Trainer uses EmbeddingBag (memory-efficient) + int16 RAM to reach 200M+ positions on 8GB.
+
+**Speed stack:** AVX2 refresh + incremental accumulator (Position-embedded, `nnuecheck` verifies
+incremental==refresh) + pseudo-legal movegen with legality filtered in-search (SPRT +126 Elo; removes
+is_legal's redundant copy-make). nps 641k→1.98M. Search: + IIR + singular extensions.
+
+**Gap to pawnstar (timed 8+0.08): −489 (v4) → −385 → −308 (speed) → −246 (pc1) → −211 (pc2).** Halved.
+Next levers: more PlentyChess shards (200M→500M+ via streaming), SPSA tuning of search margins for the
+NNUE eval scale, Lazy SMP + lockless TT.
 Related: [[zenith-goal-independence]] [[training-setup]]
