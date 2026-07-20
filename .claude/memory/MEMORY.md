@@ -9,3 +9,5 @@ One line per memory. Full content lives in the linked file.
 - [training-setup](training-setup.md) — venv/torch, datagen command, GitHub remote + gh CI
 - [pgrep-wait-loop-self-match](pgrep-wait-loop-self-match.md) — `pgrep -f` wait loops deadlock by matching themselves; use `pgrep -x`
 - [zenith-nnue-pilot-status](zenith-nnue-pilot-status.md) — pipeline validated; pilot net loses to HCE on eval noise (not a bug)
+- [pawnstar-gap-benchmarks](pawnstar-gap-benchmarks.md) — Elo gaps vs pawnstar: −238 single-thread, −42 at 8v8; deficit is eval quality
+- [zenith-eval-experiments](zenith-eval-experiments.md) — eval-arch experiment log; output buckets NEUTRAL (val loss ≠ Elo), king buckets next

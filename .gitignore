@@ -17,3 +17,4 @@ __pycache__/
 
 # fastchess writes this into the working directory when running matches
 /config.json
+/zenith-ob
