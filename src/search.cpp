@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstring>
 
+std::atomic<bool> g_stop{false};
+
 namespace
 {
 
@@ -98,16 +100,14 @@ int64_t Searcher::elapsed() const
 
 bool Searcher::time_up()
 {
-    if (stop.load(std::memory_order_relaxed))
+    if (g_stop.load(std::memory_order_relaxed))
     {
         return true;
     }
-    if (nodeLimit && nodes >= (uint64_t)nodeLimit)
+    // Only the main thread owns the time/node budget; when it runs out it sets g_stop so helpers stop too.
+    if (isMain && ((nodeLimit && nodes >= (uint64_t)nodeLimit) || (useTime && elapsed() >= hardMs)))
     {
-        return true;
-    }
-    if (useTime && elapsed() >= hardMs)
-    {
+        g_stop.store(true, std::memory_order_relaxed);
         return true;
     }
     return false;
@@ -174,8 +174,7 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
 {
     if (time_up())
     {
-        stop = true;
-        return 0;
+        return 0; // time_up() already set g_stop for the main thread
     }
     nodes++;
     if (ply > seldepth)
@@ -252,7 +251,7 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         }
 
         int score = -qsearch(child, -beta, -alpha, ply + 1);
-        if (stop)
+        if (g_stop)
         {
             return 0;
         }
@@ -281,8 +280,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
 {
     if (time_up())
     {
-        stop = true;
-        return 0;
+        return 0; // time_up() already set g_stop for the main thread
     }
     bool root   = ply == 0;
     bool pvNode = beta - alpha > 1;
@@ -360,7 +358,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         hist.push_back(pos.key);
         int score = -negamax(np, depth - R, -beta, -beta + 1, ply + 1, !cutnode, Move::none());
         hist.pop_back();
-        if (stop)
+        if (g_stop)
         {
             return 0;
         }
@@ -522,7 +520,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
             }
         }
         hist.pop_back();
-        if (stop)
+        if (g_stop)
         {
             return 0;
         }
@@ -599,9 +597,13 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     return bestScore;
 }
 
-Move Searcher::go(Position root, const SearchLimits &lim)
+Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
 {
-    stop     = false;
+    isMain = isMainThread;
+    if (isMain)
+    {
+        g_stop = false; // clear the shared stop before a new search (helpers are launched after this)
+    }
     nodes    = 0;
     seldepth = 0;
     std::memset(killers, 0, sizeof(killers));
@@ -610,7 +612,10 @@ Move Searcher::go(Position root, const SearchLimits &lim)
     std::fill(contHist.begin(), contHist.end(), 0);
     start = std::chrono::steady_clock::now();
     set_time(root, lim);
-    TT.new_search();
+    if (isMain)
+    {
+        TT.new_search(); // bump generation once per search, not per helper thread
+    }
     if (nnue::is_loaded())
     {
         nnue::refresh(root.acc, root); // authoritative root accumulator (robust to a net loaded mid-game)
@@ -633,7 +638,7 @@ Move Searcher::go(Position root, const SearchLimits &lim)
         while (true)
         {
             int s = negamax(root, depth, alpha, beta, 0, false, Move::none());
-            if (stop)
+            if (g_stop)
             {
                 break;
             }
@@ -654,13 +659,13 @@ Move Searcher::go(Position root, const SearchLimits &lim)
                 break;
             }
         }
-        if (stop && best != Move::none())
+        if (g_stop && best != Move::none())
         {
             break;
         }
         best = rootBest;
 
-        if (!silent)
+        if (isMain && !silent)
         {
             int64_t  ms  = elapsed();
             uint64_t nps = ms ? nodes * 1000 / ms : nodes;
@@ -685,18 +690,24 @@ Move Searcher::go(Position root, const SearchLimits &lim)
             fflush(stdout);
         }
 
-        if (stop)
+        if (g_stop)
         {
             break;
         }
-        if (useTime && elapsed() >= softMs)
+        // Only the main thread stops on the time budget; helpers keep deepening to fill the shared TT
+        // until the main thread ends the search.
+        if (isMain && useTime && elapsed() >= softMs)
         {
             break; // don't start a deeper iteration we can't finish
         }
-        if (is_mate_score(score) && lim.depth == 0 && !lim.infinite)
+        if (isMain && is_mate_score(score) && lim.depth == 0 && !lim.infinite)
         {
             break;
         }
+    }
+    if (isMain)
+    {
+        g_stop = true; // release the helper threads
     }
     rootScore = score;
     return best.is_none() ? rootBest : best;

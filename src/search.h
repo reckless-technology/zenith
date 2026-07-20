@@ -20,15 +20,18 @@ struct SearchLimits
 
 void init_search();
 
+// Shared across all Lazy-SMP search threads: the main thread (or a UCI "stop") sets it and every thread
+// exits. A single global keeps Searcher copyable so a thread pool can live in a std::vector.
+extern std::atomic<bool> g_stop;
+
 class Searcher
 {
   public:
-    std::atomic<bool> stop{false};
-    uint64_t          nodes        = 0;
-    int               seldepth     = 0;
-    int64_t           moveOverhead = 20;
-    bool              silent       = false; // suppress UCI info lines (datagen / bench batches)
-    int               rootScore = 0; // score (cp, root stm POV) of the last completed iteration — for datagen labels
+    uint64_t nodes        = 0;
+    int      seldepth     = 0;
+    int64_t  moveOverhead = 20;
+    bool     silent       = false; // suppress UCI info lines (datagen / bench batches)
+    int      rootScore    = 0;     // score (cp, root stm POV) of the last completed iteration — for datagen labels
 
     Searcher() : contHist(768 * 768, 0)
     {
@@ -37,13 +40,15 @@ class Searcher
     // Repetition/50-move context: keys of positions played before the root (from UCI), extended in-tree.
     std::vector<uint64_t> hist;
 
-    // Search the root and return the best move (prints UCI info lines).
-    Move go(Position root, const SearchLimits &lim);
+    // Search the root and return the best move. The main thread manages time + prints UCI info; Lazy-SMP
+    // helper threads (isMainThread=false) search silently to share TT work and stop when the main does.
+    Move go(Position root, const SearchLimits &lim, bool isMainThread = true);
 
   private:
     std::chrono::steady_clock::time_point start;
     int64_t                               softMs = 0, hardMs = 0, nodeLimit = 0;
     bool                                  useTime = false;
+    bool                                  isMain  = true;
 
     Move             killers[MAX_PLY][2];
     int              history[2][64][64];

@@ -1,5 +1,7 @@
 #pragma once
 #include "types.h"
+#include <atomic>
+#include <cstdint>
 #include <vector>
 
 enum Bound : uint8_t
@@ -10,6 +12,7 @@ enum Bound : uint8_t
     BOUND_EXACT = 3
 };
 
+// Unpacked probe result (the search reads this).
 struct TTEntry
 {
     uint64_t key   = 0;
@@ -21,11 +24,21 @@ struct TTEntry
     uint8_t  gen   = 0;
 };
 
+// Lockless transposition table for Lazy SMP: each 16-byte slot stores {key ^ data, data}. A torn read
+// (data and key from different writes) fails the `key ^ data == probeKey` check and is treated as a miss,
+// so threads can probe/store concurrently without locks (occasional benign misses on races). Accesses go
+// through std::atomic_ref so the u64 loads/stores are well-defined.
 class TranspositionTable
 {
-    std::vector<TTEntry> table;
-    uint64_t             mask       = 0;
-    uint8_t              generation = 0;
+    struct Slot
+    {
+        uint64_t key  = 0; // realKey ^ data
+        uint64_t data = 0; // packed move|score|eval|depth|bound|gen
+    };
+
+    std::vector<Slot> table;
+    uint64_t          mask       = 0;
+    uint8_t           generation = 0;
 
   public:
     void resize(size_t mb);
@@ -36,10 +49,10 @@ class TranspositionTable
         generation++;
     }
 
-    // probe: returns true on a key hit, filling *tte.
-    bool probe(uint64_t key, TTEntry &out) const;
+    // probe: returns true on a key hit (with a real entry), filling out.
+    bool probe(uint64_t key, TTEntry &out);
     void store(uint64_t key, int score, int eval, int depth, Bound b, Move m, int ply);
-    int  hashfull() const;
+    int  hashfull();
 };
 
 extern TranspositionTable TT;

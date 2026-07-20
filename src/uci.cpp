@@ -19,15 +19,17 @@ namespace
 {
 
 Position              game;
-std::vector<uint64_t> gameHist; // keys of positions before `game`
-Searcher              searcher;
-std::thread           searchThread;
+std::vector<uint64_t> gameHist;     // keys of positions before `game`
+std::vector<Searcher> pool;         // one Searcher per search thread (Lazy SMP)
+std::thread           searchThread; // coordinator thread: spawns helpers, runs the main search
+int                   threadCount  = 1;
+int64_t               moveOverhead = 20;
 
 void join_search()
 {
     if (searchThread.joinable())
     {
-        searcher.stop = true;
+        g_stop = true;
         searchThread.join();
     }
 }
@@ -182,8 +184,28 @@ void go(std::istringstream &is)
     Position              root = game;
     std::vector<uint64_t> hist = gameHist;
     searchThread               = std::thread([root, hist, lim]() mutable {
-        searcher.hist = hist;
-        Move best     = searcher.go(root, lim);
+        int n = threadCount < 1 ? 1 : threadCount;
+        if ((int)pool.size() != n)
+        {
+            pool.assign(n, Searcher{}); // (re)size the Lazy-SMP thread pool
+        }
+        for (auto &s : pool)
+        {
+            s.hist         = hist; // each thread gets its own repetition history + move-overhead
+            s.moveOverhead = moveOverhead;
+        }
+        g_stop = false;
+        std::vector<std::thread> helpers;
+        for (int i = 1; i < n; i++)
+        {
+            helpers.emplace_back([&, i]() mutable { pool[i].go(root, lim, false); });
+        }
+        Move best = pool[0].go(root, lim, true); // main thread manages time + prints info
+        g_stop    = true;                        // make sure any still-deepening helper stops
+        for (auto &t : helpers)
+        {
+            t.join();
+        }
         printf("bestmove %s\n", best.is_none() ? "0000" : best.to_uci().c_str());
         fflush(stdout);
     });
@@ -219,7 +241,12 @@ void set_option(std::istringstream &is)
     }
     else if (n == "move overhead")
     {
-        searcher.moveOverhead = std::stoi(value);
+        moveOverhead = std::stoi(value);
+    }
+    else if (n == "threads")
+    {
+        int t       = std::stoi(value);
+        threadCount = t < 1 ? 1 : (t > 256 ? 256 : t);
     }
     else if (n == "evalfile")
     {
@@ -233,7 +260,7 @@ void set_option(std::istringstream &is)
         }
         fflush(stdout);
     }
-    // Threads / Ponder accepted and ignored in v1.
+    // Ponder accepted and ignored.
 }
 
 } // namespace
@@ -251,7 +278,7 @@ void uci_loop()
             printf("id name Zenith 0.1\n");
             printf("id author Jonny Reckless\n");
             printf("option name Hash type spin default 64 min 1 max 65536\n");
-            printf("option name Threads type spin default 1 min 1 max 1\n");
+            printf("option name Threads type spin default 1 min 1 max 256\n");
             printf("option name Move Overhead type spin default 20 min 0 max 5000\n");
             printf("option name Clear Hash type button\n");
             printf("option name EvalFile type string default <none>\n");
@@ -280,7 +307,7 @@ void uci_loop()
         }
         else if (token == "stop")
         {
-            searcher.stop = true;
+            g_stop = true;
         }
         else if (token == "setoption")
         {
