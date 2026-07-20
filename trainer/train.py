@@ -113,9 +113,12 @@ class PerspectiveNetwork(nn.Module):
     def __init__(self, hidden_size=HIDDEN_SIZE):
         super().__init__()
         self.hidden_size = hidden_size
-        # Feature transformer as an embedding table: row i (i < 768) is the weight column for feature i,
-        # which is exactly the [768, HIDDEN] on-disk layout. Row 768 is a forced-zero padding slot.
-        self.feature_transformer = nn.Embedding(INPUT_FEATURES + 1, hidden_size, padding_idx=PADDING_INDEX)
+        # Feature transformer as an EmbeddingBag: row i (i < 768) is the weight column for feature i, which
+        # is exactly the [768, HIDDEN] on-disk layout. mode="sum" adds the (<=32) active feature columns per
+        # position WITHOUT materialising a [batch, 32, HIDDEN] intermediate — essential at HIDDEN=1024 on an
+        # 8GB GPU. Row 768 is a forced-zero padding slot.
+        self.feature_transformer = nn.EmbeddingBag(INPUT_FEATURES + 1, hidden_size, mode="sum",
+                                                   padding_idx=PADDING_INDEX)
         self.feature_transformer_bias = nn.Parameter(torch.zeros(hidden_size))
         self.output = nn.Linear(2 * hidden_size, 1)
         nn.init.normal_(self.feature_transformer.weight, std=0.01)
@@ -123,8 +126,8 @@ class PerspectiveNetwork(nn.Module):
             self.feature_transformer.weight[PADDING_INDEX].zero_()
 
     def forward(self, own_indices, opponent_indices):
-        own_accumulator = self.feature_transformer(own_indices).sum(dim=1) + self.feature_transformer_bias
-        opponent_accumulator = self.feature_transformer(opponent_indices).sum(dim=1) + self.feature_transformer_bias
+        own_accumulator = self.feature_transformer(own_indices) + self.feature_transformer_bias
+        opponent_accumulator = self.feature_transformer(opponent_indices) + self.feature_transformer_bias
         hidden = torch.cat([screlu(own_accumulator), screlu(opponent_accumulator)], dim=1)
         return self.output(hidden).squeeze(1)
 
