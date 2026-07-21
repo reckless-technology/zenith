@@ -4,27 +4,38 @@ This module is the single source of truth for the feature-index convention and t
 The C++ engine (src/nnue.*) must reproduce `feature_index` and `integer_eval` byte-for-byte — the
 verification gate compares the engine's integer eval against `integer_eval` here on a fixed FEN set.
 
-Architecture (Zenith v1, independent of any other engine):
-    768 inputs per perspective (6 piece types x 2 colours x 64 squares, side-to-move's own pieces first)
-    768 -> HIDDEN_SIZE feature transformer (shared weights for both perspectives)
-    concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU -> 1 output
+Architecture (Zenith v2, independent of any other engine):
+    768 base inputs per perspective (6 piece types x 2 colours x 64 squares, own pieces first), replicated
+    across NUM_KING_BUCKETS king-input buckets selected by the perspective's own king square (file-pair x
+    board-half) -> HIDDEN_SIZE feature transformer -> concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU -> 1 output
 """
 
 import numpy as np
 
-INPUT_FEATURES = 768
+BASE_FEATURES = 768      # per-king-bucket feature block: 2 colours x 6 piece types x 64 squares
+NUM_KING_BUCKETS = 8     # king-input buckets: 4 file-pairs x 2 board-halves, keyed on the perspective king
+INPUT_FEATURES = NUM_KING_BUCKETS * BASE_FEATURES  # 6144 feature-transformer rows
 HIDDEN_SIZE = 512
 QUANT_ACCUMULATOR = 255  # QA: feature-transformer weight/accumulator scale
 QUANT_OUTPUT = 64        # QB: output-weight scale
 EVALUATION_SCALE = 400   # logit -> centipawn scale (must equal EVAL_SCALE in the trainer loss)
 
-PADDING_INDEX = INPUT_FEATURES  # embedding row 768 is a forced-zero pad slot
+PADDING_INDEX = INPUT_FEATURES  # embedding row 6144 is a forced-zero pad slot
 MAX_ACTIVE_FEATURES = 32        # at most 32 pieces on the board
 
-NNUE_MAGIC = b"ZNNUE1\0\0"  # 8-byte little-endian file magic
+NNUE_MAGIC = b"ZNNUE3\0\0"  # 8-byte little-endian file magic (v3: king-input buckets)
 
 WHITE, BLACK = 0, 1
+KING = 5
 _PIECE_CHAR_TO_TYPE = {"p": 0, "n": 1, "b": 2, "r": 3, "q": 4, "k": 5}
+
+
+def king_bucket(relative_king_square):
+    """Map a perspective-relative king square (0..63) to one of NUM_KING_BUCKETS buckets: 4 file-pairs
+    (a/b, c/d, e/f, g/h) x 2 board-halves (ranks 1-4, ranks 5-8). Must match king_bucket() in src/nnue.cpp."""
+    file_pair = (relative_king_square & 7) // 2  # 0..3
+    half = (relative_king_square >> 3) // 4      # 0..1
+    return half * 4 + file_pair                  # 0..7
 
 
 def parse_board_pieces(board_field):
@@ -47,27 +58,45 @@ def parse_board_pieces(board_field):
     return pieces
 
 
-def feature_index(perspective, colour, piece_type, square):
-    """Index of one (colour, piece_type, square) feature in the given perspective's 768-wide input.
+def feature_index(perspective, king_square, colour, piece_type, square):
+    """Index of one (colour, piece_type, square) feature in the given perspective's input.
 
-    The side-to-move's own pieces occupy indices [0,384); the opponent's occupy [384,768). Black's
-    perspective mirrors the board vertically (square ^ 56) so both sides see the board "from their side".
+    Within a king bucket the side-to-move's own pieces occupy [0,384) and the opponent's [384,768); Black's
+    perspective mirrors the board vertically (square ^ 56). The perspective's own king square (also mirrored
+    for Black) selects the king bucket, offsetting the whole 768 block by king_bucket * 768.
     """
     relative_colour = 0 if colour == perspective else 1
-    relative_square = square if perspective == WHITE else (square ^ 56)
-    return relative_colour * 384 + piece_type * 64 + relative_square
+    if perspective == WHITE:
+        relative_square = square
+        relative_king = king_square
+    else:
+        relative_square = square ^ 56
+        relative_king = king_square ^ 56
+    return king_bucket(relative_king) * BASE_FEATURES + relative_colour * 384 + piece_type * 64 + relative_square
 
 
 def position_features(fen):
-    """Return (side_to_move, own_perspective_indices, opponent_perspective_indices) for a FEN."""
+    """Return (side_to_move, own_perspective_indices, opponent_perspective_indices) for a FEN.
+
+    Each perspective's features are king-bucketed on that perspective's OWN king square, so both kings are
+    located first, then every piece is emitted twice (once per perspective) with the bucket offset baked in.
+    """
     fields = fen.split()
     board_field = fields[0]
     side_to_move = WHITE if fields[1] == "w" else BLACK
+    pieces = parse_board_pieces(board_field)
+
+    king_square = [None, None]
+    for colour, piece_type, square in pieces:
+        if piece_type == KING:
+            king_square[colour] = square
+    opponent = 1 - side_to_move
+
     own_indices = []
     opponent_indices = []
-    for colour, piece_type, square in parse_board_pieces(board_field):
-        own_indices.append(feature_index(side_to_move, colour, piece_type, square))
-        opponent_indices.append(feature_index(1 - side_to_move, colour, piece_type, square))
+    for colour, piece_type, square in pieces:
+        own_indices.append(feature_index(side_to_move, king_square[side_to_move], colour, piece_type, square))
+        opponent_indices.append(feature_index(opponent, king_square[opponent], colour, piece_type, square))
     return side_to_move, own_indices, opponent_indices
 
 
@@ -82,7 +111,7 @@ def integer_eval(feature_transformer_weight, feature_transformer_bias, output_we
     """Reference integer forward pass; MUST stay identical to nnue::evaluate in the C++ engine.
 
     Arguments are the quantised arrays exactly as stored in the .nnue file:
-        feature_transformer_weight : int array shaped [768, HIDDEN_SIZE]
+        feature_transformer_weight : int array shaped [INPUT_FEATURES, HIDDEN_SIZE]  (6144 king-bucketed rows)
         feature_transformer_bias   : int array shaped [HIDDEN_SIZE]
         output_weight              : int array shaped [2 * HIDDEN_SIZE]  (own half then opponent half)
         output_bias                : int scalar

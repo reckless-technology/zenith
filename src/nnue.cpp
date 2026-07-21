@@ -21,15 +21,17 @@ namespace
 
 // Architecture / quantisation contract — must match trainer/features.py exactly.
 constexpr int  HIDDEN_SIZE       = NNUE_HIDDEN; // 512
-constexpr int  INPUT_FEATURES    = 768;
-constexpr int  QUANT_ACCUMULATOR = 255; // QA
-constexpr int  QUANT_OUTPUT      = 64;  // QB
+constexpr int  BASE_FEATURES     = 768;         // per-king-bucket block (2 colours x 6 types x 64 squares)
+constexpr int  NUM_KING_BUCKETS  = 8;           // 4 file-pairs x 2 board-halves, keyed on the perspective king
+constexpr int  INPUT_FEATURES    = NUM_KING_BUCKETS * BASE_FEATURES; // 6144 feature-transformer rows
+constexpr int  QUANT_ACCUMULATOR = 255;                              // QA
+constexpr int  QUANT_OUTPUT      = 64;                               // QB
 constexpr int  EVALUATION_SCALE  = 400;
-constexpr char NNUE_MAGIC[8]     = {'Z', 'N', 'N', 'U', 'E', '1', '\0', '\0'};
+constexpr char NNUE_MAGIC[8]     = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'};
 
 struct Network
 {
-    int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; // feature-major
+    int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; // feature-major, king-bucketed
     int16_t feature_transformer_bias[HIDDEN_SIZE];
     int16_t output_weight[2 * HIDDEN_SIZE]; // own half [0,HIDDEN), opponent half [HIDDEN,2*HIDDEN)
     int32_t output_bias;
@@ -37,12 +39,33 @@ struct Network
 
 Network network;
 
-// Feature index for one (colour, piece type, square) in `perspective`'s 768-wide input.
-inline int feature_index(Color perspective, Color piece_colour, PieceType piece_type, int square)
+// King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
+// Must match king_bucket() in trainer/features.py.
+inline int king_bucket(int relative_king_square)
+{
+    int file_pair = (relative_king_square & 7) / 2;  // 0..3
+    int half      = (relative_king_square >> 3) / 4; // 0..1
+    return half * 4 + file_pair;                     // 0..7
+}
+
+// Perspective-relative king square (Black mirrors vertically), for bucket selection.
+inline int relative_king_square(Color perspective, int king_square)
+{
+    return (perspective == WHITE) ? king_square : (king_square ^ 56);
+}
+
+// Index within a single 768 king-bucket block (no bucket offset). The caller adds bucket * BASE_FEATURES.
+inline int base_feature_index(Color perspective, Color piece_colour, PieceType piece_type, int square)
 {
     int relative_colour = (piece_colour == perspective) ? 0 : 1;
     int relative_square = (perspective == WHITE) ? square : (square ^ 56);
     return relative_colour * 384 + piece_type * 64 + relative_square;
+}
+
+// Full king-bucketed feature index for `perspective` given its cached king bucket.
+inline int feature_index(int king_bucket_index, Color perspective, Color piece_colour, PieceType piece_type, int square)
+{
+    return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_colour, piece_type, square);
 }
 
 inline void add_column(int16_t *accumulator, const int16_t *column)
@@ -92,47 +115,125 @@ inline int32_t clamp_accumulator(int32_t value)
     return value;
 }
 
+// Accumulator refresh cache ("finny tables"). Per thread, for each (perspective, king bucket) we keep the
+// last accumulator computed for that bucket and the board bitboards it was built from. A king move that
+// switches a perspective to bucket B rebuilds by applying only the piece diffs versus that cached board — a
+// handful of column ops instead of a full 32-piece rescan. Always correct (the diffs are exact); a net
+// generation counter invalidates the whole cache when a new net is loaded. thread_local ⇒ Lazy-SMP safe.
+uint32_t g_net_generation = 0;
+
+struct RefreshCacheEntry
+{
+    alignas(32) int16_t values[HIDDEN_SIZE];
+    Bitboard by_color[2]    = {0, 0};
+    Bitboard by_type[6]     = {0, 0, 0, 0, 0, 0};
+    uint32_t net_generation = 0; // 0 ⇒ never populated for the current net
+};
+
+thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
+
 } // namespace
 
 // ---- incremental accumulator maintenance -------------------------------------------------------------
+// Each perspective indexes into its own cached king bucket (accumulator.kingBucket[perspective]); a piece
+// add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
+// bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
 void add_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square)
 {
-    add_column(accumulator.values[WHITE],
-               network.feature_transformer_weight[feature_index(WHITE, colour, type, square)]);
-    add_column(accumulator.values[BLACK],
-               network.feature_transformer_weight[feature_index(BLACK, colour, type, square)]);
+    add_column(
+        accumulator.values[WHITE],
+        network.feature_transformer_weight[feature_index(accumulator.kingBucket[WHITE], WHITE, colour, type, square)]);
+    add_column(
+        accumulator.values[BLACK],
+        network.feature_transformer_weight[feature_index(accumulator.kingBucket[BLACK], BLACK, colour, type, square)]);
 }
 
 void remove_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square)
 {
-    sub_column(accumulator.values[WHITE],
-               network.feature_transformer_weight[feature_index(WHITE, colour, type, square)]);
-    sub_column(accumulator.values[BLACK],
-               network.feature_transformer_weight[feature_index(BLACK, colour, type, square)]);
+    sub_column(
+        accumulator.values[WHITE],
+        network.feature_transformer_weight[feature_index(accumulator.kingBucket[WHITE], WHITE, colour, type, square)]);
+    sub_column(
+        accumulator.values[BLACK],
+        network.feature_transformer_weight[feature_index(accumulator.kingBucket[BLACK], BLACK, colour, type, square)]);
 }
 
 void move_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int from, int to)
 {
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
+        int bucket = accumulator.kingBucket[perspective];
         sub_column(accumulator.values[perspective],
-                   network.feature_transformer_weight[feature_index(Color(perspective), colour, type, from)]);
+                   network.feature_transformer_weight[feature_index(bucket, Color(perspective), colour, type, from)]);
         add_column(accumulator.values[perspective],
-                   network.feature_transformer_weight[feature_index(Color(perspective), colour, type, to)]);
+                   network.feature_transformer_weight[feature_index(bucket, Color(perspective), colour, type, to)]);
+    }
+}
+
+// Rebuild a single perspective's half (used when that side's king bucket changes, and by refresh()). Uses
+// the thread-local refresh cache: start from the cached accumulator for this (perspective, bucket) and apply
+// only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
+void refresh_perspective(NnueAccumulator &accumulator, const Position &position, Color perspective)
+{
+    int bucket                          = king_bucket(relative_king_square(perspective, position.king_sq(perspective)));
+    accumulator.kingBucket[perspective] = bucket;
+
+    RefreshCacheEntry &cache = g_refresh_cache[perspective][bucket];
+    if (cache.net_generation != g_net_generation)
+    {
+        std::memcpy(cache.values, network.feature_transformer_bias, sizeof(cache.values));
+        cache.by_color[0] = cache.by_color[1] = 0;
+        for (int type = 0; type < 6; type++)
+        {
+            cache.by_type[type] = 0;
+        }
+        cache.net_generation = g_net_generation;
+    }
+
+    for (int colour = WHITE; colour <= BLACK; colour++)
+    {
+        for (int type = 0; type < 6; type++)
+        {
+            Bitboard current = position.byColor[colour] & position.byType[type];
+            Bitboard cached  = cache.by_color[colour] & cache.by_type[type];
+            Bitboard added   = current & ~cached;
+            Bitboard removed = cached & ~current;
+            while (added)
+            {
+                int square = pop_lsb(added);
+                add_column(cache.values, network.feature_transformer_weight[feature_index(
+                                             bucket, perspective, Color(colour), PieceType(type), square)]);
+            }
+            while (removed)
+            {
+                int square = pop_lsb(removed);
+                sub_column(cache.values, network.feature_transformer_weight[feature_index(
+                                             bucket, perspective, Color(colour), PieceType(type), square)]);
+            }
+        }
+    }
+    cache.by_color[WHITE] = position.byColor[WHITE];
+    cache.by_color[BLACK] = position.byColor[BLACK];
+    for (int type = 0; type < 6; type++)
+    {
+        cache.by_type[type] = position.byType[type];
+    }
+    std::memcpy(accumulator.values[perspective], cache.values, sizeof(cache.values));
+}
+
+void update_king_bucket(NnueAccumulator &accumulator, const Position &position, Color side)
+{
+    int new_bucket = king_bucket(relative_king_square(side, position.king_sq(side)));
+    if (new_bucket != accumulator.kingBucket[side])
+    {
+        refresh_perspective(accumulator, position, side);
     }
 }
 
 void refresh(NnueAccumulator &accumulator, const Position &position)
 {
-    std::memcpy(accumulator.values[WHITE], network.feature_transformer_bias, sizeof(network.feature_transformer_bias));
-    std::memcpy(accumulator.values[BLACK], network.feature_transformer_bias, sizeof(network.feature_transformer_bias));
-    Bitboard occupied = position.occupied();
-    while (occupied)
-    {
-        int   square = pop_lsb(occupied);
-        Piece piece  = position.board[square];
-        add_feature(accumulator, color_of(piece), type_of(piece), square);
-    }
+    refresh_perspective(accumulator, position, WHITE);
+    refresh_perspective(accumulator, position, BLACK);
 }
 
 // ---- forward pass ------------------------------------------------------------------------------------
@@ -185,6 +286,7 @@ bool load(const std::string &path)
         return false;
     }
     g_loaded = true;
+    g_net_generation++; // invalidate every thread's refresh cache (weights/bias changed)
     return true;
 }
 

@@ -54,10 +54,13 @@ Single translation unit per file, flat `src/`. Init order in `main.cpp` matters:
 - **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
   when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
   tempo). This single call site is the NNUE seam.
-- **nnue.\*** — quantised 768→512 SCReLU perspective net: loader (`ZNNUE1` magic), feature indexing, and
-  the integer forward. v1 recomputes the accumulator from the board each call (**full refresh**, ~3× slower
-  than HCE); an incremental accumulator is the planned speed optimisation. `nnueeval <net>` CLI reads FENs
-  from stdin and prints evals (used by the verification gate).
+- **nnue.\*** — quantised **king-bucketed** (768×8 → 512) SCReLU perspective net: loader (`ZNNUE3` magic),
+  feature indexing, and the integer forward. The perspective's own king square selects one of **8 king-input
+  buckets** (4 file-pairs × 2 board-halves) offsetting its 768 block. The accumulator is maintained
+  **incrementally** (embedded in `Position`); a king move that changes a side's bucket triggers
+  `refresh_perspective`, accelerated by a thread-local **finny refresh cache** (per (perspective,bucket)
+  cached accumulator + the board it was built from; rebuild applies only piece-diffs, net-generation-guarded).
+  `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
 - **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
   emits `fen;stm_score_cp;wdl` records (one per quiet position). Fan out with `tools/datagen_parallel.sh`.
 - **tt.\*** — `TranspositionTable TT` (global), depth-preferred, `Bound` exact/lower/upper. Mate scores are
@@ -94,7 +97,12 @@ detection breaks.
 venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
 
 - **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
-  768→512, SCReLU). `src/nnue.cpp` must reproduce `feature_index` and `integer_eval` **byte-for-byte**.
+  king-bucketed 768×8→512, SCReLU). `src/nnue.cpp` must reproduce `feature_index`, `king_bucket`, and
+  `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
+  **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
+  shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
+  low-RAM, parallelizable). The current best net `nets/zenith-kb2.nnue` = king buckets + 650M PlentyChess
+  positions, **+57 Elo** over the prior 512/190M net.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(colour-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval

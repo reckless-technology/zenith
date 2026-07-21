@@ -100,6 +100,44 @@ def load_dataset(data_globs, cache_path=None):
     return own_indices, opponent_indices, scores, results
 
 
+def featurise_shard(text_path, npz_path, chunk_bytes=256 * 1024 * 1024):
+    """Featurise one `fen;score;wdl` text shard into a single .npz. To keep peak RAM to ~one shard's arrays
+    (~13GB) — so several shards can be featurised in parallel without OOM — we count lines first, PRE-ALLOCATE
+    the output arrays, and fill them chunk-by-chunk in place (no np.concatenate, which would transiently
+    double memory). Resumable: skips if the target exists; writes atomically via a .tmp."""
+    if os.path.exists(npz_path):
+        print(f"  skip {os.path.basename(npz_path)} (already featurised)", flush=True)
+        return
+    start_time = time.time()
+    with open(text_path) as handle:
+        line_count = sum(1 for _ in handle)  # upper bound on kept rows
+
+    own = np.full((line_count, MAX_ACTIVE_FEATURES), PADDING_INDEX, dtype=np.int16)
+    opponent = np.full((line_count, MAX_ACTIVE_FEATURES), PADDING_INDEX, dtype=np.int16)
+    scores = np.zeros(line_count, dtype=np.float32)
+    results = np.zeros(line_count, dtype=np.float32)
+
+    kept = 0
+    with open(text_path) as handle:
+        while True:
+            lines = handle.readlines(chunk_bytes)
+            if not lines:
+                break
+            chunk_own, chunk_opponent, chunk_scores, chunk_results = _featurise_lines(lines)
+            count = chunk_scores.shape[0]
+            own[kept : kept + count] = chunk_own
+            opponent[kept : kept + count] = chunk_opponent
+            scores[kept : kept + count] = chunk_scores
+            results[kept : kept + count] = chunk_results
+            kept += count
+
+    temporary = npz_path + ".tmp.npz"
+    np.savez(temporary, own=own[:kept], opponent=opponent[:kept], scores=scores[:kept], results=results[:kept])
+    os.replace(temporary, npz_path)
+    print(f"  featurised {os.path.basename(text_path)} -> {os.path.basename(npz_path)} "
+          f"({kept:,} positions, {time.time() - start_time:.0f}s)", flush=True)
+
+
 # --------------------------------------------------------------------------------------------------
 # Model
 # --------------------------------------------------------------------------------------------------
@@ -137,7 +175,7 @@ class PerspectiveNetwork(nn.Module):
 # --------------------------------------------------------------------------------------------------
 def export_quantised_net(model, path):
     with torch.no_grad():
-        transformer = model.feature_transformer.weight[:INPUT_FEATURES].cpu().numpy()  # [768, HIDDEN]
+        transformer = model.feature_transformer.weight[:INPUT_FEATURES].cpu().numpy()  # [6144, HIDDEN]
         transformer_bias = model.feature_transformer_bias.cpu().numpy()                # [HIDDEN]
         output_weight = model.output.weight[0].cpu().numpy()                           # [2*HIDDEN]
         output_bias = float(model.output.bias[0].cpu())
@@ -230,10 +268,97 @@ def train(args):
     export_quantised_net(model, args.out)
 
 
+def _load_shard_npz(path, wdl_lambda):
+    """Load one per-shard .npz into CPU tensors: (own, opponent, target). Indices stay int16 (cast per
+    batch on the GPU); target folds score+wdl into the training label so we never keep both around."""
+    cached = np.load(path)
+    own = torch.from_numpy(cached["own"])
+    opponent = torch.from_numpy(cached["opponent"])
+    scores = torch.from_numpy(cached["scores"])
+    results = torch.from_numpy(cached["results"])
+    target = wdl_lambda * results + (1.0 - wdl_lambda) * torch.sigmoid(scores / EVALUATION_SCALE)
+    return own, opponent, target
+
+
+def stream_train(args):
+    """Train over per-shard .npz caches ONE SHARD AT A TIME so RAM never holds the whole dataset — this is
+    what lets us scale past ~230M positions. Shuffling is shard-order (reseeded per epoch) plus a full
+    in-shard permutation; with ~95M-position shards that is effectively i.i.d. batches. The last shard is
+    held out for a fixed validation-loss probe."""
+    shard_paths = sorted(glob.glob(os.path.join(args.shard_dir, "*.npz")))
+    if not shard_paths:
+        raise SystemExit(f"no shard .npz files in {args.shard_dir}")
+    validation_path = shard_paths[-1]
+    train_paths = shard_paths[:-1] if len(shard_paths) > 1 else shard_paths
+
+    use_cuda = args.device == "cuda" and torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
+    print(f"device: {device}")
+    print(f"streaming {len(train_paths)} training shards from {args.shard_dir} "
+          f"(validation held out: {os.path.basename(validation_path)}), {args.epochs} epochs, "
+          f"batch {args.batch_size}, hidden {args.hidden_size}", flush=True)
+
+    model = PerspectiveNetwork(args.hidden_size).to(device)
+    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs)
+
+    # Fixed validation subset (deterministic) so val loss is comparable across runs.
+    val_own, val_opponent, val_target = _load_shard_npz(validation_path, args.wdl_lambda)
+    val_limit = min(val_own.shape[0], 1_000_000)
+    val_index = torch.randperm(val_own.shape[0], generator=torch.Generator().manual_seed(0))[:val_limit]
+    val_own, val_opponent, val_target = val_own[val_index], val_opponent[val_index], val_target[val_index]
+
+    def validation_loss():
+        model.eval()
+        total, seen = 0.0, 0
+        with torch.no_grad():
+            for start in range(0, val_limit, args.batch_size):
+                stop = start + args.batch_size
+                prediction = model(val_own[start:stop].to(device).long(),
+                                   val_opponent[start:stop].to(device).long())
+                total += torch.sum((torch.sigmoid(prediction) - val_target[start:stop].to(device)) ** 2).item()
+                seen += val_own[start:stop].shape[0]
+        return total / max(seen, 1)
+
+    for epoch in range(args.epochs):
+        model.train()
+        shard_order = torch.randperm(len(train_paths), generator=torch.Generator().manual_seed(epoch)).tolist()
+        running_loss, batches, positions = 0.0, 0, 0
+        epoch_start = time.time()
+        for shard_number in shard_order:
+            own, opponent, target = _load_shard_npz(train_paths[shard_number], args.wdl_lambda)
+            count = own.shape[0]
+            permutation = torch.randperm(count)
+            for start in range(0, count, args.batch_size):
+                batch = permutation[start : start + args.batch_size]
+                batch_own = own[batch].to(device, non_blocking=True).long()
+                batch_opponent = opponent[batch].to(device, non_blocking=True).long()
+                batch_target = target[batch].to(device, non_blocking=True)
+                prediction = model(batch_own, batch_opponent)
+                loss = torch.mean((torch.sigmoid(prediction) - batch_target) ** 2)
+                optimiser.zero_grad(set_to_none=True)
+                loss.backward()
+                optimiser.step()
+                running_loss += loss.item()
+                batches += 1
+            positions += count
+            del own, opponent, target
+        scheduler.step()
+        print(f"epoch {epoch + 1:3d}/{args.epochs}  train {running_loss / max(batches, 1):.6f}  "
+              f"val {validation_loss():.6f}  lr {scheduler.get_last_lr()[0]:.2e}  {positions:,} pos  "
+              f"{time.time() - epoch_start:.0f}s", flush=True)
+
+    torch.save(model.state_dict(), args.out.replace(".nnue", ".pt"))
+    export_quantised_net(model, args.out)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True, nargs="+", help="one or more globs of fen;score;wdl shards")
-    parser.add_argument("--out", required=True, help="output .nnue path")
+    parser.add_argument("--data", nargs="+", help="one or more globs of fen;score;wdl shards (monolithic mode)")
+    parser.add_argument("--out", help="output .nnue path")
+    parser.add_argument("--featurise-shard", nargs=2, metavar=("TEXT", "NPZ"),
+                        help="featurise a single text shard into NPZ and exit (for parallel featurisation)")
+    parser.add_argument("--shard-dir", help="directory of per-shard .npz caches for streaming training")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -242,7 +367,19 @@ def main():
     parser.add_argument("--cache", default=None, help="optional .npz featurisation cache (load if present, else write)")
     parser.add_argument("--val-fraction", type=float, default=0.01, help="fraction held out for validation loss")
     parser.add_argument("--device", default="cuda")
-    train(parser.parse_args())
+    args = parser.parse_args()
+
+    if args.featurise_shard:
+        featurise_shard(args.featurise_shard[0], args.featurise_shard[1])
+        return
+    if not args.out:
+        parser.error("--out is required for training")
+    if args.shard_dir:
+        stream_train(args)
+    else:
+        if not args.data:
+            parser.error("--data is required for monolithic training (or pass --shard-dir)")
+        train(args)
 
 
 if __name__ == "__main__":

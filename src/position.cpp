@@ -170,6 +170,14 @@ void Position::make_move(Move m)
         }
     }
 
+    // King-input buckets: a king move (including castling) can change the moving side's king bucket, which
+    // shifts that whole perspective's feature block — refresh it. The primitives above updated both
+    // perspectives incrementally with the pre-move buckets; refresh_perspective discards the stale own half.
+    if (pt == KING && nnue::is_loaded())
+    {
+        nnue::update_king_bucket(acc, *this, us);
+    }
+
     uint8_t oldCr = castling;
     castling &= CastleMask[from] & CastleMask[to];
     if (castling != oldCr)

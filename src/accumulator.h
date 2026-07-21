@@ -9,4 +9,7 @@ constexpr int NNUE_HIDDEN = 512; // must equal HIDDEN_SIZE in nnue.cpp / feature
 struct alignas(32) NnueAccumulator
 {
     int16_t values[2][NNUE_HIDDEN];
+    // Cached king-input bucket per perspective (WHITE, BLACK), set by nnue::refresh / refresh_perspective.
+    // Incremental updates use these; a king move that changes a side's bucket refreshes that perspective.
+    int kingBucket[2] = {0, 0};
 };

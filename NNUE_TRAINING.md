@@ -15,28 +15,32 @@ A **perspective network** (the "simple NNUE" that most 3000+ hobby engines start
 ```
 inputs:   768 per side  =  6 piece types × 2 colours × 64 squares, from the side-to-move's POV
           (black-to-move mirrors square vertically and swaps colours)
-FT:       768 → 512   (feature transformer; one accumulator per side)
+king      the perspective's own king square selects 1 of 8 KING BUCKETS (4 file-pairs × 2 board-halves),
+buckets:  offsetting its 768 block → 768×8 = 6144 feature-transformer rows
+FT:       6144 → 512   (feature transformer; one accumulator per side)
 concat:   [own(512), opp(512)] = 1024
 activate: SCReLU(x) = clamp(x, 0, 1)²        (screlu is stronger than clipped-relu; matches the engine kernel)
 output:   1024 → 1   (single scalar), then dequantize to centipawns
 ```
 
-No king buckets and no HalfKA for v1 — add those in v2 once the pipeline works. A plain 768→512 perspective
-net already reaches ~2900–3100 with this search; king-bucketed HalfKA(v2) + more data is the v3 climb.
+The shipped net (`ZNNUE3`) is this king-bucketed 768×8→512 perspective net. History: plain 768→512 (`ZNNUE1`)
+was the v1 baseline; king buckets add real eval strength (+21 Elo at fixed depth) but need a bigger data set
+to beat their ~6% speed cost — trained on **650M** PlentyChess positions the king-bucket net is **+57 Elo**
+over the 190M 512-net. (An 8-head output-bucket variant `ZNNUE2` was tried and shelved: neutral Elo.)
 
 ### Quantization & on-disk format (fixed contract: trainer export == engine loader)
 
 ```
 QA = 255   (feature/accumulator scale)     QB = 64   (output-weight scale)     eval_scale = 400
-FT weights  : round(w * QA)      -> int16   [768][512]
+FT weights  : round(w * QA)      -> int16   [6144][512]   (king-bucketed: 8 × 768 rows)
 FT bias     : round(b * QA)      -> int16   [512]
 OUT weights : round(w * QB)      -> int16   [1024]
 OUT bias    : round(b * QA*QB)   -> int32   [1]
 ```
 
-**File `zenith-<tag>.nnue`** (little-endian): 8-byte magic `"ZNNUE1\0\0"`, then the four arrays back-to-back
-in the order above. The engine loader (`src/nnue.cpp`, to be written) mmaps/reads it directly. Forward pass:
-`acc = FT·features + FT_bias` (per side, maintained incrementally), then
+**File `zenith-<tag>.nnue`** (little-endian): 8-byte magic `"ZNNUE3\0\0"`, then the four arrays back-to-back
+in the order above. The engine loader (`src/nnue.cpp`) reads it directly. Forward pass:
+`acc = FT·features + FT_bias` (per side, maintained incrementally with king-bucket refreshes), then
 `out = Σ screlu(acc_own,acc_opp) · OUT_w + OUT_bias`, `eval_cp = out / (QA*QB) * eval_scale / QA` (fold the
 constants into one final divide; verify against the trainer to 0 cp on a fixed FEN set).
 
@@ -64,10 +68,13 @@ tensor batches (or into `bulletformat`/`marlinformat` if using bullet).
 
 **Primary: a self-contained PyTorch trainer** (`trainer/train.py`, ~200 lines — independent, full control):
 
-- Model: `FT = nn.Linear(768, 512)`; forward builds both perspectives from the sparse feature indices,
-  concatenates, `SCReLU`, `out = nn.Linear(1024, 1)`.
-- Batching: parse `fen;score;wdl`; featurize to sparse index lists per side on the fly (or precompute a
-  packed binary for speed). Use large batches (16k–65k) on the GPU.
+- Model: `FT = nn.EmbeddingBag(6144+1, 512, mode="sum")` (memory-efficient sparse feature transformer, one
+  row per king-bucketed feature + a zero pad row); forward builds both perspectives from the sparse feature
+  indices, concatenates, `SCReLU`, `out = nn.Linear(1024, 1)`.
+- Batching: parse `fen;score;wdl`; featurize to sparse **king-bucketed** index lists per side. Two paths:
+  monolithic `--cache` (whole dataset in RAM, ≤~230M positions on a 62GB box) or **`--shard-dir` streaming**
+  (one ~95M-position `.npz` shard in RAM at a time — how the shipped 650M-position net trained). Precompute
+  shard caches with `--featurise-shard TEXT NPZ` (chunked, low-RAM, run several in parallel). Batches 16k–65k.
 - Loss: `MSE( sigmoid(pred/eval_scale), λ·wdl + (1−λ)·sigmoid(score/eval_scale) )`, λ≈0.5 → anneal toward WDL.
 - Optim: AdamW, lr 1e-3 cosine-decayed, ~30–100 epochs over shuffled data. A first net trains in **1–4 h** on
   a modern GPU.

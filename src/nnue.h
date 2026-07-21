@@ -24,9 +24,13 @@ int evaluate(const NnueAccumulator &accumulator, Color stm); // from a maintaine
 
 // Accumulator maintenance (no-ops for callers to guard with is_loaded()).
 void refresh(NnueAccumulator &accumulator, const Position &position); // recompute both perspectives
+void refresh_perspective(NnueAccumulator &accumulator, const Position &position, Color perspective);
 void add_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square);
 void remove_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square);
 void move_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int from, int to);
+// After a king move: if `side`'s king-input bucket changed, refresh that perspective (its whole feature
+// block shifts). Call once per king move (including castling) from make_move.
+void update_king_bucket(NnueAccumulator &accumulator, const Position &position, Color side);
 
 // Verification helpers.
 int eval_fens_from_stdin(const std::string &net_path); // print eval of each FEN on stdin (0 cp gate)
