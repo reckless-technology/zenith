@@ -63,6 +63,10 @@ void Position::put(Color c, PieceType pt, int sq)
     Piece p   = make_piece(c, pt);
     board[sq] = p;
     key ^= Zobrist::Piece[p][sq];
+    if (pt == PAWN)
+    {
+        pawnKey ^= Zobrist::Piece[p][sq];
+    }
     if (nnue::is_loaded())
     {
         nnue::add_feature(acc, c, pt, sq);
@@ -76,6 +80,10 @@ void Position::remove(int sq)
     byColor[color_of(p)] ^= b;
     byType[type_of(p)] ^= b;
     key ^= Zobrist::Piece[p][sq];
+    if (type_of(p) == PAWN)
+    {
+        pawnKey ^= Zobrist::Piece[p][sq];
+    }
     board[sq] = NO_PIECE;
     if (nnue::is_loaded())
     {
@@ -91,6 +99,10 @@ void Position::move_piece(int from, int to)
     byColor[color_of(p)] ^= ft;
     byType[type_of(p)] ^= ft;
     key ^= Zobrist::Piece[p][from] ^ Zobrist::Piece[p][to];
+    if (type_of(p) == PAWN)
+    {
+        pawnKey ^= Zobrist::Piece[p][from] ^ Zobrist::Piece[p][to];
+    }
     board[to]   = p;
     board[from] = NO_PIECE;
     if (nnue::is_loaded())
@@ -237,6 +249,7 @@ void Position::set_fen(const std::string &fen)
         board[i] = NO_PIECE;
     }
     key      = 0;
+    pawnKey  = 0;
     castling = 0;
     epSq     = NO_SQ;
     halfmove = 0;

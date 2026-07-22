@@ -15,6 +15,12 @@ namespace
 int       Reductions[MAX_PLY][64];
 const int SeeValue[6] = {100, 320, 330, 500, 900, 10000};
 
+// Eval correction history: a running average of (search score - static eval) keyed by pawn structure, used
+// to nudge the static eval toward what search has historically found. Entries are cp * CORRHIST_GRAIN.
+constexpr int CORRHIST_SIZE  = 16384; // power of two -> index by (pawnKey & (SIZE-1))
+constexpr int CORRHIST_GRAIN = 256;
+constexpr int CORRHIST_MAX   = 64 * CORRHIST_GRAIN; // clamp the correction to +/-64 cp
+
 int draw_value()
 {
     return 0;
@@ -341,7 +347,15 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         depth--;
     }
 
-    int eval = inCheck ? VALUE_NONE : (ttHit && tte.eval != VALUE_NONE ? tte.eval : evaluate(pos));
+    // Raw static eval (stored in the TT); the corrected eval drives pruning/reductions. Keep them separate
+    // so re-reading the TT eval never double-applies the correction.
+    int rawEval = inCheck ? VALUE_NONE : (ttHit && tte.eval != VALUE_NONE ? tte.eval : evaluate(pos));
+    int eval    = rawEval;
+    if (!inCheck)
+    {
+        eval += correctionHistory[pos.stm][pos.pawnKey & (CORRHIST_SIZE - 1)] / CORRHIST_GRAIN;
+        eval = std::clamp(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
+    }
 
     // Reverse futility pruning (static null move).
     if (!pvNode && !inCheck && depth <= 8 && !is_mate_score(beta) && eval - 80 * depth >= beta)
@@ -588,7 +602,19 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     Bound b = bestScore >= beta ? BOUND_LOWER : (alpha > origAlpha ? BOUND_EXACT : BOUND_UPPER);
     if (excluded.is_none())
     {
-        TT.store(pos.key, bestScore, inCheck ? VALUE_NONE : eval, depth, b, bestMove, ply);
+        TT.store(pos.key, bestScore, inCheck ? VALUE_NONE : rawEval, depth, b, bestMove, ply);
+
+        // Update the eval correction: blend in (search score - raw static eval), but only when the score is
+        // a trustworthy signal — not in check, not a tactical (capture) best move, not a mate, and the bound
+        // does not contradict the direction of the correction.
+        if (!inCheck && !is_mate_score(bestScore) && (bestMove.is_none() || !bestMove.is_capture()) &&
+            !(b == BOUND_LOWER && bestScore <= rawEval) && !(b == BOUND_UPPER && bestScore >= rawEval))
+        {
+            int &entry  = correctionHistory[pos.stm][pos.pawnKey & (CORRHIST_SIZE - 1)];
+            int  target = std::clamp((bestScore - rawEval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
+            int  weight = std::min(depth + 1, 16);
+            entry       = std::clamp((entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
+        }
     }
     if (root)
     {
@@ -608,6 +634,7 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
     seldepth = 0;
     std::memset(killers, 0, sizeof(killers));
     std::memset(history, 0, sizeof(history));
+    std::memset(correctionHistory, 0, sizeof(correctionHistory));
     std::memset(counterMoves, 0, sizeof(counterMoves));
     std::fill(contHist.begin(), contHist.end(), 0);
     start = std::chrono::steady_clock::now();

@@ -52,8 +52,9 @@ class Searcher
 
     Move             killers[MAX_PLY][2];
     int              history[2][64][64];
-    Move             counterMoves[768]; // [prev (piece,to)] -> refutation move
-    std::vector<int> contHist;          // [prev (piece,to)][cur (piece,to)] 1-ply continuation history
+    int              correctionHistory[2][16384]; // [stm][pawnKey] eval correction (game-phase agnostic)
+    Move             counterMoves[768];           // [prev (piece,to)] -> refutation move
+    std::vector<int> contHist;                    // [prev (piece,to)][cur (piece,to)] 1-ply continuation history
     Move             pvTable[MAX_PLY][MAX_PLY];
     int              pvLen[MAX_PLY];
     Move             rootBest;
