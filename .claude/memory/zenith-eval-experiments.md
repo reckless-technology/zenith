@@ -50,6 +50,15 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
 - **Lesson: when an architecture wins at fixed depth but not timed, the lever is usually MORE DATA (free
   eval strength, zero speed cost), not more architecture.** Data scale >> capacity tweaks at this stage.
 
+## More data: kb3 (1.4B positions) — +8 Elo, DIMINISHING RETURNS (2026-07-22)
+- Trained `zenith-kb3` on all 16 PlentyChess shards (~1.4B positions, 2x kb2's 650M), same recipe, 6 epochs.
+  Val loss 0.015195 (kb2 0.015417, pc2 0.016161). **SPRT vs kb2: +7.9 ± 7.4 (CI just excludes 0), LLR +1.33.**
+- **Data returns are diminishing:** 190M→650M gave +57 (kb2), 650M→1.4B gave only +8 (kb3). The PlentyChess
+  data lever is largely tapped out. Shipped kb3 anyway (strictly-better net, same size/speed = free upgrade),
+  but further gains need a DIFFERENT lever: speed (make/unmake, transfers ~1:1 to pawnstar) or better/own data.
+- The streaming trainer (`--shard-dir`) + parallel `--featurise-shard` handled 1.4B on a 62GB box fine.
+
 **How to apply:** Never trust val loss alone — Elo via SPRT is the only verdict (CLAUDE.md discipline). Isolate
 one architecture change per SPRT. Diagnose neutral timed results with a FIXED-DEPTH match to split eval-quality
-from speed before shelving; if the eval is genuinely better, scale data before abandoning. See [[pawnstar-gap-benchmarks]].
+from speed before shelving; if the eval is genuinely better, scale data before abandoning — but watch for
+diminishing data returns and pivot to speed once eval scaling flattens. See [[pawnstar-gap-benchmarks]].
