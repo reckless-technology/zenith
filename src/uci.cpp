@@ -595,3 +595,68 @@ void run_perft_suite()
     printf("Ethereal perft suite: %d/%d positions pass\n", passed, total);
     printf("%s\n", ok ? "ALL PERFT PASS" : "PERFT FAILURES");
 }
+
+// --- CLI: legalcheck — the copy-free is_legal_fast must agree with is_legal on every pseudo-legal move ---
+namespace
+{
+uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
+
+void legal_check_walk(Position &pos, int depth)
+{
+    MoveList pseudo;
+    generate_pseudo(pos, pseudo, false);
+    Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
+    Bitboard pinned   = pos.pinned_to_king();
+    for (Move m : pseudo)
+    {
+        if (pos.is_legal_fast(m, checkers, pinned) != pos.is_legal(m))
+        {
+            if (g_legal_mismatches < 8)
+            {
+                printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n", pos.is_legal_fast(m, checkers, pinned),
+                       pos.is_legal(m), m.from(), m.to(), m.flag(), pos.fen().c_str());
+            }
+            g_legal_mismatches++;
+        }
+    }
+    g_legal_nodes++;
+    if (depth == 0)
+    {
+        return;
+    }
+    MoveList legal;
+    generate_legal(pos, legal);
+    for (Move m : legal)
+    {
+        Position child = pos;
+        child.make_move(m);
+        legal_check_walk(child, depth - 1);
+    }
+}
+} // namespace
+
+int run_legal_check()
+{
+    // Positions chosen to hammer pins, checks, king moves, castling and en passant (incl. the EP discovered-
+    // check case that is_legal_fast defers to the slow path).
+    const char *fens[] = {
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        "8/8/3p4/1Pp4r/1K3p1k/8/4P1P1/1R6 w - c6 0 1",
+        "B6b/8/8/8/2K5/4k3/8/b6B w - - 0 1",
+        "7k/RR6/8/8/8/8/rr6/7K w - - 0 1",
+    };
+    g_legal_nodes = g_legal_mismatches = 0;
+    for (const char *fen : fens)
+    {
+        Position pos;
+        pos.set_fen(fen);
+        legal_check_walk(pos, 4);
+    }
+    printf("legalcheck: %llu nodes, %llu mismatches -> %s\n", (unsigned long long)g_legal_nodes,
+           (unsigned long long)g_legal_mismatches, g_legal_mismatches ? "FAIL" : "PASS (is_legal_fast == is_legal)");
+    return g_legal_mismatches ? 1 : 0;
+}

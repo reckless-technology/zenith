@@ -192,8 +192,10 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         return evaluate(pos);
     }
 
-    bool inCheck = pos.in_check();
-    int  best    = -VALUE_INF;
+    Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
+    Bitboard pinned   = pos.pinned_to_king();
+    bool     inCheck  = checkers != 0;
+    int      best     = -VALUE_INF;
     if (!inCheck)
     {
         best = evaluate(pos);
@@ -242,10 +244,8 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         std::swap(scores[i], scores[bi]);
         Move m = moves[i];
 
-        // One make_move for legality + search: skip moves leaving our king in check.
-        Position child = pos;
-        child.make_move(m);
-        if (child.attacked_by(child.king_sq(pos.stm), ~pos.stm))
+        // Copy-free legality first, then SEE pruning, so only searched moves pay make_move.
+        if (!pos.is_legal_fast(m, checkers, pinned))
         {
             continue;
         }
@@ -256,6 +256,8 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
             continue; // skip losing captures
         }
 
+        Position child = pos;
+        child.make_move(m);
         int score = -qsearch(child, -beta, -alpha, ply + 1);
         if (g_stop)
         {
@@ -316,7 +318,11 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     }
 
     nodes++;
-    bool inCheck = pos.in_check();
+    // Checkers + pinned once per node so the move loop can test legality without a copy-make (is_legal_fast),
+    // and prune before paying make_move.
+    Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
+    Bitboard pinned   = pos.pinned_to_king();
+    bool     inCheck  = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
     int prevPT = -1;
@@ -424,14 +430,12 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         scores[i] = s;
     }
 
-    const Color us        = pos.stm;
-    const Color them      = ~pos.stm;
-    int         bestScore = -VALUE_INF;
-    Move        bestMove  = Move::none();
-    int         origAlpha = alpha;
-    int         moveCount = 0;
-    Move        quiets[64];
-    int         nQuiets = 0;
+    int  bestScore = -VALUE_INF;
+    Move bestMove  = Move::none();
+    int  origAlpha = alpha;
+    int  moveCount = 0;
+    Move quiets[64];
+    int  nQuiets = 0;
 
     for (int i = 0; i < moves.size(); i++)
     {
@@ -451,12 +455,10 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
             continue; // singular exclusion search: skip the move being tested for singularity
         }
 
-        // A single make_move serves both legality and search: skip pseudo-legal moves that leave our own
-        // king in check (castling is already generated fully legal). Skipping BEFORE incrementing
-        // moveCount keeps the legal-move ordering/pruning identical to a legal generator.
-        Position child = pos;
-        child.make_move(m);
-        if (child.attacked_by(child.king_sq(us), them))
+        // Copy-free legality: skip illegal pseudo-legal moves BEFORE any make_move, so the LMP/futility/SEE
+        // pruning below runs first and only searched moves pay the ~2KB copy. Skipping before moveCount++
+        // keeps legal-move ordering/pruning identical to a legal generator.
+        if (!pos.is_legal_fast(m, checkers, pinned))
         {
             continue;
         }
@@ -482,6 +484,9 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
             continue;
         }
 
+        // Move survived pruning — make it now (legality already established above).
+        Position child = pos;
+        child.make_move(m);
         bool childCheck = child.in_check();
         int  ext        = childCheck ? 1 : 0;
 

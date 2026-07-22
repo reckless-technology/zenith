@@ -5,6 +5,7 @@ extern Bitboard PawnAttacks[COLOR_NB][64];
 extern Bitboard KnightAttacks[64];
 extern Bitboard KingAttacks[64];
 extern Bitboard BetweenBB[64][64]; // squares strictly between two aligned squares (exclusive), else 0
+extern Bitboard LineBB[64][64];    // the whole rank/file/diagonal through two aligned squares, else 0
 
 // Sliding attacks via magic bitboards (tables filled by init_bitboards()).
 Bitboard bishop_attacks(int sq, Bitboard occ);
@@ -43,6 +44,11 @@ inline Bitboard file_bb(int sq)
 inline Bitboard between_bb(int a, int b)
 {
     return BetweenBB[a][b];
+}
+
+inline Bitboard line_bb(int a, int b)
+{
+    return LineBB[a][b];
 }
 
 void init_bitboards();

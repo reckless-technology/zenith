@@ -227,6 +227,70 @@ bool Position::is_legal(Move m) const
     return !c.attacked_by(c.king_sq(us), ~us);
 }
 
+Bitboard Position::pinned_to_king() const
+{
+    Color    us = stm, them = ~us;
+    int      ksq = king_sq(us);
+    Bitboard occ = occupied();
+    Bitboard out = 0;
+    // Enemy sliders that would hit our king on an empty board are candidate pinners.
+    Bitboard snipers = (rook_attacks(ksq, 0) & (pieces(them, ROOK) | pieces(them, QUEEN))) |
+                       (bishop_attacks(ksq, 0) & (pieces(them, BISHOP) | pieces(them, QUEEN)));
+    while (snipers)
+    {
+        int      s       = pop_lsb(snipers);
+        Bitboard between = between_bb(ksq, s) & occ;
+        // Exactly one piece between the sniper and our king, and it is ours => that piece is pinned.
+        if (between && !(between & (between - 1)) && (between & byColor[us]))
+        {
+            out |= between;
+        }
+    }
+    return out;
+}
+
+bool Position::is_legal_fast(Move m, Bitboard checkers, Bitboard pinned) const
+{
+    Color us = stm, them = ~us;
+    int   from = m.from(), to = m.to();
+    int   ksq = king_sq(us);
+
+    // Castling is generated fully legal by movegen; en passant can expose the king along a rank (rare).
+    // Defer both to the exact copy-make test.
+    if (m.is_castle() || m.is_ep())
+    {
+        return is_legal(m);
+    }
+
+    // King move: the destination must be unattacked once the king vacates (so a slider sees through it).
+    if (from == ksq)
+    {
+        return !attackers_to(to, them, occupied() ^ sq_bb(ksq));
+    }
+
+    // In check: double check leaves only king moves; single check requires capturing the checker or blocking
+    // the ray between it and the king.
+    if (checkers)
+    {
+        if (checkers & (checkers - 1))
+        {
+            return false; // double check, and this is not a king move
+        }
+        int checkerSq = lsb(checkers);
+        if (!(sq_bb(to) & (checkers | between_bb(ksq, checkerSq))))
+        {
+            return false;
+        }
+    }
+
+    // A pinned piece may only move along the pin ray (the line through our king and the piece).
+    if ((pinned & sq_bb(from)) && !(line_bb(ksq, from) & sq_bb(to)))
+    {
+        return false;
+    }
+    return true;
+}
+
 bool Position::gives_check(Move m) const
 {
     Position c = *this;

@@ -90,7 +90,13 @@ class Position
     std::string fen() const;
     void        make_move(Move m);      // apply m in place (caller copied first)
     void        make_null();            // side-to-move passes (null-move pruning)
-    bool        is_legal(Move m) const; // is pseudo-legal m legal (own king not left in check)?
+    bool        is_legal(Move m) const; // is pseudo-legal m legal (own king not left in check)? [copy-make]
+
+    // Fast legality without copy-make: our pieces pinned to our king, and a legality test given the node's
+    // precomputed checkers/pinned. Lets the search prune before paying make_move. is_legal_fast must agree
+    // with is_legal on every pseudo-legal move (validated by the `legalcheck` differential test).
+    Bitboard pinned_to_king() const;
+    bool     is_legal_fast(Move m, Bitboard checkers, Bitboard pinned) const;
 
     bool has_non_pawn_material(Color c) const
     {

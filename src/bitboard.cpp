@@ -4,6 +4,7 @@ Bitboard PawnAttacks[COLOR_NB][64];
 Bitboard KnightAttacks[64];
 Bitboard KingAttacks[64];
 Bitboard BetweenBB[64][64];
+Bitboard LineBB[64][64];
 
 namespace
 {
@@ -191,11 +192,13 @@ void init_bitboards()
     init_magics(true, RookTable, RookMagics, RookDirs);
 
     // BetweenBB: squares strictly between a and b when they share a rank/file/diagonal.
+    // LineBB: the whole rank/file/diagonal through a and b (endpoints included), 0 if not aligned.
     for (int a = 0; a < 64; a++)
     {
         for (int b = 0; b < 64; b++)
         {
             BetweenBB[a][b] = 0;
+            LineBB[a][b]    = 0;
             if (a == b)
             {
                 continue;
@@ -205,6 +208,7 @@ void init_bitboards()
                 if (attacker(a, 0) & sq_bb(b))
                 {
                     BetweenBB[a][b] = attacker(a, sq_bb(b)) & attacker(b, sq_bb(a));
+                    LineBB[a][b]    = (sq_bb(a) | attacker(a, 0)) & (sq_bb(b) | attacker(b, 0));
                 }
             }
         }

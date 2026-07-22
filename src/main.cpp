@@ -29,6 +29,10 @@ int main(int argc, char **argv)
             run_perft_suite();
             return 0;
         }
+        if (!strcmp(argv[1], "legalcheck"))
+        {
+            return run_legal_check(); // is_legal_fast == is_legal over a perft-like walk
+        }
         if (!strcmp(argv[1], "datagen"))
         {
             return run_datagen(argc - 1, argv + 1);
