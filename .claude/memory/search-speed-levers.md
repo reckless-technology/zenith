@@ -6,13 +6,22 @@ metadata:
 ---
 
 Zenith uses **copy-make** (Position is a value type; search does `Position child = pos; child.make_move(m)`),
-and Position embeds a **~2KB NNUE accumulator** (`values[2][512] int16` + king buckets). So every make_move copies
-~2.2KB — this copy is the dominant per-node cost, and avoiding it is the biggest speed lever.
+and Position embeds a **~2KB NNUE accumulator** (`values[2][512] int16` + king buckets).
+
+**CORRECTED per-node cost model (2026-07-22): the 2KB accumulator MEMCPY is cheap; the real cost is the
+incremental accumulator UPDATE — reading feature-transformer columns from the 6.3MB king-bucketed FT (cache
+misses).** So the biggest per-node lever is avoiding the *whole* make_move (copy + FT reads), not just the copy.
+- **make/unmake was tried and REVERTED (negative result):** replacing copy-make with in-place make/unmake +
+  reverse-delta unmake was byte-identical (bench 4068365, movecheck/perft/nnuecheck all pass) but **7-12% SLOWER
+  with the net loaded** — unmake re-reads the FT columns (reverse deltas), doubling the expensive part to save a
+  cheap memcpy. Accumulator-stack (option b) wouldn't help either: it still pays copy(2KB)+forward FT reads.
+  Design/notes: `scratchpad/make_unmake_design.md`. Don't retry unless the FT shrinks / cache behaviour changes.
 
 Wins realised (both SPRT-gated):
 - **Copy-free legality oracle + prune-before-make: +66 Elo** (2026-07-21, commit 4183763). The move loop used to
-  copy-make EVERY pseudo-legal move to test legality, THEN prune it with LMP/futility/SEE — paying the 2KB copy
-  for moves never searched. Added `Position::is_legal_fast(m, checkers, pinned)` (pin/checker-aware, no copy;
+  copy-make EVERY pseudo-legal move to test legality, THEN prune it with LMP/futility/SEE — paying the FULL
+  make_move (copy + FT-read incremental update) for moves never searched. Added `Position::is_legal_fast(m,
+  checkers, pinned)` (pin/checker-aware, no copy;
   EP+castling defer to the exact copy-make path) + `LineBB`/`pinned_to_king()`. Compute checkers+pinned once per
   node, test legality BEFORE pruning, make_move only for survivors. Search tree is byte-identical (bench node
   signature unchanged) → pure speed: +22% nps at bench, MUCH more in real games (pruning-heavy trees). Validated
