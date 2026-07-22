@@ -8,47 +8,47 @@ extern Bitboard BetweenBB[64][64]; // squares strictly between two aligned squar
 extern Bitboard LineBB[64][64];    // the whole rank/file/diagonal through two aligned squares, else 0
 
 // Sliding attacks via magic bitboards (tables filled by init_bitboards()).
-Bitboard bishop_attacks(int sq, Bitboard occ);
-Bitboard rook_attacks(int sq, Bitboard occ);
+Bitboard bishop_attacks(int square, Bitboard occupancy);
+Bitboard rook_attacks(int square, Bitboard occupancy);
 
-inline Bitboard queen_attacks(int sq, Bitboard occ)
+inline Bitboard queen_attacks(int square, Bitboard occupancy)
 {
-    return bishop_attacks(sq, occ) | rook_attacks(sq, occ);
+    return bishop_attacks(square, occupancy) | rook_attacks(square, occupancy);
 }
 
-inline Bitboard knight_attacks(int sq)
+inline Bitboard knight_attacks(int square)
 {
-    return KnightAttacks[sq];
+    return KnightAttacks[square];
 }
 
-inline Bitboard king_attacks(int sq)
+inline Bitboard king_attacks(int square)
 {
-    return KingAttacks[sq];
+    return KingAttacks[square];
 }
 
-inline Bitboard pawn_attacks(Color c, int sq)
+inline Bitboard pawn_attacks(Color color, int square)
 {
-    return PawnAttacks[c][sq];
+    return PawnAttacks[color][square];
 }
 
-inline Bitboard rank_bb(int sq)
+inline Bitboard rank_bb(int square)
 {
-    return RANK_1 << (8 * rank_of(sq));
+    return RANK_1 << (8 * rank_of(square));
 }
 
-inline Bitboard file_bb(int sq)
+inline Bitboard file_bb(int square)
 {
-    return FILE_A << file_of(sq);
+    return FILE_A << file_of(square);
 }
 
-inline Bitboard between_bb(int a, int b)
+inline Bitboard between_bb(int from, int to)
 {
-    return BetweenBB[a][b];
+    return BetweenBB[from][to];
 }
 
-inline Bitboard line_bb(int a, int b)
+inline Bitboard line_bb(int from, int to)
 {
-    return LineBB[a][b];
+    return LineBB[from][to];
 }
 
 void init_bitboards();

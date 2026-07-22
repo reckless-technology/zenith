@@ -12,18 +12,18 @@ namespace
 // Deterministic sparse PRNG for magic search (xorshift64*), seeded once.
 struct PRNG
 {
-    uint64_t s;
+    uint64_t state;
 
-    explicit PRNG(uint64_t seed) : s(seed)
+    explicit PRNG(uint64_t seed) : state(seed)
     {
     }
 
     uint64_t next()
     {
-        s ^= s >> 12;
-        s ^= s << 25;
-        s ^= s >> 27;
-        return s * 0x2545F4914F6CDD1DULL;
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        return state * 0x2545F4914F6CDD1DULL;
     }
 
     uint64_t sparse()
@@ -33,35 +33,35 @@ struct PRNG
 };
 
 // Ray-walk sliding attacks (used to build masks and to fill the magic tables).
-Bitboard sliding_attack(int sq, Bitboard occ, const int deltas[4])
+Bitboard sliding_attack(int square, Bitboard occupancy, const int deltas[4])
 {
-    Bitboard att = 0;
-    for (int i = 0; i < 4; i++)
+    Bitboard attacks = 0;
+    for (int direction = 0; direction < 4; direction++)
     {
-        int d = deltas[i];
-        int s = sq;
+        int delta   = deltas[direction];
+        int current = square;
         while (true)
         {
-            int prevFile = file_of(s);
-            int ns       = s + d;
-            if (ns < 0 || ns >= 64)
+            int previousFile = file_of(current);
+            int nextSquare   = current + delta;
+            if (nextSquare < 0 || nextSquare >= 64)
             {
                 break;
             }
             // reject rank/file wraps: any king-step move changes file by at most 1
-            if (std::abs(file_of(ns) - prevFile) > 1)
+            if (std::abs(file_of(nextSquare) - previousFile) > 1)
             {
                 break;
             }
-            att |= sq_bb(ns);
-            if (occ & sq_bb(ns))
+            attacks |= sq_bb(nextSquare);
+            if (occupancy & sq_bb(nextSquare))
             {
                 break; // blocker occupies this square; stop after including it
             }
-            s = ns;
+            current = nextSquare;
         }
     }
-    return att;
+    return attacks;
 }
 
 const int RookDirs[4]   = {NORTH, SOUTH, EAST, WEST};
@@ -74,9 +74,9 @@ struct Magic
     Bitboard *attacks = nullptr;
     unsigned  shift   = 0;
 
-    unsigned index(Bitboard occ) const
+    unsigned index(Bitboard occupancy) const
     {
-        return unsigned(((occ & mask) * magic) >> shift);
+        return unsigned(((occupancy & mask) * magic) >> shift);
     }
 };
 
@@ -88,104 +88,104 @@ Bitboard BishopTable[0x1480]; // 5248
 void init_magics(bool rook, Bitboard *table, Magic magics[64], const int deltas[4])
 {
     Bitboard  occupancy[4096], reference[4096];
-    int       epoch[4096] = {0};
-    int       cnt         = 0;
-    Bitboard *base        = table;
+    int       epoch[4096]  = {0};
+    int       epochCounter = 0;
+    Bitboard *attackBase   = table;
 
-    for (int sq = 0; sq < 64; sq++)
+    for (int square = 0; square < 64; square++)
     {
         // Relevant-occupancy mask = empty-board rays minus the edges not on the piece's own rank/file.
-        Bitboard edges     = ((RANK_1 | RANK_8) & ~rank_bb(sq)) | ((FILE_A | FILE_H) & ~file_bb(sq));
-        Bitboard mask      = sliding_attack(sq, 0, deltas) & ~edges;
-        unsigned bits      = popcount(mask);
-        magics[sq].mask    = mask;
-        magics[sq].shift   = 64 - bits;
-        magics[sq].attacks = base;
+        Bitboard edges         = ((RANK_1 | RANK_8) & ~rank_bb(square)) | ((FILE_A | FILE_H) & ~file_bb(square));
+        Bitboard mask          = sliding_attack(square, 0, deltas) & ~edges;
+        unsigned relevantBits  = popcount(mask);
+        magics[square].mask    = mask;
+        magics[square].shift   = 64 - relevantBits;
+        magics[square].attacks = attackBase;
 
         // Enumerate every subset of mask (Carry-Rippler), recording its true attack set.
-        Bitboard b    = 0;
-        int      size = 0;
+        Bitboard subset      = 0;
+        int      subsetCount = 0;
         do
         {
-            occupancy[size] = b;
-            reference[size] = sliding_attack(sq, b, deltas);
-            size++;
-            b = (b - mask) & mask;
-        } while (b);
+            occupancy[subsetCount] = subset;
+            reference[subsetCount] = sliding_attack(square, subset, deltas);
+            subsetCount++;
+            subset = (subset - mask) & mask;
+        } while (subset);
 
-        PRNG prng(0x9E3779B97F4A7C15ULL ^ (uint64_t(sq) * 0xBF58476D1CE4E5B9ULL) ^ (rook ? 1 : 2));
-        for (int i = 0; i < size;)
+        PRNG prng(0x9E3779B97F4A7C15ULL ^ (uint64_t(square) * 0xBF58476D1CE4E5B9ULL) ^ (rook ? 1 : 2));
+        for (int subsetIndex = 0; subsetIndex < subsetCount;)
         {
-            magics[sq].magic = 0;
+            magics[square].magic = 0;
             // Require the top byte of (mask*magic) to be well-spread, else the magic is poor.
-            while (popcount((mask * magics[sq].magic) >> 56) < 6)
+            while (popcount((mask * magics[square].magic) >> 56) < 6)
             {
-                magics[sq].magic = prng.sparse();
+                magics[square].magic = prng.sparse();
             }
 
-            cnt++;
-            for (i = 0; i < size; i++)
+            epochCounter++;
+            for (subsetIndex = 0; subsetIndex < subsetCount; subsetIndex++)
             {
-                unsigned idx = magics[sq].index(occupancy[i]);
-                if (epoch[idx] < cnt)
+                unsigned tableIndex = magics[square].index(occupancy[subsetIndex]);
+                if (epoch[tableIndex] < epochCounter)
                 {
-                    epoch[idx] = cnt;
-                    base[idx]  = reference[i];
+                    epoch[tableIndex]      = epochCounter;
+                    attackBase[tableIndex] = reference[subsetIndex];
                 }
-                else if (base[idx] != reference[i])
+                else if (attackBase[tableIndex] != reference[subsetIndex])
                 {
                     break; // index collision with a different attack set -> reject this magic
                 }
             }
         }
-        base += size;
+        attackBase += subsetCount;
     }
 }
 
 } // namespace
 
-Bitboard bishop_attacks(int sq, Bitboard occ)
+Bitboard bishop_attacks(int square, Bitboard occupancy)
 {
-    const Magic &m = BishopMagics[sq];
-    return m.attacks[m.index(occ)];
+    const Magic &entry = BishopMagics[square];
+    return entry.attacks[entry.index(occupancy)];
 }
 
-Bitboard rook_attacks(int sq, Bitboard occ)
+Bitboard rook_attacks(int square, Bitboard occupancy)
 {
-    const Magic &m = RookMagics[sq];
-    return m.attacks[m.index(occ)];
+    const Magic &entry = RookMagics[square];
+    return entry.attacks[entry.index(occupancy)];
 }
 
 void init_bitboards()
 {
-    for (int sq = 0; sq < 64; sq++)
+    for (int square = 0; square < 64; square++)
     {
-        Bitboard b             = sq_bb(sq);
-        PawnAttacks[WHITE][sq] = shift<NE>(b) | shift<NW>(b);
-        PawnAttacks[BLACK][sq] = shift<SE>(b) | shift<SW>(b);
+        Bitboard squareBit         = sq_bb(square);
+        PawnAttacks[WHITE][square] = shift<NE>(squareBit) | shift<NW>(squareBit);
+        PawnAttacks[BLACK][square] = shift<SE>(squareBit) | shift<SW>(squareBit);
 
         // Knight: all (±1,±2)/(±2,±1) offsets, rejecting wraps by file/rank distance.
-        Bitboard  n = 0, k = 0;
-        int       f = file_of(sq), r = rank_of(sq);
-        const int nf[8] = {1, 2, 2, 1, -1, -2, -2, -1};
-        const int nr[8] = {2, 1, -1, -2, -2, -1, 1, 2};
-        const int kf[8] = {0, 1, 1, 1, 0, -1, -1, -1};
-        const int kr[8] = {1, 1, 0, -1, -1, -1, 0, 1};
-        for (int i = 0; i < 8; i++)
+        Bitboard  knightAttack = 0, kingAttack = 0;
+        int       file = file_of(square), rank = rank_of(square);
+        const int knightFile[8] = {1, 2, 2, 1, -1, -2, -2, -1};
+        const int knightRank[8] = {2, 1, -1, -2, -2, -1, 1, 2};
+        const int kingFile[8]   = {0, 1, 1, 1, 0, -1, -1, -1};
+        const int kingRank[8]   = {1, 1, 0, -1, -1, -1, 0, 1};
+        for (int offset = 0; offset < 8; offset++)
         {
-            int tf = f + nf[i], tr = r + nr[i];
-            if (tf >= 0 && tf < 8 && tr >= 0 && tr < 8)
+            int targetFile = file + knightFile[offset], targetRank = rank + knightRank[offset];
+            if (targetFile >= 0 && targetFile < 8 && targetRank >= 0 && targetRank < 8)
             {
-                n |= sq_bb(make_square(tf, tr));
+                knightAttack |= sq_bb(make_square(targetFile, targetRank));
             }
-            tf = f + kf[i], tr = r + kr[i];
-            if (tf >= 0 && tf < 8 && tr >= 0 && tr < 8)
+            targetFile = file + kingFile[offset], targetRank = rank + kingRank[offset];
+            if (targetFile >= 0 && targetFile < 8 && targetRank >= 0 && targetRank < 8)
             {
-                k |= sq_bb(make_square(tf, tr));
+                kingAttack |= sq_bb(make_square(targetFile, targetRank));
             }
         }
-        KnightAttacks[sq] = n;
-        KingAttacks[sq]   = k;
+        KnightAttacks[square] = knightAttack;
+        KingAttacks[square]   = kingAttack;
     }
 
     init_magics(false, BishopTable, BishopMagics, BishopDirs);
@@ -193,22 +193,22 @@ void init_bitboards()
 
     // BetweenBB: squares strictly between a and b when they share a rank/file/diagonal.
     // LineBB: the whole rank/file/diagonal through a and b (endpoints included), 0 if not aligned.
-    for (int a = 0; a < 64; a++)
+    for (int from = 0; from < 64; from++)
     {
-        for (int b = 0; b < 64; b++)
+        for (int to = 0; to < 64; to++)
         {
-            BetweenBB[a][b] = 0;
-            LineBB[a][b]    = 0;
-            if (a == b)
+            BetweenBB[from][to] = 0;
+            LineBB[from][to]    = 0;
+            if (from == to)
             {
                 continue;
             }
             for (auto attacker : {&rook_attacks, &bishop_attacks})
             {
-                if (attacker(a, 0) & sq_bb(b))
+                if (attacker(from, 0) & sq_bb(to))
                 {
-                    BetweenBB[a][b] = attacker(a, sq_bb(b)) & attacker(b, sq_bb(a));
-                    LineBB[a][b]    = (sq_bb(a) | attacker(a, 0)) & (sq_bb(b) | attacker(b, 0));
+                    BetweenBB[from][to] = attacker(from, sq_bb(to)) & attacker(to, sq_bb(from));
+                    LineBB[from][to]    = (sq_bb(from) | attacker(from, 0)) & (sq_bb(to) | attacker(to, 0));
                 }
             }
         }

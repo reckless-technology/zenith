@@ -3,7 +3,7 @@
 CXX       = clang++
 STD       = -std=c++20
 OPT       = -O3 -march=native -funroll-loops -flto -DNDEBUG
-WARN      = -Wall -Wextra -Wshadow -Wno-unused-parameter
+WARN      = -Wall -Wextra -Wpedantic -Werror -Wshadow -Wno-unused-parameter
 CXXFLAGS  = $(STD) $(OPT) $(WARN)
 SRCS      = $(wildcard src/*.cpp)
 HDRS      = $(wildcard src/*.h)

@@ -36,19 +36,19 @@ enum Piece : int
     NO_PIECE = 12
 };
 
-inline Piece make_piece(Color c, PieceType pt)
+inline Piece make_piece(Color color, PieceType pieceType)
 {
-    return Piece(c * 6 + pt);
+    return Piece(color * 6 + pieceType);
 }
 
-inline Color color_of(Piece p)
+inline Color color_of(Piece piece)
 {
-    return Color(p / 6);
+    return Color(piece / 6);
 }
 
-inline PieceType type_of(Piece p)
+inline PieceType type_of(Piece piece)
 {
-    return PieceType(p % 6);
+    return PieceType(piece % 6);
 }
 
 // Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8.
@@ -58,14 +58,14 @@ enum : int
     SQUARE_NB = 64
 };
 
-inline int rank_of(int sq)
+inline int rank_of(int square)
 {
-    return sq >> 3;
+    return square >> 3;
 }
 
-inline int file_of(int sq)
+inline int file_of(int square)
 {
-    return sq & 7;
+    return square & 7;
 }
 
 inline int make_square(int file, int rank)
@@ -73,18 +73,18 @@ inline int make_square(int file, int rank)
     return rank * 8 + file;
 }
 
-inline int relative_rank(Color c, int sq)
+inline int relative_rank(Color color, int square)
 {
-    return c == WHITE ? rank_of(sq) : 7 - rank_of(sq);
+    return color == WHITE ? rank_of(square) : 7 - rank_of(square);
 }
 
-inline std::string sq_name(int sq)
+inline std::string sq_name(int square)
 {
-    if (sq >= 64)
+    if (square >= 64)
     {
         return "-";
     }
-    return std::string{char('a' + file_of(sq)), char('1' + rank_of(sq))};
+    return std::string{char('a' + file_of(square)), char('1' + rank_of(square))};
 }
 
 // Castling rights bitmask.
@@ -116,18 +116,18 @@ enum : uint16_t
 
 class Move
 {
-    uint16_t d;
+    uint16_t data;
 
   public:
-    Move() : d(0)
+    Move() : data(0)
     {
     }
 
-    explicit Move(uint16_t x) : d(x)
+    explicit Move(uint16_t raw) : data(raw)
     {
     }
 
-    Move(int from, int to, uint16_t flag) : d(uint16_t(from | (to << 6) | (flag << 12)))
+    Move(int from, int to, uint16_t flag) : data(uint16_t(from | (to << 6) | (flag << 12)))
     {
     }
 
@@ -138,37 +138,37 @@ class Move
 
     uint16_t raw() const
     {
-        return d;
+        return data;
     }
 
     int from() const
     {
-        return d & 0x3f;
+        return data & 0x3f;
     }
 
     int to() const
     {
-        return (d >> 6) & 0x3f;
+        return (data >> 6) & 0x3f;
     }
 
     uint16_t flag() const
     {
-        return d >> 12;
+        return data >> 12;
     }
 
     bool is_none() const
     {
-        return d == 0;
+        return data == 0;
     }
 
-    bool operator==(Move m) const
+    bool operator==(Move other) const
     {
-        return d == m.d;
+        return data == other.data;
     }
 
-    bool operator!=(Move m) const
+    bool operator!=(Move other) const
     {
-        return d != m.d;
+        return data != other.data;
     }
 
     bool is_capture() const
@@ -212,12 +212,12 @@ class Move
         {
             return "0000";
         }
-        std::string s = sq_name(from()) + sq_name(to());
+        std::string uci = sq_name(from()) + sq_name(to());
         if (is_promo())
         {
-            s += "  nbrq"[promo_pt() + 1]; // KNIGHT..QUEEN -> n,b,r,q
+            uci += "  nbrq"[promo_pt() + 1]; // KNIGHT..QUEEN -> n,b,r,q
         }
-        return s;
+        return uci;
     }
 };
 
@@ -228,9 +228,9 @@ constexpr int VALUE_MATE        = 32000;
 constexpr int VALUE_NONE        = 32002;
 constexpr int VALUE_MATE_IN_MAX = VALUE_MATE - MAX_PLY; // scores at/above this are forced mates
 
-inline bool is_mate_score(int v)
+inline bool is_mate_score(int value)
 {
-    return v >= VALUE_MATE_IN_MAX || v <= -VALUE_MATE_IN_MAX;
+    return value >= VALUE_MATE_IN_MAX || value <= -VALUE_MATE_IN_MAX;
 }
 
 // Bitboard helpers (branch-free via <bit>).
@@ -245,31 +245,31 @@ constexpr Bitboard RANK_5 = RANK_1 << 32;
 constexpr Bitboard RANK_7 = RANK_1 << 48;
 constexpr Bitboard RANK_8 = RANK_1 << 56;
 
-inline Bitboard sq_bb(int sq)
+inline Bitboard sq_bb(int square)
 {
-    return 1ULL << sq;
+    return 1ULL << square;
 }
 
-inline int popcount(Bitboard b)
+inline int popcount(Bitboard bitboard)
 {
-    return std::popcount(b);
+    return std::popcount(bitboard);
 }
 
-inline int lsb(Bitboard b)
+inline int lsb(Bitboard bitboard)
 {
-    return std::countr_zero(b);
+    return std::countr_zero(bitboard);
 }
 
-inline int pop_lsb(Bitboard &b)
+inline int pop_lsb(Bitboard &bitboard)
 {
-    int s = lsb(b);
-    b &= b - 1;
-    return s;
+    int square = lsb(bitboard);
+    bitboard &= bitboard - 1;
+    return square;
 }
 
-inline bool more_than_one(Bitboard b)
+inline bool more_than_one(Bitboard bitboard)
 {
-    return b & (b - 1);
+    return bitboard & (bitboard - 1);
 }
 
 // Directional shifts (compass; wrap-safe via file masks).
@@ -285,38 +285,38 @@ enum Dir : int
     SW    = -9
 };
 
-template <int D> inline Bitboard shift(Bitboard b)
+template <int Direction> inline Bitboard shift(Bitboard bitboard)
 {
-    if constexpr (D == NORTH)
+    if constexpr (Direction == NORTH)
     {
-        return b << 8;
+        return bitboard << 8;
     }
-    else if constexpr (D == SOUTH)
+    else if constexpr (Direction == SOUTH)
     {
-        return b >> 8;
+        return bitboard >> 8;
     }
-    else if constexpr (D == EAST)
+    else if constexpr (Direction == EAST)
     {
-        return (b & ~FILE_H) << 1;
+        return (bitboard & ~FILE_H) << 1;
     }
-    else if constexpr (D == WEST)
+    else if constexpr (Direction == WEST)
     {
-        return (b & ~FILE_A) >> 1;
+        return (bitboard & ~FILE_A) >> 1;
     }
-    else if constexpr (D == NE)
+    else if constexpr (Direction == NE)
     {
-        return (b & ~FILE_H) << 9;
+        return (bitboard & ~FILE_H) << 9;
     }
-    else if constexpr (D == NW)
+    else if constexpr (Direction == NW)
     {
-        return (b & ~FILE_A) << 7;
+        return (bitboard & ~FILE_A) << 7;
     }
-    else if constexpr (D == SE)
+    else if constexpr (Direction == SE)
     {
-        return (b & ~FILE_H) >> 7;
+        return (bitboard & ~FILE_H) >> 7;
     }
-    else if constexpr (D == SW)
+    else if constexpr (Direction == SW)
     {
-        return (b & ~FILE_A) >> 9;
+        return (bitboard & ~FILE_A) >> 9;
     }
 }

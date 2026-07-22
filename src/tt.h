@@ -41,7 +41,7 @@ class TranspositionTable
     uint8_t           generation = 0;
 
   public:
-    void resize(size_t mb);
+    void resize(size_t megabytes);
     void clear();
 
     void new_search()
@@ -51,7 +51,7 @@ class TranspositionTable
 
     // probe: returns true on a key hit (with a real entry), filling out.
     bool probe(uint64_t key, TTEntry &out);
-    void store(uint64_t key, int score, int eval, int depth, Bound b, Move m, int ply);
+    void store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
     int  hashfull();
 };
 
@@ -59,32 +59,32 @@ extern TranspositionTable TT;
 
 // Mate scores are stored as distance-from-this-node; convert on the way in/out so a mate found deep in
 // the tree is scored correctly wherever the entry is reused.
-inline int score_to_tt(int s, int ply)
+inline int score_to_tt(int score, int ply)
 {
-    if (s >= VALUE_MATE_IN_MAX)
+    if (score >= VALUE_MATE_IN_MAX)
     {
-        return s + ply;
+        return score + ply;
     }
-    if (s <= -VALUE_MATE_IN_MAX)
+    if (score <= -VALUE_MATE_IN_MAX)
     {
-        return s - ply;
+        return score - ply;
     }
-    return s;
+    return score;
 }
 
-inline int score_from_tt(int s, int ply)
+inline int score_from_tt(int score, int ply)
 {
-    if (s == VALUE_NONE)
+    if (score == VALUE_NONE)
     {
-        return s;
+        return score;
     }
-    if (s >= VALUE_MATE_IN_MAX)
+    if (score >= VALUE_MATE_IN_MAX)
     {
-        return s - ply;
+        return score - ply;
     }
-    if (s <= -VALUE_MATE_IN_MAX)
+    if (score <= -VALUE_MATE_IN_MAX)
     {
-        return s + ply;
+        return score + ply;
     }
-    return s;
+    return score;
 }

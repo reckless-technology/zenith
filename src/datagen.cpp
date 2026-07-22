@@ -37,7 +37,7 @@ struct Record
 
 // Local draw test (search's is_draw is private): 50-move, insufficient material, and 2-fold repetition
 // over the in-game history (keys of positions *before* `pos`).
-bool datagen_is_draw(const Position &pos, const std::vector<uint64_t> &hist)
+bool datagen_is_draw(const Position &pos, const std::vector<uint64_t> &history)
 {
     if (pos.halfmove >= 100)
     {
@@ -45,22 +45,22 @@ bool datagen_is_draw(const Position &pos, const std::vector<uint64_t> &hist)
     }
     if (!(pos.byType[PAWN] | pos.byType[ROOK] | pos.byType[QUEEN]))
     {
-        int wm = popcount(pos.byColor[WHITE] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        int bm = popcount(pos.byColor[BLACK] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        if (wm <= 1 && bm <= 1)
+        int whiteMinors = popcount(pos.byColor[WHITE] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
+        int blackMinors = popcount(pos.byColor[BLACK] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
+        if (whiteMinors <= 1 && blackMinors <= 1)
         {
             return true;
         }
     }
-    int end     = (int)hist.size();
-    int stop_at = end - pos.halfmove;
-    if (stop_at < 0)
+    int historyEnd = (int)history.size();
+    int stopAt     = historyEnd - pos.halfmove;
+    if (stopAt < 0)
     {
-        stop_at = 0;
+        stopAt = 0;
     }
-    for (int i = end - 2; i >= stop_at; i -= 2)
+    for (int index = historyEnd - 2; index >= stopAt; index -= 2)
     {
-        if (hist[i] == pos.key)
+        if (history[index] == pos.key)
         {
             return true;
         }
@@ -92,28 +92,28 @@ std::vector<std::string> load_opening_book(const std::string &path)
 // Set up a game start: a book position (if a book is loaded) or the standard start, then `openingPlies`
 // uniformly-random legal plies for variety. Returns false if a terminal position is hit (caller retries)
 // so every game starts from a legal, non-terminal, varied position.
-bool random_opening(Position &pos, std::vector<uint64_t> &hist, std::mt19937_64 &rng, int openingPlies,
-                    const std::string &start_fen)
+bool random_opening(Position &pos, std::vector<uint64_t> &history, std::mt19937_64 &rng, int openingPlies,
+                    const std::string &startFen)
 {
-    pos.set_fen(start_fen);
-    hist.clear();
-    for (int i = 0; i < openingPlies; i++)
+    pos.set_fen(startFen);
+    history.clear();
+    for (int plyIndex = 0; plyIndex < openingPlies; plyIndex++)
     {
-        MoveList l;
-        generate_legal(pos, l);
-        if (l.size() == 0)
+        MoveList moves;
+        generate_legal(pos, moves);
+        if (moves.size() == 0)
         {
             return false;
         }
-        Move m = l[rng() % l.size()];
-        hist.push_back(pos.key);
+        Move move = moves[rng() % moves.size()];
+        history.push_back(pos.key);
         pos.ply = 0;
-        pos.make_move(m);
+        pos.make_move(move);
     }
     // Reject openings that are already terminal.
-    MoveList l;
-    generate_legal(pos, l);
-    return l.size() != 0;
+    MoveList moves;
+    generate_legal(pos, moves);
+    return moves.size() != 0;
 }
 
 } // namespace
@@ -160,30 +160,30 @@ int run_datagen(int argc, char **argv)
     searcher.silent       = true;
     searcher.moveOverhead = 0;
 
-    SearchLimits lim;
-    lim.nodes = nodes;
+    SearchLimits limits;
+    limits.nodes = nodes;
 
-    uint64_t totalPos = 0;
-    long     finished = 0;
-    auto     t0       = std::chrono::steady_clock::now();
+    uint64_t totalPositions = 0;
+    long     finished       = 0;
+    auto     startTime      = std::chrono::steady_clock::now();
 
     std::vector<Record>   pending;
-    std::vector<uint64_t> hist;
+    std::vector<uint64_t> history;
 
-    for (long g = 0; g < games; g++)
+    for (long gameIndex = 0; gameIndex < games; gameIndex++)
     {
         Position           pos;
         const std::string &startFen =
             openingBook.empty() ? std::string(START_FEN) : openingBook[rng() % openingBook.size()];
-        while (!random_opening(pos, hist, rng, openingPlies, startFen))
+        while (!random_opening(pos, history, rng, openingPlies, startFen))
         { /* retry until non-terminal */
         }
         TT.clear();
 
         pending.clear();
-        int gameResult  = 0; // +1 white win, -1 black win, 0 draw
-        int winAdjCount = 0;
-        int adjSide     = 0;
+        int gameResult       = 0; // +1 white win, -1 black win, 0 draw
+        int winAdjCount      = 0;
+        int adjudicationSide = 0;
 
         for (int ply = 0; ply < MAX_GAME_PLIES; ply++)
         {
@@ -194,16 +194,16 @@ int run_datagen(int argc, char **argv)
                 gameResult = pos.in_check() ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
-            if (datagen_is_draw(pos, hist))
+            if (datagen_is_draw(pos, history))
             {
                 gameResult = 0;
                 break;
             }
 
             pos.ply       = 0;
-            searcher.hist = hist;
-            Move m        = searcher.go(pos, lim);
-            if (m.is_none())
+            searcher.hist = history;
+            Move move     = searcher.go(pos, limits);
+            if (move.is_none())
             {
                 gameResult = 0;
                 break;
@@ -211,15 +211,15 @@ int run_datagen(int argc, char **argv)
             int score = searcher.rootScore; // cp, stm POV
 
             // Record quiet, not-yet-decided positions (one per ply).
-            if (!pos.in_check() && m.is_quiet() && std::abs(score) < RECORD_SCORE_CAP)
+            if (!pos.in_check() && move.is_quiet() && std::abs(score) < RECORD_SCORE_CAP)
             {
                 pending.push_back({pos.fen(), score, pos.stm});
             }
 
             // Win adjudication (white POV).
-            int ws   = pos.stm == WHITE ? score : -score;
-            int side = ws > WIN_ADJ_SCORE ? +1 : (ws < -WIN_ADJ_SCORE ? -1 : 0);
-            if (side != 0 && side == adjSide)
+            int whiteScore = pos.stm == WHITE ? score : -score;
+            int side       = whiteScore > WIN_ADJ_SCORE ? +1 : (whiteScore < -WIN_ADJ_SCORE ? -1 : 0);
+            if (side != 0 && side == adjudicationSide)
             {
                 if (++winAdjCount >= WIN_ADJ_PLIES)
                 {
@@ -229,29 +229,29 @@ int run_datagen(int argc, char **argv)
             }
             else
             {
-                adjSide     = side;
-                winAdjCount = side != 0 ? 1 : 0;
+                adjudicationSide = side;
+                winAdjCount      = side != 0 ? 1 : 0;
             }
 
-            hist.push_back(pos.key);
-            pos.make_move(m);
+            history.push_back(pos.key);
+            pos.make_move(move);
         }
 
         // Emit records with the final WDL from each record's side-to-move POV.
-        for (const Record &r : pending)
+        for (const Record &record : pending)
         {
-            double wdl = gameResult == 0 ? 0.5 : (((gameResult > 0) == (r.stm == WHITE)) ? 1.0 : 0.0);
-            std::fprintf(out, "%s;%d;%.1f\n", r.fen.c_str(), r.score, wdl);
+            double wdl = gameResult == 0 ? 0.5 : (((gameResult > 0) == (record.stm == WHITE)) ? 1.0 : 0.0);
+            std::fprintf(out, "%s;%d;%.1f\n", record.fen.c_str(), record.score, wdl);
         }
-        totalPos += pending.size();
+        totalPositions += pending.size();
         finished++;
 
-        if (finished % 50 == 0 || g == games - 1)
+        if (finished % 50 == 0 || gameIndex == games - 1)
         {
             std::fflush(out);
-            double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
             fprintf(stderr, "[seed %llu] games %ld/%ld  positions %llu  %.0f pos/s\n", (unsigned long long)seed,
-                    finished, games, (unsigned long long)totalPos, sec > 0 ? totalPos / sec : 0.0);
+                    finished, games, (unsigned long long)totalPositions, seconds > 0 ? totalPositions / seconds : 0.0);
         }
     }
 
@@ -289,61 +289,61 @@ int run_bullet2text(int argc, char **argv)
     }
 
     const char   *pieceChars = "PNBRQK";
-    unsigned char rec[32];
+    unsigned char record[32];
     uint64_t      readCount = 0, written = 0;
     std::string   line;
-    while (written < maxRecords && std::fread(rec, 1, 32, in) == 32)
+    while (written < maxRecords && std::fread(record, 1, 32, in) == 32)
     {
         if ((readCount++ % stride) != 0)
         {
             continue; // subsample the (5.7B-position) dataset for a diverse manageable slice
         }
-        uint64_t occ;
+        uint64_t occupancy;
         int16_t  score;
-        std::memcpy(&occ, rec, 8);
-        std::memcpy(&score, rec + 24, 2);
-        uint8_t result = rec[26];
+        std::memcpy(&occupancy, record, 8);
+        std::memcpy(&score, record + 24, 2);
+        uint8_t result = record[26];
 
         char board[64];
         std::memset(board, 0, sizeof(board));
-        uint64_t o   = occ;
-        int      idx = 0;
-        while (o)
+        uint64_t occupancyBits = occupancy;
+        int      pieceIndex    = 0;
+        while (occupancyBits)
         {
-            int sq = __builtin_ctzll(o);
-            o &= o - 1;
-            uint8_t nibble = (rec[8 + idx / 2] >> (4 * (idx % 2))) & 0xF;
-            idx++;
-            char c    = pieceChars[nibble & 7];
-            board[sq] = (nibble & 8) ? char(std::tolower(c)) : c; // bit3 set => opponent (rendered black)
+            int square = __builtin_ctzll(occupancyBits);
+            occupancyBits &= occupancyBits - 1;
+            uint8_t nibble = (record[8 + pieceIndex / 2] >> (4 * (pieceIndex % 2))) & 0xF;
+            pieceIndex++;
+            char pieceChar = pieceChars[nibble & 7];
+            board[square]  = (nibble & 8) ? char(std::tolower(pieceChar)) : pieceChar; // bit3 set => opponent (black)
         }
 
         line.clear();
-        for (int r = 7; r >= 0; r--)
+        for (int rank = 7; rank >= 0; rank--)
         {
-            int empty = 0;
-            for (int f = 0; f < 8; f++)
+            int emptyCount = 0;
+            for (int file = 0; file < 8; file++)
             {
-                char c = board[r * 8 + f];
-                if (!c)
+                char squareChar = board[rank * 8 + file];
+                if (!squareChar)
                 {
-                    empty++;
+                    emptyCount++;
                 }
                 else
                 {
-                    if (empty)
+                    if (emptyCount)
                     {
-                        line += char('0' + empty);
-                        empty = 0;
+                        line += char('0' + emptyCount);
+                        emptyCount = 0;
                     }
-                    line += c;
+                    line += squareChar;
                 }
             }
-            if (empty)
+            if (emptyCount)
             {
-                line += char('0' + empty);
+                line += char('0' + emptyCount);
             }
-            if (r)
+            if (rank)
             {
                 line += '/';
             }

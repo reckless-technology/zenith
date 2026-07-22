@@ -4,11 +4,11 @@
 struct MoveList
 {
     Move moves[256];
-    int  cnt = 0;
+    int  count = 0;
 
-    void add(Move m)
+    void add(Move move)
     {
-        moves[cnt++] = m;
+        moves[count++] = move;
     }
 
     Move *begin()
@@ -18,7 +18,7 @@ struct MoveList
 
     Move *end()
     {
-        return moves + cnt;
+        return moves + count;
     }
 
     const Move *begin() const
@@ -28,17 +28,17 @@ struct MoveList
 
     const Move *end() const
     {
-        return moves + cnt;
+        return moves + count;
     }
 
     int size() const
     {
-        return cnt;
+        return count;
     }
 
-    Move &operator[](int i)
+    Move &operator[](int index)
     {
-        return moves[i];
+        return moves[index];
     }
 };
 

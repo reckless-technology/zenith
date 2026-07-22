@@ -34,34 +34,34 @@ void join_search()
     }
 }
 
-Move parse_move(const Position &pos, const std::string &s)
+Move parse_move(const Position &pos, const std::string &text)
 {
-    MoveList l;
-    generate_legal(pos, l);
-    for (Move m : l)
+    MoveList moves;
+    generate_legal(pos, moves);
+    for (Move move : moves)
     {
-        if (m.to_uci() == s)
+        if (move.to_uci() == text)
         {
-            return m;
+            return move;
         }
     }
     return Move::none();
 }
 
-void set_position(std::istringstream &is)
+void set_position(std::istringstream &stream)
 {
     std::string token;
-    is >> token;
+    stream >> token;
     Position pos;
     if (token == "startpos")
     {
         pos.set_fen(START_FEN);
-        is >> token; // maybe "moves"
+        stream >> token; // maybe "moves"
     }
     else if (token == "fen")
     {
         std::string fen;
-        while (is >> token && token != "moves")
+        while (stream >> token && token != "moves")
         {
             fen += token + " ";
         }
@@ -70,17 +70,17 @@ void set_position(std::istringstream &is)
     gameHist.clear();
     if (token == "moves")
     {
-        std::string mv;
-        while (is >> mv)
+        std::string moveText;
+        while (stream >> moveText)
         {
-            Move m = parse_move(pos, mv);
-            if (m.is_none())
+            Move move = parse_move(pos, moveText);
+            if (move.is_none())
             {
                 break;
             }
             gameHist.push_back(pos.key);
             pos.ply = 0;
-            pos.make_move(m);
+            pos.make_move(move);
         }
     }
     pos.ply = 0;
@@ -89,166 +89,166 @@ void set_position(std::istringstream &is)
 
 void perft_divide(Position &pos, int depth)
 {
-    MoveList l;
-    generate_legal(pos, l);
-    uint64_t total = 0;
-    auto     t0    = std::chrono::steady_clock::now();
-    for (Move m : l)
+    MoveList moves;
+    generate_legal(pos, moves);
+    uint64_t total     = 0;
+    auto     startTime = std::chrono::steady_clock::now();
+    for (Move move : moves)
     {
-        Position c = pos;
-        c.make_move(m);
+        Position child = pos;
+        child.make_move(move);
         // recursive perft
-        std::function<uint64_t(Position &, int)> pf = [&](Position &p, int d) -> uint64_t {
-            if (d == 0)
+        std::function<uint64_t(Position &, int)> perftRecurse = [&](Position &node, int remainingDepth) -> uint64_t {
+            if (remainingDepth == 0)
             {
                 return 1;
             }
-            MoveList ml;
-            generate_legal(p, ml);
-            if (d == 1)
+            MoveList childMoves;
+            generate_legal(node, childMoves);
+            if (remainingDepth == 1)
             {
-                return ml.size();
+                return childMoves.size();
             }
-            uint64_t n = 0;
-            for (Move mm : ml)
+            uint64_t nodeCount = 0;
+            for (Move childMove : childMoves)
             {
-                Position cc = p;
-                cc.make_move(mm);
-                n += pf(cc, d - 1);
+                Position grandchild = node;
+                grandchild.make_move(childMove);
+                nodeCount += perftRecurse(grandchild, remainingDepth - 1);
             }
-            return n;
+            return nodeCount;
         };
-        uint64_t n = depth == 1 ? 1 : pf(c, depth - 1);
-        total += n;
-        printf("%s: %llu\n", m.to_uci().c_str(), (unsigned long long)n);
+        uint64_t nodeCount = depth == 1 ? 1 : perftRecurse(child, depth - 1);
+        total += nodeCount;
+        printf("%s: %llu\n", move.to_uci().c_str(), (unsigned long long)nodeCount);
     }
-    double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    printf("\nnodes %llu  time %.2fs  %.1f Mnps\n", (unsigned long long)total, sec, total / sec / 1e6);
+    double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+    printf("\nnodes %llu  time %.2fs  %.1f Mnps\n", (unsigned long long)total, seconds, total / seconds / 1e6);
 }
 
-void go(std::istringstream &is)
+void go(std::istringstream &stream)
 {
     join_search();
-    SearchLimits lim;
+    SearchLimits limits;
     std::string  token;
     int          perftDepth = 0;
-    while (is >> token)
+    while (stream >> token)
     {
         if (token == "wtime")
         {
-            is >> lim.time[WHITE];
+            stream >> limits.time[WHITE];
         }
         else if (token == "btime")
         {
-            is >> lim.time[BLACK];
+            stream >> limits.time[BLACK];
         }
         else if (token == "winc")
         {
-            is >> lim.inc[WHITE];
+            stream >> limits.inc[WHITE];
         }
         else if (token == "binc")
         {
-            is >> lim.inc[BLACK];
+            stream >> limits.inc[BLACK];
         }
         else if (token == "movestogo")
         {
-            is >> lim.movestogo;
+            stream >> limits.movestogo;
         }
         else if (token == "movetime")
         {
-            is >> lim.movetime;
+            stream >> limits.movetime;
         }
         else if (token == "depth")
         {
-            is >> lim.depth;
+            stream >> limits.depth;
         }
         else if (token == "nodes")
         {
-            is >> lim.nodes;
+            stream >> limits.nodes;
         }
         else if (token == "infinite")
         {
-            lim.infinite = true;
+            limits.infinite = true;
         }
         else if (token == "perft")
         {
-            is >> perftDepth;
+            stream >> perftDepth;
         }
     }
     if (perftDepth > 0)
     {
-        Position p = game;
-        perft_divide(p, perftDepth);
+        Position perftPosition = game;
+        perft_divide(perftPosition, perftDepth);
         return;
     }
-    Position              root = game;
-    std::vector<uint64_t> hist = gameHist;
-    searchThread               = std::thread([root, hist, lim]() mutable {
-        int n = threadCount < 1 ? 1 : threadCount;
-        if ((int)pool.size() != n)
+    Position              root    = game;
+    std::vector<uint64_t> history = gameHist;
+    searchThread                  = std::thread([root, history, limits]() mutable {
+        int activeThreads = threadCount < 1 ? 1 : threadCount;
+        if ((int)pool.size() != activeThreads)
         {
-            pool.assign(n, Searcher{}); // (re)size the Lazy-SMP thread pool
+            pool.assign(activeThreads, Searcher{}); // (re)size the Lazy-SMP thread pool
         }
-        for (auto &s : pool)
+        for (auto &searcher : pool)
         {
-            s.hist         = hist; // each thread gets its own repetition history + move-overhead
-            s.moveOverhead = moveOverhead;
+            searcher.hist         = history; // each thread gets its own repetition history + move-overhead
+            searcher.moveOverhead = moveOverhead;
         }
         g_stop = false;
         std::vector<std::thread> helpers;
-        for (int i = 1; i < n; i++)
+        for (int threadIndex = 1; threadIndex < activeThreads; threadIndex++)
         {
-            helpers.emplace_back([&, i]() mutable { pool[i].go(root, lim, false); });
+            helpers.emplace_back([&, threadIndex]() mutable { pool[threadIndex].go(root, limits, false); });
         }
-        Move best = pool[0].go(root, lim, true); // main thread manages time + prints info
-        g_stop    = true;                        // make sure any still-deepening helper stops
-        for (auto &t : helpers)
+        Move best = pool[0].go(root, limits, true); // main thread manages time + prints info
+        g_stop    = true;                           // make sure any still-deepening helper stops
+        for (auto &helper : helpers)
         {
-            t.join();
+            helper.join();
         }
         printf("bestmove %s\n", best.is_none() ? "0000" : best.to_uci().c_str());
         fflush(stdout);
     });
 }
 
-void set_option(std::istringstream &is)
+void set_option(std::istringstream &stream)
 {
     std::string token, name, value;
-    is >> token; // "name"
-    while (is >> token && token != "value")
+    stream >> token; // "name"
+    while (stream >> token && token != "value")
     {
         name += (name.empty() ? "" : " ") + token;
     }
-    while (is >> token)
+    while (stream >> token)
     {
         value += (value.empty() ? "" : " ") + token;
     }
-    auto lower = [](std::string s) {
-        for (char &c : s)
+    auto toLower = [](std::string text) {
+        for (char &ch : text)
         {
-            c = tolower(c);
+            ch = tolower(ch);
         }
-        return s;
+        return text;
     };
-    std::string n = lower(name);
-    if (n == "hash")
+    std::string optionName = toLower(name);
+    if (optionName == "hash")
     {
         TT.resize(std::stoi(value));
     }
-    else if (n == "clear hash")
+    else if (optionName == "clear hash")
     {
         TT.clear();
     }
-    else if (n == "move overhead")
+    else if (optionName == "move overhead")
     {
         moveOverhead = std::stoi(value);
     }
-    else if (n == "threads")
+    else if (optionName == "threads")
     {
-        int t       = std::stoi(value);
-        threadCount = t < 1 ? 1 : (t > 256 ? 256 : t);
+        int requestedThreads = std::stoi(value);
+        threadCount          = requestedThreads < 1 ? 1 : (requestedThreads > 256 ? 256 : requestedThreads);
     }
-    else if (n == "evalfile")
+    else if (optionName == "evalfile")
     {
         if (nnue::load(value))
         {
@@ -270,9 +270,9 @@ void uci_loop()
     std::string line;
     while (std::getline(std::cin, line))
     {
-        std::istringstream is(line);
+        std::istringstream stream(line);
         std::string        token;
-        is >> token;
+        stream >> token;
         if (token == "uci")
         {
             printf("id name Zenith 0.1\n");
@@ -299,11 +299,11 @@ void uci_loop()
         }
         else if (token == "position")
         {
-            set_position(is);
+            set_position(stream);
         }
         else if (token == "go")
         {
-            go(is);
+            go(stream);
         }
         else if (token == "stop")
         {
@@ -311,7 +311,7 @@ void uci_loop()
         }
         else if (token == "setoption")
         {
-            set_option(is);
+            set_option(stream);
         }
         else if (token == "d")
         {
@@ -346,50 +346,50 @@ void run_bench(int depth)
     {
         depth = 13;
     }
-    uint64_t total = 0;
-    auto     t0    = std::chrono::steady_clock::now();
+    uint64_t total     = 0;
+    auto     startTime = std::chrono::steady_clock::now();
     for (const char *fen : BenchFens)
     {
         TT.clear();
         Position pos;
         pos.set_fen(fen);
-        Searcher s;
-        s.moveOverhead = 0;
-        SearchLimits lim;
-        lim.depth = depth;
-        s.hist.clear();
+        Searcher searcher;
+        searcher.moveOverhead = 0;
+        SearchLimits limits;
+        limits.depth = depth;
+        searcher.hist.clear();
         // silence info by redirecting? keep it; users can ignore. Sum nodes.
-        s.go(pos, lim);
-        total += s.nodes;
+        searcher.go(pos, limits);
+        total += searcher.nodes;
     }
-    double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    printf("%llu nodes %.0f nps\n", (unsigned long long)total, total / (sec > 0 ? sec : 1));
+    double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+    printf("%llu nodes %.0f nps\n", (unsigned long long)total, total / (seconds > 0 ? seconds : 1));
 }
 
 struct PerftCase
 {
     const char *fen;
     int         depth;
-    uint64_t    expect;
+    uint64_t    expected;
 };
 
 // Plain perft: number of legal-move leaves at depth d — the movegen correctness invariant.
-static uint64_t perft(Position &p, int d)
+static uint64_t perft(Position &pos, int depth)
 {
-    MoveList ml;
-    generate_legal(p, ml);
-    if (d <= 1)
+    MoveList moves;
+    generate_legal(pos, moves);
+    if (depth <= 1)
     {
-        return ml.size();
+        return moves.size();
     }
-    uint64_t n = 0;
-    for (Move m : ml)
+    uint64_t nodeCount = 0;
+    for (Move move : moves)
     {
-        Position cc = p;
-        cc.make_move(m);
-        n += perft(cc, d - 1);
+        Position child = pos;
+        child.make_move(move);
+        nodeCount += perft(child, depth - 1);
     }
-    return n;
+    return nodeCount;
 }
 
 // Ethereal "standard.epd" perft suite (github.com/AndyGrant/Ethereal), EPD form "FEN;D1 n;D2 n;...".
@@ -538,15 +538,15 @@ void run_perft_suite()
         {"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 5, 89941194ULL},
     };
     bool ok = true;
-    for (auto &c : suite)
+    for (auto &testCase : suite)
     {
         Position pos;
-        pos.set_fen(c.fen);
-        uint64_t n    = perft(pos, c.depth);
-        bool     pass = n == c.expect;
-        ok &= pass;
-        printf("[%s] perft(%d)=%llu want %llu  %s\n", pass ? "PASS" : "FAIL", c.depth, (unsigned long long)n,
-               (unsigned long long)c.expect, c.fen);
+        pos.set_fen(testCase.fen);
+        uint64_t nodeCount = perft(pos, testCase.depth);
+        bool     isPass    = nodeCount == testCase.expected;
+        ok &= isPass;
+        printf("[%s] perft(%d)=%llu want %llu  %s\n", isPass ? "PASS" : "FAIL", testCase.depth,
+               (unsigned long long)nodeCount, (unsigned long long)testCase.expected, testCase.fen);
     }
 
     // Ethereal EPD suite: validate each position at the deepest depth whose expected count fits a node
@@ -556,20 +556,20 @@ void run_perft_suite()
     for (const char *entry : PerftEpd)
     {
         std::string line(entry);
-        size_t      semi       = line.find(';');
-        std::string fen        = line.substr(0, semi);
-        int         bestDepth  = 0;
-        uint64_t    bestExpect = 0;
-        for (size_t cursor = semi; cursor != std::string::npos;)
+        size_t      semicolon    = line.find(';');
+        std::string fen          = line.substr(0, semicolon);
+        int         bestDepth    = 0;
+        uint64_t    bestExpected = 0;
+        for (size_t cursor = semicolon; cursor != std::string::npos;)
         {
-            size_t      next = line.find(';', cursor + 1);
-            std::string tok  = line.substr(cursor + 1, (next == std::string::npos ? line.size() : next) - cursor - 1);
-            int         d;
-            uint64_t    cnt;
-            if (std::sscanf(tok.c_str(), "D%d %llu", &d, (unsigned long long *)&cnt) == 2 && cnt <= budget)
+            size_t      next  = line.find(';', cursor + 1);
+            std::string token = line.substr(cursor + 1, (next == std::string::npos ? line.size() : next) - cursor - 1);
+            int         depth;
+            uint64_t    count;
+            if (std::sscanf(token.c_str(), "D%d %llu", &depth, (unsigned long long *)&count) == 2 && count <= budget)
             {
-                bestDepth  = d;
-                bestExpect = cnt;
+                bestDepth    = depth;
+                bestExpected = count;
             }
             cursor = next;
         }
@@ -579,17 +579,17 @@ void run_perft_suite()
         }
         Position position;
         position.set_fen(fen);
-        uint64_t n = perft(position, bestDepth);
+        uint64_t nodeCount = perft(position, bestDepth);
         total++;
-        if (n == bestExpect)
+        if (nodeCount == bestExpected)
         {
             passed++;
         }
         else
         {
             ok = false;
-            printf("[FAIL] perft(%d)=%llu want %llu  %s\n", bestDepth, (unsigned long long)n,
-                   (unsigned long long)bestExpect, fen.c_str());
+            printf("[FAIL] perft(%d)=%llu want %llu  %s\n", bestDepth, (unsigned long long)nodeCount,
+                   (unsigned long long)bestExpected, fen.c_str());
         }
     }
     printf("Ethereal perft suite: %d/%d positions pass\n", passed, total);
@@ -607,14 +607,15 @@ void legal_check_walk(Position &pos, int depth)
     generate_pseudo(pos, pseudo, false);
     Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
     Bitboard pinned   = pos.pinned_to_king();
-    for (Move m : pseudo)
+    for (Move move : pseudo)
     {
-        if (pos.is_legal_fast(m, checkers, pinned) != pos.is_legal(m))
+        if (pos.is_legal_fast(move, checkers, pinned) != pos.is_legal(move))
         {
             if (g_legal_mismatches < 8)
             {
-                printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n", pos.is_legal_fast(m, checkers, pinned),
-                       pos.is_legal(m), m.from(), m.to(), m.flag(), pos.fen().c_str());
+                printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
+                       pos.is_legal_fast(move, checkers, pinned), pos.is_legal(move), move.from(), move.to(),
+                       move.flag(), pos.fen().c_str());
             }
             g_legal_mismatches++;
         }
@@ -626,10 +627,10 @@ void legal_check_walk(Position &pos, int depth)
     }
     MoveList legal;
     generate_legal(pos, legal);
-    for (Move m : legal)
+    for (Move move : legal)
     {
         Position child = pos;
-        child.make_move(m);
+        child.make_move(move);
         legal_check_walk(child, depth - 1);
     }
 }

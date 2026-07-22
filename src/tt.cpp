@@ -14,17 +14,17 @@ inline uint64_t pack(uint16_t move, int16_t score, int16_t eval, uint8_t depth, 
 }
 } // namespace
 
-void TranspositionTable::resize(size_t mb)
+void TranspositionTable::resize(size_t megabytes)
 {
-    size_t bytes = mb * 1024 * 1024;
-    size_t n     = bytes / sizeof(Slot);
-    if (n < 1024)
+    size_t bytes     = megabytes * 1024 * 1024;
+    size_t slotCount = bytes / sizeof(Slot);
+    if (slotCount < 1024)
     {
-        n = 1024;
+        slotCount = 1024;
     }
-    n = std::bit_floor(n); // power of two so index is a mask
-    table.assign(n, Slot{});
-    mask       = n - 1;
+    slotCount = std::bit_floor(slotCount); // power of two so index is a mask
+    table.assign(slotCount, Slot{});
+    mask       = slotCount - 1;
     generation = 0;
 }
 
@@ -36,10 +36,10 @@ void TranspositionTable::clear()
 
 bool TranspositionTable::probe(uint64_t key, TTEntry &out)
 {
-    Slot    &slot = table[key & mask];
-    uint64_t data = std::atomic_ref<uint64_t>(slot.data).load(std::memory_order_relaxed);
-    uint64_t xkey = std::atomic_ref<uint64_t>(slot.key).load(std::memory_order_relaxed);
-    if ((xkey ^ data) != key || data == 0)
+    Slot    &slot   = table[key & mask];
+    uint64_t data   = std::atomic_ref<uint64_t>(slot.data).load(std::memory_order_relaxed);
+    uint64_t xorKey = std::atomic_ref<uint64_t>(slot.key).load(std::memory_order_relaxed);
+    if ((xorKey ^ data) != key || data == 0)
     {
         return false; // miss, empty, or torn read
     }
@@ -53,26 +53,27 @@ bool TranspositionTable::probe(uint64_t key, TTEntry &out)
     return out.bound != BOUND_NONE;
 }
 
-void TranspositionTable::store(uint64_t key, int score, int eval, int depth, Bound b, Move m, int ply)
+void TranspositionTable::store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply)
 {
-    Slot    &slot     = table[key & mask];
-    uint64_t curData  = std::atomic_ref<uint64_t>(slot.data).load(std::memory_order_relaxed);
-    uint64_t curKey   = std::atomic_ref<uint64_t>(slot.key).load(std::memory_order_relaxed);
-    bool     sameKey  = (curData != 0) && ((curKey ^ curData) == key);
-    uint8_t  curBound = uint8_t((curData >> 56) & 3);
-    uint8_t  curDepth = uint8_t(curData >> 48);
-    uint8_t  curGen   = uint8_t((curData >> 58) & 63);
+    Slot    &slot              = table[key & mask];
+    uint64_t currentData       = std::atomic_ref<uint64_t>(slot.data).load(std::memory_order_relaxed);
+    uint64_t currentKey        = std::atomic_ref<uint64_t>(slot.key).load(std::memory_order_relaxed);
+    bool     sameKey           = (currentData != 0) && ((currentKey ^ currentData) == key);
+    uint8_t  currentBound      = uint8_t((currentData >> 56) & 3);
+    uint8_t  currentDepth      = uint8_t(currentData >> 48);
+    uint8_t  currentGeneration = uint8_t((currentData >> 58) & 63);
 
     // Preserve a TT move if the new store lacks one (a fail-low often has no best move).
-    if (sameKey && m.is_none())
+    if (sameKey && move.is_none())
     {
-        m = Move(uint16_t(curData & 0xFFFF));
+        move = Move(uint16_t(currentData & 0xFFFF));
     }
     // Replace when: empty/torn, this position, from an older search, or a deeper/exact result.
-    if (curData == 0 || curBound == BOUND_NONE || sameKey || curGen != generation ||
-        depth + (b == BOUND_EXACT ? 2 : 0) >= curDepth)
+    if (currentData == 0 || currentBound == BOUND_NONE || sameKey || currentGeneration != generation ||
+        depth + (bound == BOUND_EXACT ? 2 : 0) >= currentDepth)
     {
-        uint64_t data = pack(m.raw(), int16_t(score_to_tt(score, ply)), int16_t(eval), uint8_t(depth), b, generation);
+        uint64_t data =
+            pack(move.raw(), int16_t(score_to_tt(score, ply)), int16_t(eval), uint8_t(depth), bound, generation);
         std::atomic_ref<uint64_t>(slot.key).store(key ^ data, std::memory_order_relaxed);
         std::atomic_ref<uint64_t>(slot.data).store(data, std::memory_order_relaxed);
     }

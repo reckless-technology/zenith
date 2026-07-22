@@ -72,14 +72,14 @@ int eg_table[12][64];
 
 void init_eval()
 {
-    for (int pt = 0; pt < 6; pt++)
+    for (int pieceType = 0; pieceType < 6; pieceType++)
     {
-        for (int sq = 0; sq < 64; sq++)
+        for (int square = 0; square < 64; square++)
         {
-            mg_table[pt][sq]     = mg_value[pt] + mg_pst[pt][sq ^ 56]; // white
-            eg_table[pt][sq]     = eg_value[pt] + eg_pst[pt][sq ^ 56];
-            mg_table[pt + 6][sq] = mg_value[pt] + mg_pst[pt][sq]; // black
-            eg_table[pt + 6][sq] = eg_value[pt] + eg_pst[pt][sq];
+            mg_table[pieceType][square]     = mg_value[pieceType] + mg_pst[pieceType][square ^ 56]; // white
+            eg_table[pieceType][square]     = eg_value[pieceType] + eg_pst[pieceType][square ^ 56];
+            mg_table[pieceType + 6][square] = mg_value[pieceType] + mg_pst[pieceType][square]; // black
+            eg_table[pieceType + 6][square] = eg_value[pieceType] + eg_pst[pieceType][square];
         }
     }
 }
@@ -93,54 +93,54 @@ int evaluate(const Position &pos)
         return nnue::evaluate(pos.acc, pos.stm);
     }
 
-    int mg[2] = {0, 0}, eg[2] = {0, 0}, phase = 0;
+    int middlegame[2] = {0, 0}, endgame[2] = {0, 0}, phase = 0;
 
-    Bitboard occ = pos.occupied();
-    Bitboard b   = occ;
-    while (b)
+    Bitboard occupancy = pos.occupied();
+    Bitboard boardBits = occupancy;
+    while (boardBits)
     {
-        int   sq = pop_lsb(b);
-        Piece p  = pos.board[sq];
-        Color c  = color_of(p);
-        mg[c] += mg_table[p][sq];
-        eg[c] += eg_table[p][sq];
-        phase += phase_inc[type_of(p)];
+        int   square = pop_lsb(boardBits);
+        Piece piece  = pos.board[square];
+        Color color  = color_of(piece);
+        middlegame[color] += mg_table[piece][square];
+        endgame[color] += eg_table[piece][square];
+        phase += phase_inc[type_of(piece)];
     }
 
     // Cheap extra terms.
-    for (Color c : {WHITE, BLACK})
+    for (Color color : {WHITE, BLACK})
     {
-        int sign = c == WHITE ? 1 : -1;
+        int sign = color == WHITE ? 1 : -1;
         // Bishop pair.
-        if (popcount(pos.pieces(c, BISHOP)) >= 2)
+        if (popcount(pos.pieces(color, BISHOP)) >= 2)
         {
-            mg[c] += 22;
-            eg[c] += 40;
+            middlegame[color] += 22;
+            endgame[color] += 40;
         }
         // Mobility (attacked squares not occupied by own pieces), small weights.
-        Bitboard own = pos.byColor[c];
-        auto     mob = [&](Bitboard bb, auto atk, int wmg, int weg) {
-            while (bb)
+        Bitboard ownPieces = pos.byColor[color];
+        auto     mobility  = [&](Bitboard pieceBitboard, auto attackFn, int middlegameWeight, int endgameWeight) {
+            while (pieceBitboard)
             {
-                int s = pop_lsb(bb);
-                int m = popcount(atk(s, occ) & ~own);
-                mg[c] += wmg * (m - 4);
-                eg[c] += weg * (m - 4);
+                int attackerSquare = pop_lsb(pieceBitboard);
+                int mobilityCount  = popcount(attackFn(attackerSquare, occupancy) & ~ownPieces);
+                middlegame[color] += middlegameWeight * (mobilityCount - 4);
+                endgame[color] += endgameWeight * (mobilityCount - 4);
             }
         };
-        mob(pos.pieces(c, BISHOP), bishop_attacks, 4, 4);
-        mob(pos.pieces(c, ROOK), rook_attacks, 2, 4);
-        mob(pos.pieces(c, QUEEN), queen_attacks, 1, 2);
+        mobility(pos.pieces(color, BISHOP), bishop_attacks, 4, 4);
+        mobility(pos.pieces(color, ROOK), rook_attacks, 2, 4);
+        mobility(pos.pieces(color, QUEEN), queen_attacks, 1, 2);
         (void)sign;
     }
 
-    int mgScore = mg[WHITE] - mg[BLACK];
-    int egScore = eg[WHITE] - eg[BLACK];
+    int middlegameScore = middlegame[WHITE] - middlegame[BLACK];
+    int endgameScore    = endgame[WHITE] - endgame[BLACK];
     if (phase > 24)
     {
         phase = 24;
     }
-    int score    = (mgScore * phase + egScore * (24 - phase)) / 24; // White-relative
-    int stmScore = (pos.stm == WHITE ? score : -score);
-    return stmScore + 10; // tempo: a small bonus for the side to move
+    int score           = (middlegameScore * phase + endgameScore * (24 - phase)) / 24; // White-relative
+    int sideToMoveScore = (pos.stm == WHITE ? score : -score);
+    return sideToMoveScore + 10; // tempo: a small bonus for the side to move
 }

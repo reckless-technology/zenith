@@ -38,9 +38,9 @@ class Position
 
     Position()
     {
-        for (int i = 0; i < 64; i++)
+        for (int square = 0; square < 64; square++)
         {
-            board[i] = NO_PIECE;
+            board[square] = NO_PIECE;
         }
     }
 
@@ -50,32 +50,32 @@ class Position
         return byColor[WHITE] | byColor[BLACK];
     }
 
-    Bitboard pieces(Color c, PieceType pt) const
+    Bitboard pieces(Color color, PieceType pieceType) const
     {
-        return byColor[c] & byType[pt];
+        return byColor[color] & byType[pieceType];
     }
 
-    Bitboard pieces(PieceType pt) const
+    Bitboard pieces(PieceType pieceType) const
     {
-        return byType[pt];
+        return byType[pieceType];
     }
 
-    int king_sq(Color c) const
+    int king_sq(Color color) const
     {
-        return lsb(pieces(c, KING));
+        return lsb(pieces(color, KING));
     }
 
-    Piece piece_on(int sq) const
+    Piece piece_on(int square) const
     {
-        return board[sq];
+        return board[square];
     }
 
-    // Attackers of colour c hitting sq, given occupancy occ (occ lets SEE pass an updated board).
-    Bitboard attackers_to(int sq, Color c, Bitboard occ) const;
+    // Attackers of colour `color` hitting `square`, given `occupancy` (which lets SEE pass an updated board).
+    Bitboard attackers_to(int square, Color color, Bitboard occupancy) const;
 
-    bool attacked_by(int sq, Color c) const
+    bool attacked_by(int square, Color color) const
     {
-        return attackers_to(sq, c, occupied());
+        return attackers_to(square, color, occupied());
     }
 
     bool in_check() const
@@ -83,28 +83,28 @@ class Position
         return attacked_by(king_sq(stm), ~stm);
     }
 
-    bool gives_check(Move m) const; // does m leave the opponent in check?
+    bool gives_check(Move move) const; // does move leave the opponent in check?
 
     // --- mutation ---
     void        set_fen(const std::string &fen);
     std::string fen() const;
-    void        make_move(Move m);      // apply m in place (caller copied first)
-    void        make_null();            // side-to-move passes (null-move pruning)
-    bool        is_legal(Move m) const; // is pseudo-legal m legal (own king not left in check)? [copy-make]
+    void        make_move(Move move);      // apply move in place (caller copied first)
+    void        make_null();               // side-to-move passes (null-move pruning)
+    bool        is_legal(Move move) const; // is pseudo-legal move legal (own king not left in check)? [copy-make]
 
     // Fast legality without copy-make: our pieces pinned to our king, and a legality test given the node's
     // precomputed checkers/pinned. Lets the search prune before paying make_move. is_legal_fast must agree
     // with is_legal on every pseudo-legal move (validated by the `legalcheck` differential test).
     Bitboard pinned_to_king() const;
-    bool     is_legal_fast(Move m, Bitboard checkers, Bitboard pinned) const;
+    bool     is_legal_fast(Move move, Bitboard checkers, Bitboard pinned) const;
 
-    bool has_non_pawn_material(Color c) const
+    bool has_non_pawn_material(Color color) const
     {
-        return byColor[c] & ~(byType[PAWN] | byType[KING]);
+        return byColor[color] & ~(byType[PAWN] | byType[KING]);
     }
 
   private:
-    void put(Color c, PieceType pt, int sq);
-    void remove(int sq);
+    void put(Color color, PieceType pieceType, int square);
+    void remove(int square);
     void move_piece(int from, int to);
 };
