@@ -17,14 +17,19 @@ jobs:
         run: make
       - name: Perft (move-gen correctness — must pass)
         run: ./zenith perft
-      - name: Bench (fixed-depth node signature)
-        run: ./zenith bench 12
+      - name: Legality oracle (is_legal_fast == is_legal over a perft walk)
+        run: ./zenith legalcheck
+      - name: Bench (fixed-depth node signature — must match; guards search determinism)
+        run: |
+          signature=$(./zenith bench 13 | tail -1 | grep -oE '^[0-9]+')
+          echo "bench 13 node signature: $signature (expected 3325894)"
+          test "$signature" = "3325894" || { echo "::error::bench signature changed — if intentional, update the expected value in ci.yml"; exit 1; }
 
   format-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)
+        run: sudo apt-get update && sudo apt-get install -y clang-format-18
       - name: Check formatting (repo .clang-format)
-        run: clang-format --dry-run --Werror src/*.cpp src/*.h
+        run: clang-format-18 --dry-run --Werror src/*.cpp src/*.h
