@@ -25,7 +25,12 @@ Session Elo (self-play SPRT): kb2 +57, correction history +10, legality oracle +
 legality-oracle speed win transferred to pawnstar near 1:1 (speed helps vs any opponent), unlike eval gains
 (~1/3 transfer) — which is why the full-stack gap closure (~+137) exceeds kb2's eval-only +20.
 
-8 threads each (Lazy SMP), pc2 net: −42 ± 48 vs pawnstar (conc 3, 2026-07-20) — near-even at equal threads; Zenith's SMP scales better than pawnstar's. (Re-measure with kb2 at matched conc for a clean number.)
+8 threads each (Lazy SMP), same conditions (conc 3, 8+0.08):
+- pc2 net (2026-07-20): −42 ± 48 vs pawnstar — near-even.
+- **kb3 + corrhist + legality + EP/castle + SPSA-tuned (2026-07-23): +107.5 ± 37.8 → ZENITH IS STRONGER THAN
+  PAWNSTAR AT 8 THREADS.** GOAL ACHIEVED at multi-thread. A +149 Elo swing from the session's work. Zenith's
+  Lazy SMP scales much better than pawnstar's, so at equal threads the eval+search gains compound into a
+  commanding lead — even though single-thread is still −134 (partial transfer of eval gains). See [[zenith-goal-independence]].
 
 **Key lesson — self-play gains only partially transfer to a much stronger opponent.** kb2 is +63 vs pc2 in
 self-play but only ~+20 better against pawnstar (~1/3 transfer). SPRT self-play deltas OVERSTATE the gain
