@@ -14,8 +14,11 @@ Zenith's strength is benchmarked against pawnstar C++ (the reference opponent; u
 Single-thread, matched conditions (conc 8):
 - **pc2 (512, 190M plentychess):** −277.5 ± 43.6 vs pawnstar (2026-07-21).
 - **kb2 (king buckets, 650M plentychess):** −257.6 ± 40.7 → kb2 closes ~+20 Elo (eval gain, partial transfer).
-- **kb2 + correction history + legality oracle (current ./zenith):** **−140.4 ± 34.1** (2026-07-22) → the full
-  stack closes **~+137 Elo**; the single-thread gap has roughly HALVED from −278 to −140.
+- **kb2 + correction history + legality oracle:** **−140.4 ± 34.1** (2026-07-22) → full stack closes ~+137 Elo.
+- **+ kb3 + inline EP/castle + SPSA-tuned search (current ./zenith):** **−133.6 ± 32.8** (2026-07-23). The single-
+  thread gap is roughly HALVED from −278. Note: kb3 (+8) and SPSA (+26.5) are big SELF-PLAY gains but only nudged
+  the pawnstar point estimate (−140→−134, within the ±33 noise) — partial transfer again, and hard to resolve at
+  ~300 games. The legality-oracle SPEED win (~1:1 transfer) did most of the −278→−140 closure.
 - **kb2 vs pc2 self-play: +63.2 ± 29.7** (consistent with the +57 SPRT that shipped kb2).
 
 Session Elo (self-play SPRT): kb2 +57, correction history +10, legality oracle +66 (~+133 cumulative). The
