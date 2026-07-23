@@ -321,13 +321,6 @@ bool Position::is_legal_fast(Move move, Bitboard checkers, Bitboard pinned) cons
     return true;
 }
 
-bool Position::gives_check(Move move) const
-{
-    Position copy = *this;
-    copy.make_move(move);
-    return copy.in_check();
-}
-
 void Position::set_fen(const std::string &fen)
 {
     for (int color = 0; color < COLOR_NB; color++)

@@ -83,8 +83,6 @@ class Position
         return attacked_by(king_sq(stm), ~stm);
     }
 
-    bool gives_check(Move move) const; // does move leave the opponent in check?
-
     // --- mutation ---
     void        set_fen(const std::string &fen);
     std::string fen() const;
