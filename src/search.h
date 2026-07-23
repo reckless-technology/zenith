@@ -24,17 +24,18 @@ void init_search();
 // engine exactly, so the bench signature is unchanged. After tuning, the winning values are baked back here.
 struct SearchParams
 {
-    int rfp_margin         = 80;  // reverse-futility margin per depth
-    int nmp_divisor        = 200; // null-move reduction: +min((eval-beta)/nmp_divisor, 3)
-    int lmp_base           = 3;   // late-move-pruning count: base + depth*depth
-    int futility_base      = 100; // futility margin base
-    int futility_margin    = 90;  // futility margin per depth
-    int see_capture_margin = 100; // SEE capture-pruning threshold per depth
-    int lmr_base_x100      = 80;  // LMR base (x100): reduction = lmr_base/100 + ln(d)*ln(m)/(lmr_divisor/100)
-    int lmr_divisor_x100   = 230; // LMR divisor (x100)
+    // Defaults are SPSA-tuned (800 iterations self-play, +26.5 Elo SPRT vs the pre-tune values).
+    int rfp_margin         = 62;  // reverse-futility margin per depth
+    int nmp_divisor        = 202; // null-move reduction: +min((eval-beta)/nmp_divisor, 3)
+    int lmp_base           = 4;   // late-move-pruning count: base + depth*depth
+    int futility_base      = 102; // futility margin base
+    int futility_margin    = 96;  // futility margin per depth
+    int see_capture_margin = 102; // SEE capture-pruning threshold per depth
+    int lmr_base_x100      = 86;  // LMR base (x100): reduction = lmr_base/100 + ln(d)*ln(m)/(lmr_divisor/100)
+    int lmr_divisor_x100   = 229; // LMR divisor (x100)
     int singular_margin    = 3;   // singular-extension beta margin per depth
-    int aspiration_delta   = 20;  // initial aspiration half-window
-    int history_max        = 400; // history bonus cap (min(depth*depth, history_max))
+    int aspiration_delta   = 21;  // initial aspiration half-window
+    int history_max        = 418; // history bonus cap (min(depth*depth, history_max))
 };
 
 extern SearchParams g_params;
