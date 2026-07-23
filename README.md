@@ -96,4 +96,9 @@ src/main.cpp       entry
 trainer/           independent PyTorch NNUE trainer (features.py, train.py, verify.py)
 tools/sprt.sh              self-play / cross-engine SPRT harness (fastchess)
 tools/datagen_parallel.sh fan datagen across CPU cores
+tools/spsa.py             SPSA tuner for the search parameters (UCI-exposed) 
+tools/link-memory.sh      wire Claude Code memory to the repo (run once per clone)
 ```
+
+Project notes and lessons live in `.claude/memory/` (versioned in git). After cloning, run
+`tools/link-memory.sh` once to point Claude Code's memory at the repo copy so those notes are shared.
