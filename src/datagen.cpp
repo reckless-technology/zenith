@@ -43,22 +43,22 @@ bool datagen_is_draw(const Position &pos, const std::vector<uint64_t> &history)
     {
         return true;
     }
-    if (!(pos.byType[PAWN] | pos.byType[ROOK] | pos.byType[QUEEN]))
+    if (!(pos.by_type[PAWN] | pos.by_type[ROOK] | pos.by_type[QUEEN]))
     {
-        int whiteMinors = popcount(pos.byColor[WHITE] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        int blackMinors = popcount(pos.byColor[BLACK] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        if (whiteMinors <= 1 && blackMinors <= 1)
+        int white_minors = popcount(pos.by_color[WHITE] & (pos.by_type[KNIGHT] | pos.by_type[BISHOP]));
+        int black_minors = popcount(pos.by_color[BLACK] & (pos.by_type[KNIGHT] | pos.by_type[BISHOP]));
+        if (white_minors <= 1 && black_minors <= 1)
         {
             return true;
         }
     }
-    int historyEnd = (int)history.size();
-    int stopAt     = historyEnd - pos.halfmove;
-    if (stopAt < 0)
+    int history_end = (int)history.size();
+    int stop_at     = history_end - pos.halfmove;
+    if (stop_at < 0)
     {
-        stopAt = 0;
+        stop_at = 0;
     }
-    for (int index = historyEnd - 2; index >= stopAt; index -= 2)
+    for (int index = history_end - 2; index >= stop_at; index -= 2)
     {
         if (history[index] == pos.key)
         {
@@ -89,15 +89,15 @@ std::vector<std::string> load_opening_book(const std::string &path)
     return book;
 }
 
-// Set up a game start: a book position (if a book is loaded) or the standard start, then `openingPlies`
+// Set up a game start: a book position (if a book is loaded) or the standard start, then `opening_plies`
 // uniformly-random legal plies for variety. Returns false if a terminal position is hit (caller retries)
 // so every game starts from a legal, non-terminal, varied position.
-bool random_opening(Position &pos, std::vector<uint64_t> &history, std::mt19937_64 &rng, int openingPlies,
-                    const std::string &startFen)
+bool random_opening(Position &pos, std::vector<uint64_t> &history, std::mt19937_64 &rng, int opening_plies,
+                    const std::string &start_fen)
 {
-    pos.set_fen(startFen);
+    pos.set_fen(start_fen);
     history.clear();
-    for (int plyIndex = 0; plyIndex < openingPlies; plyIndex++)
+    for (int ply_index = 0; ply_index < opening_plies; ply_index++)
     {
         MoveList moves;
         generate_legal(pos, moves);
@@ -120,70 +120,70 @@ bool random_opening(Position &pos, std::vector<uint64_t> &history, std::mt19937_
 
 int run_datagen(int argc, char **argv)
 {
-    // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=openingPlies
+    // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=opening_plies
     if (argc < 3)
     {
         fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd] [net.nnue]\n",
                 argv[0]);
         return 1;
     }
-    long        games        = atol(argv[1]);
-    const char *outPath      = argv[2];
-    uint64_t    seed         = argc > 3 ? strtoull(argv[3], nullptr, 10) : 0x9E3779B97F4A7C15ULL;
-    int         nodes        = argc > 4 ? atoi(argv[4]) : 5000;
-    int         openingPlies = argc > 5 ? atoi(argv[5]) : 8;
-    std::string bookPath     = argc > 6 ? argv[6] : "";
-    std::string netPath      = argc > 7 ? argv[7] : "";
+    long        games         = atol(argv[1]);
+    const char *out_path      = argv[2];
+    uint64_t    seed          = argc > 3 ? strtoull(argv[3], nullptr, 10) : 0x9E3779B97F4A7C15ULL;
+    int         nodes         = argc > 4 ? atoi(argv[4]) : 5000;
+    int         opening_plies = argc > 5 ? atoi(argv[5]) : 8;
+    std::string book_path     = argc > 6 ? argv[6] : "";
+    std::string net_path      = argc > 7 ? argv[7] : "";
 
-    std::vector<std::string> openingBook = load_opening_book(bookPath);
-    if (!bookPath.empty())
+    std::vector<std::string> opening_book = load_opening_book(book_path);
+    if (!book_path.empty())
     {
-        fprintf(stderr, "datagen: loaded %zu opening positions from %s\n", openingBook.size(), bookPath.c_str());
+        fprintf(stderr, "datagen: loaded %zu opening positions from %s\n", opening_book.size(), book_path.c_str());
     }
     // Optional NNUE net: self-play labels then come from the network (net-in-the-loop), which is how the
     // engine bootstraps above its hand-crafted teacher. Absent => the HCE labels the data.
-    if (!netPath.empty())
+    if (!net_path.empty())
     {
-        fprintf(stderr, "datagen: %s NNUE %s for labels\n", nnue::load(netPath) ? "loaded" : "FAILED to load",
-                netPath.c_str());
+        fprintf(stderr, "datagen: %s NNUE %s for labels\n", nnue::load(net_path) ? "loaded" : "FAILED to load",
+                net_path.c_str());
     }
 
-    FILE *out = std::fopen(outPath, "w");
+    FILE *out = std::fopen(out_path, "w");
     if (!out)
     {
-        fprintf(stderr, "datagen: cannot open %s\n", outPath);
+        fprintf(stderr, "datagen: cannot open %s\n", out_path);
         return 1;
     }
 
     std::mt19937_64 rng(seed);
     Searcher        searcher;
-    searcher.silent       = true;
-    searcher.moveOverhead = 0;
+    searcher.silent        = true;
+    searcher.move_overhead = 0;
 
     SearchLimits limits;
     limits.nodes = nodes;
 
-    uint64_t totalPositions = 0;
-    long     finished       = 0;
-    auto     startTime      = std::chrono::steady_clock::now();
+    uint64_t total_positions = 0;
+    long     finished        = 0;
+    auto     start_time      = std::chrono::steady_clock::now();
 
     std::vector<Record>   pending;
     std::vector<uint64_t> history;
 
-    for (long gameIndex = 0; gameIndex < games; gameIndex++)
+    for (long game_index = 0; game_index < games; game_index++)
     {
         Position           pos;
-        const std::string &startFen =
-            openingBook.empty() ? std::string(START_FEN) : openingBook[rng() % openingBook.size()];
-        while (!random_opening(pos, history, rng, openingPlies, startFen))
+        const std::string &start_fen =
+            opening_book.empty() ? std::string(START_FEN) : opening_book[rng() % opening_book.size()];
+        while (!random_opening(pos, history, rng, opening_plies, start_fen))
         { /* retry until non-terminal */
         }
         TT.clear();
 
         pending.clear();
-        int gameResult       = 0; // +1 white win, -1 black win, 0 draw
-        int winAdjCount      = 0;
-        int adjudicationSide = 0;
+        int game_result       = 0; // +1 white win, -1 black win, 0 draw
+        int win_adj_count     = 0;
+        int adjudication_side = 0;
 
         for (int ply = 0; ply < MAX_GAME_PLIES; ply++)
         {
@@ -191,12 +191,12 @@ int run_datagen(int argc, char **argv)
             generate_legal(pos, legal);
             if (legal.size() == 0)
             {
-                gameResult = pos.in_check() ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
+                game_result = pos.in_check() ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
             if (datagen_is_draw(pos, history))
             {
-                gameResult = 0;
+                game_result = 0;
                 break;
             }
 
@@ -205,10 +205,10 @@ int run_datagen(int argc, char **argv)
             Move move     = searcher.go(pos, limits);
             if (move.is_none())
             {
-                gameResult = 0;
+                game_result = 0;
                 break;
             }
-            int score = searcher.rootScore; // cp, stm POV
+            int score = searcher.root_score; // cp, stm POV
 
             // Record quiet, not-yet-decided positions (one per ply).
             if (!pos.in_check() && move.is_quiet() && std::abs(score) < RECORD_SCORE_CAP)
@@ -217,20 +217,20 @@ int run_datagen(int argc, char **argv)
             }
 
             // Win adjudication (white POV).
-            int whiteScore = pos.stm == WHITE ? score : -score;
-            int side       = whiteScore > WIN_ADJ_SCORE ? +1 : (whiteScore < -WIN_ADJ_SCORE ? -1 : 0);
-            if (side != 0 && side == adjudicationSide)
+            int white_score = pos.stm == WHITE ? score : -score;
+            int side        = white_score > WIN_ADJ_SCORE ? +1 : (white_score < -WIN_ADJ_SCORE ? -1 : 0);
+            if (side != 0 && side == adjudication_side)
             {
-                if (++winAdjCount >= WIN_ADJ_PLIES)
+                if (++win_adj_count >= WIN_ADJ_PLIES)
                 {
-                    gameResult = side;
+                    game_result = side;
                     break;
                 }
             }
             else
             {
-                adjudicationSide = side;
-                winAdjCount      = side != 0 ? 1 : 0;
+                adjudication_side = side;
+                win_adj_count     = side != 0 ? 1 : 0;
             }
 
             history.push_back(pos.key);
@@ -240,18 +240,19 @@ int run_datagen(int argc, char **argv)
         // Emit records with the final WDL from each record's side-to-move POV.
         for (const Record &record : pending)
         {
-            double wdl = gameResult == 0 ? 0.5 : (((gameResult > 0) == (record.stm == WHITE)) ? 1.0 : 0.0);
+            double wdl = game_result == 0 ? 0.5 : (((game_result > 0) == (record.stm == WHITE)) ? 1.0 : 0.0);
             std::fprintf(out, "%s;%d;%.1f\n", record.fen.c_str(), record.score, wdl);
         }
-        totalPositions += pending.size();
+        total_positions += pending.size();
         finished++;
 
-        if (finished % 50 == 0 || gameIndex == games - 1)
+        if (finished % 50 == 0 || game_index == games - 1)
         {
             std::fflush(out);
-            double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+            double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
             fprintf(stderr, "[seed %llu] games %ld/%ld  positions %llu  %.0f pos/s\n", (unsigned long long)seed,
-                    finished, games, (unsigned long long)totalPositions, seconds > 0 ? totalPositions / seconds : 0.0);
+                    finished, games, (unsigned long long)total_positions,
+                    seconds > 0 ? total_positions / seconds : 0.0);
         }
     }
 
@@ -271,30 +272,30 @@ int run_bullet2text(int argc, char **argv)
         fprintf(stderr, "usage: %s bullet2text <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
         return 1;
     }
-    const char *inPath     = argv[1];
-    const char *outPath    = argv[2];
-    uint64_t    maxRecords = argc > 3 ? strtoull(argv[3], nullptr, 10) : ~0ULL;
-    uint64_t    stride     = argc > 4 ? std::max<uint64_t>(1, strtoull(argv[4], nullptr, 10)) : 1;
-    if (maxRecords == 0)
+    const char *in_path     = argv[1];
+    const char *out_path    = argv[2];
+    uint64_t    max_records = argc > 3 ? strtoull(argv[3], nullptr, 10) : ~0ULL;
+    uint64_t    stride      = argc > 4 ? std::max<uint64_t>(1, strtoull(argv[4], nullptr, 10)) : 1;
+    if (max_records == 0)
     {
-        maxRecords = ~0ULL; // 0 means "all records" (with the given stride)
+        max_records = ~0ULL; // 0 means "all records" (with the given stride)
     }
 
-    FILE *in  = std::fopen(inPath, "rb");
-    FILE *out = std::fopen(outPath, "w");
+    FILE *in  = std::fopen(in_path, "rb");
+    FILE *out = std::fopen(out_path, "w");
     if (!in || !out)
     {
-        fprintf(stderr, "bullet2text: cannot open %s / %s\n", inPath, outPath);
+        fprintf(stderr, "bullet2text: cannot open %s / %s\n", in_path, out_path);
         return 1;
     }
 
-    const char   *pieceChars = "PNBRQK";
+    const char   *piece_chars = "PNBRQK";
     unsigned char record[32];
-    uint64_t      readCount = 0, written = 0;
+    uint64_t      read_count = 0, written = 0;
     std::string   line;
-    while (written < maxRecords && std::fread(record, 1, 32, in) == 32)
+    while (written < max_records && std::fread(record, 1, 32, in) == 32)
     {
-        if ((readCount++ % stride) != 0)
+        if ((read_count++ % stride) != 0)
         {
             continue; // subsample the (5.7B-position) dataset for a diverse manageable slice
         }
@@ -306,42 +307,42 @@ int run_bullet2text(int argc, char **argv)
 
         char board[64];
         std::memset(board, 0, sizeof(board));
-        uint64_t occupancyBits = occupancy;
-        int      pieceIndex    = 0;
-        while (occupancyBits)
+        uint64_t occupancy_bits = occupancy;
+        int      piece_index    = 0;
+        while (occupancy_bits)
         {
-            int square = __builtin_ctzll(occupancyBits);
-            occupancyBits &= occupancyBits - 1;
-            uint8_t nibble = (record[8 + pieceIndex / 2] >> (4 * (pieceIndex % 2))) & 0xF;
-            pieceIndex++;
-            char pieceChar = pieceChars[nibble & 7];
-            board[square]  = (nibble & 8) ? char(std::tolower(pieceChar)) : pieceChar; // bit3 set => opponent (black)
+            int square = __builtin_ctzll(occupancy_bits);
+            occupancy_bits &= occupancy_bits - 1;
+            uint8_t nibble = (record[8 + piece_index / 2] >> (4 * (piece_index % 2))) & 0xF;
+            piece_index++;
+            char piece_char = piece_chars[nibble & 7];
+            board[square] = (nibble & 8) ? char(std::tolower(piece_char)) : piece_char; // bit3 set => opponent (black)
         }
 
         line.clear();
         for (int rank = 7; rank >= 0; rank--)
         {
-            int emptyCount = 0;
+            int empty_count = 0;
             for (int file = 0; file < 8; file++)
             {
-                char squareChar = board[rank * 8 + file];
-                if (!squareChar)
+                char square_char = board[rank * 8 + file];
+                if (!square_char)
                 {
-                    emptyCount++;
+                    empty_count++;
                 }
                 else
                 {
-                    if (emptyCount)
+                    if (empty_count)
                     {
-                        line += char('0' + emptyCount);
-                        emptyCount = 0;
+                        line += char('0' + empty_count);
+                        empty_count = 0;
                     }
-                    line += squareChar;
+                    line += square_char;
                 }
             }
-            if (emptyCount)
+            if (empty_count)
             {
-                line += char('0' + emptyCount);
+                line += char('0' + empty_count);
             }
             if (rank)
             {
@@ -354,6 +355,6 @@ int run_bullet2text(int argc, char **argv)
     std::fclose(in);
     std::fclose(out);
     fprintf(stderr, "bullet2text: wrote %llu records (stride %llu) to %s\n", (unsigned long long)written,
-            (unsigned long long)stride, outPath);
+            (unsigned long long)stride, out_path);
     return 0;
 }

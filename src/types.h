@@ -36,9 +36,9 @@ enum Piece : int
     NO_PIECE = 12
 };
 
-inline Piece make_piece(Color color, PieceType pieceType)
+inline Piece make_piece(Color color, PieceType piece_type)
 {
-    return Piece(color * 6 + pieceType);
+    return Piece(color * 6 + piece_type);
 }
 
 inline Color color_of(Piece piece)

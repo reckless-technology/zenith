@@ -18,7 +18,7 @@ const int SeeValue[6] = {100, 320, 330, 500, 900, 10000};
 
 // Eval correction history: a running average of (search score - static eval) keyed by pawn structure, used
 // to nudge the static eval toward what search has historically found. Entries are cp * CORRHIST_GRAIN.
-constexpr int CORRHIST_SIZE  = 16384; // power of two -> index by (pawnKey & (SIZE-1))
+constexpr int CORRHIST_SIZE  = 16384; // power of two -> index by (pawn_key & (SIZE-1))
 constexpr int CORRHIST_GRAIN = 256;
 constexpr int CORRHIST_MAX   = 64 * CORRHIST_GRAIN; // clamp the correction to +/-64 cp
 
@@ -33,8 +33,8 @@ int static_exchange_eval(const Position &pos, Move move)
     int to = move.to(), from = move.from();
     int captured = move.is_ep() ? SeeValue[PAWN] : SeeValue[type_of(pos.board[to])];
     int gain[32];
-    int swapIndex = 0;
-    gain[0]       = captured;
+    int swap_index = 0;
+    gain[0]        = captured;
 
     Bitboard occupied = pos.occupied();
     if (move.is_ep())
@@ -50,39 +50,39 @@ int static_exchange_eval(const Position &pos, Move move)
 
     while (true)
     {
-        swapIndex++;
-        gain[swapIndex]        = SeeValue[attacker] - gain[swapIndex - 1];
-        Bitboard sideAttackers = attackers & pos.byColor[side];
-        if (!sideAttackers)
+        swap_index++;
+        gain[swap_index]        = SeeValue[attacker] - gain[swap_index - 1];
+        Bitboard side_attackers = attackers & pos.by_color[side];
+        if (!side_attackers)
         {
             break;
         }
         // Least valuable attacker of `side`.
-        PieceType leastValuableAttacker = KING;
-        Bitboard  attackerBit           = 0;
-        for (int pieceType = PAWN; pieceType <= KING; pieceType++)
+        PieceType least_valuable_attacker = KING;
+        Bitboard  attacker_bit            = 0;
+        for (int piece_type = PAWN; piece_type <= KING; piece_type++)
         {
-            Bitboard candidates = sideAttackers & pos.pieces(side, PieceType(pieceType));
+            Bitboard candidates = side_attackers & pos.pieces(side, PieceType(piece_type));
             if (candidates)
             {
-                leastValuableAttacker = PieceType(pieceType);
-                attackerBit           = candidates & (~candidates + 1);
+                least_valuable_attacker = PieceType(piece_type);
+                attacker_bit            = candidates & (~candidates + 1);
                 break;
             }
         }
-        attacker = leastValuableAttacker;
-        occupied ^= attackerBit;
+        attacker = least_valuable_attacker;
+        occupied ^= attacker_bit;
         attackers = (pos.attackers_to(to, WHITE, occupied) | pos.attackers_to(to, BLACK, occupied)) & occupied;
         side      = ~side;
-        if (attacker == KING && (attackers & pos.byColor[side]))
+        if (attacker == KING && (attackers & pos.by_color[side]))
         {
             // Cannot recapture with the king into a still-defended square; stop before it.
             break;
         }
     }
-    while (--swapIndex > 0)
+    while (--swap_index > 0)
     {
-        gain[swapIndex - 1] = -std::max(-gain[swapIndex - 1], gain[swapIndex]);
+        gain[swap_index - 1] = -std::max(-gain[swap_index - 1], gain[swap_index]);
     }
     return gain[0];
 }
@@ -91,13 +91,13 @@ int static_exchange_eval(const Position &pos, Move move)
 
 void init_search()
 {
-    double lmrBase    = g_params.lmrBaseX100 / 100.0;
-    double lmrDivisor = g_params.lmrDivisorX100 / 100.0;
+    double lmr_base    = g_params.lmr_base_x100 / 100.0;
+    double lmr_divisor = g_params.lmr_divisor_x100 / 100.0;
     for (int depth = 1; depth < MAX_PLY; depth++)
     {
-        for (int moveNumber = 1; moveNumber < 64; moveNumber++)
+        for (int move_number = 1; move_number < 64; move_number++)
         {
-            Reductions[depth][moveNumber] = int(lmrBase + std::log(depth) * std::log(moveNumber) / lmrDivisor);
+            Reductions[depth][move_number] = int(lmr_base + std::log(depth) * std::log(move_number) / lmr_divisor);
         }
     }
 }
@@ -106,48 +106,48 @@ bool set_search_param(const std::string &name, int value)
 {
     if (name == "RfpMargin")
     {
-        g_params.rfpMargin = value;
+        g_params.rfp_margin = value;
     }
     else if (name == "NmpDivisor")
     {
-        g_params.nmpDivisor = value;
+        g_params.nmp_divisor = value;
     }
     else if (name == "LmpBase")
     {
-        g_params.lmpBase = value;
+        g_params.lmp_base = value;
     }
     else if (name == "FutilityBase")
     {
-        g_params.futilityBase = value;
+        g_params.futility_base = value;
     }
     else if (name == "FutilityMargin")
     {
-        g_params.futilityMargin = value;
+        g_params.futility_margin = value;
     }
     else if (name == "SeeCaptureMargin")
     {
-        g_params.seeCaptureMargin = value;
+        g_params.see_capture_margin = value;
     }
     else if (name == "SingularMargin")
     {
-        g_params.singularMargin = value;
+        g_params.singular_margin = value;
     }
     else if (name == "AspirationDelta")
     {
-        g_params.aspirationDelta = value;
+        g_params.aspiration_delta = value;
     }
     else if (name == "HistoryMax")
     {
-        g_params.historyMax = value;
+        g_params.history_max = value;
     }
     else if (name == "LmrBase")
     {
-        g_params.lmrBaseX100 = value;
+        g_params.lmr_base_x100 = value;
         init_search(); // LMR table depends on this
     }
     else if (name == "LmrDivisor")
     {
-        g_params.lmrDivisorX100 = value;
+        g_params.lmr_divisor_x100 = value;
         init_search();
     }
     else
@@ -169,7 +169,7 @@ bool Searcher::time_up()
         return true;
     }
     // Only the main thread owns the time/node budget; when it runs out it sets g_stop so helpers stop too.
-    if (isMain && ((nodeLimit && nodes >= (uint64_t)nodeLimit) || (useTime && elapsed() >= hardMs)))
+    if (is_main && ((node_limit && nodes >= (uint64_t)node_limit) || (use_time && elapsed() >= hard_ms)))
     {
         g_stop.store(true, std::memory_order_relaxed);
         return true;
@@ -179,22 +179,22 @@ bool Searcher::time_up()
 
 void Searcher::set_time(const Position &root, const SearchLimits &lim)
 {
-    useTime = false;
-    softMs = hardMs = 0;
-    nodeLimit       = lim.nodes;
+    use_time = false;
+    soft_ms = hard_ms = 0;
+    node_limit        = lim.nodes;
     if (lim.movetime > 0)
     {
-        useTime = true;
-        hardMs = softMs = std::max<int64_t>(1, lim.movetime - moveOverhead);
+        use_time = true;
+        hard_ms = soft_ms = std::max<int64_t>(1, lim.movetime - move_overhead);
     }
     else if (lim.time[root.stm] > 0)
     {
-        useTime           = true;
+        use_time          = true;
         int64_t remaining = lim.time[root.stm], increment = lim.inc[root.stm];
-        int     movesToGo = lim.movestogo > 0 ? lim.movestogo : 30;
-        int64_t budget    = remaining / movesToGo + increment * 3 / 4;
-        softMs            = std::max<int64_t>(1, budget - moveOverhead);
-        hardMs            = std::max<int64_t>(1, std::min<int64_t>(remaining - moveOverhead, softMs * 4));
+        int     moves_to_go = lim.movestogo > 0 ? lim.movestogo : 30;
+        int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
+        soft_ms             = std::max<int64_t>(1, budget - move_overhead);
+        hard_ms             = std::max<int64_t>(1, std::min<int64_t>(remaining - move_overhead, soft_ms * 4));
     }
 }
 
@@ -205,11 +205,11 @@ bool Searcher::is_draw(const Position &pos) const
         return true;
     }
     // Insufficient material (K vs K, K+minor vs K/K+minor).
-    if (!(pos.byType[PAWN] | pos.byType[ROOK] | pos.byType[QUEEN]))
+    if (!(pos.by_type[PAWN] | pos.by_type[ROOK] | pos.by_type[QUEEN]))
     {
-        int whiteMinors = popcount(pos.byColor[WHITE] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        int blackMinors = popcount(pos.byColor[BLACK] & (pos.byType[KNIGHT] | pos.byType[BISHOP]));
-        if (whiteMinors <= 1 && blackMinors <= 1)
+        int white_minors = popcount(pos.by_color[WHITE] & (pos.by_type[KNIGHT] | pos.by_type[BISHOP]));
+        int black_minors = popcount(pos.by_color[BLACK] & (pos.by_type[KNIGHT] | pos.by_type[BISHOP]));
+        if (white_minors <= 1 && black_minors <= 1)
         {
             return true;
         }
@@ -229,9 +229,9 @@ bool Searcher::is_draw(const Position &pos) const
 
 void Searcher::update_pv(int ply, Move move)
 {
-    pvTable[ply][0] = move;
-    std::memcpy(&pvTable[ply][1], &pvTable[ply + 1][0], pvLen[ply + 1] * sizeof(Move));
-    pvLen[ply] = pvLen[ply + 1] + 1;
+    pv_table[ply][0] = move;
+    std::memcpy(&pv_table[ply][1], &pv_table[ply + 1][0], pv_len[ply + 1] * sizeof(Move));
+    pv_len[ply] = pv_len[ply + 1] + 1;
 }
 
 int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
@@ -252,9 +252,9 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
 
     Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
     Bitboard pinned   = pos.pinned_to_king();
-    bool     inCheck  = checkers != 0;
+    bool     in_check = checkers != 0;
     int      best     = -VALUE_INF;
-    if (!inCheck)
+    if (!in_check)
     {
         best = evaluate(pos);
         if (best >= beta)
@@ -268,7 +268,7 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
     }
 
     MoveList moves;
-    generate_pseudo(pos, moves, !inCheck); // in check: all evasions; else captures + promotions
+    generate_pseudo(pos, moves, !in_check); // in check: all evasions; else captures + promotions
 
     // MVV-LVA ordering.
     int scores[256];
@@ -288,19 +288,19 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         scores[index] = score;
     }
 
-    int legalCount = 0;
+    int legal_count = 0;
     for (int index = 0; index < moves.size(); index++)
     {
-        int bestIndex = index;
+        int best_index = index;
         for (int other = index + 1; other < moves.size(); other++)
         {
-            if (scores[other] > scores[bestIndex])
+            if (scores[other] > scores[best_index])
             {
-                bestIndex = other;
+                best_index = other;
             }
         }
-        std::swap(moves[index], moves[bestIndex]);
-        std::swap(scores[index], scores[bestIndex]);
+        std::swap(moves[index], moves[best_index]);
+        std::swap(scores[index], scores[best_index]);
         Move move = moves[index];
 
         // Copy-free legality first, then SEE pruning, so only searched moves pay make_move.
@@ -308,9 +308,9 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
         {
             continue;
         }
-        legalCount++;
+        legal_count++;
 
-        if (!inCheck && move.is_capture() && static_exchange_eval(pos, move) < 0)
+        if (!in_check && move.is_capture() && static_exchange_eval(pos, move) < 0)
         {
             continue; // skip losing captures
         }
@@ -335,23 +335,23 @@ int Searcher::qsearch(Position &pos, int alpha, int beta, int ply)
             }
         }
     }
-    if (inCheck && legalCount == 0)
+    if (in_check && legal_count == 0)
     {
         return -VALUE_MATE + ply; // checkmate (all evasions were illegal)
     }
     return best;
 }
 
-int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prevMove,
+int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bool cutnode, Move prev_move,
                       Move excluded)
 {
     if (time_up())
     {
         return 0; // time_up() already set g_stop for the main thread
     }
-    bool root   = ply == 0;
-    bool pvNode = beta - alpha > 1;
-    pvLen[ply]  = 0;
+    bool root    = ply == 0;
+    bool pv_node = beta - alpha > 1;
+    pv_len[ply]  = 0;
 
     if (!root)
     {
@@ -381,61 +381,61 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     // and prune before paying make_move.
     Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
     Bitboard pinned   = pos.pinned_to_king();
-    bool     inCheck  = checkers != 0;
+    bool     in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
-    int prevPieceTo = -1;
-    if (!prevMove.is_none())
+    int prev_piece_to = -1;
+    if (!prev_move.is_none())
     {
-        Piece prevPiece = pos.board[prevMove.to()];
-        if (prevPiece != NO_PIECE)
+        Piece prev_piece = pos.board[prev_move.to()];
+        if (prev_piece != NO_PIECE)
         {
-            prevPieceTo = prevPiece * 64 + prevMove.to();
+            prev_piece_to = prev_piece * 64 + prev_move.to();
         }
     }
 
-    TTEntry ttEntry;
-    bool    ttHit   = TT.probe(pos.key, ttEntry);
-    int     ttScore = ttHit ? score_from_tt(ttEntry.score, ply) : VALUE_NONE;
-    Move    ttMove  = ttHit ? Move(ttEntry.move) : Move::none();
-    if (excluded.is_none() && !pvNode && ttHit && ttEntry.depth >= depth &&
-        (ttEntry.bound == BOUND_EXACT || (ttEntry.bound == BOUND_LOWER && ttScore >= beta) ||
-         (ttEntry.bound == BOUND_UPPER && ttScore <= alpha)))
+    TTEntry tt_entry;
+    bool    tt_hit   = TT.probe(pos.key, tt_entry);
+    int     tt_score = tt_hit ? score_from_tt(tt_entry.score, ply) : VALUE_NONE;
+    Move    tt_move  = tt_hit ? Move(tt_entry.move) : Move::none();
+    if (excluded.is_none() && !pv_node && tt_hit && tt_entry.depth >= depth &&
+        (tt_entry.bound == BOUND_EXACT || (tt_entry.bound == BOUND_LOWER && tt_score >= beta) ||
+         (tt_entry.bound == BOUND_UPPER && tt_score <= alpha)))
     {
-        return ttScore;
+        return tt_score;
     }
 
     // Internal iterative reduction: with no TT move to anchor ordering at higher depths, search shallower
     // first so the cheaper search populates the TT move for the re-search.
-    if (depth >= 4 && ttMove.is_none() && !inCheck)
+    if (depth >= 4 && tt_move.is_none() && !in_check)
     {
         depth--;
     }
 
     // Raw static eval (stored in the TT); the corrected eval drives pruning/reductions. Keep them separate
     // so re-reading the TT eval never double-applies the correction.
-    int rawEval = inCheck ? VALUE_NONE : (ttHit && ttEntry.eval != VALUE_NONE ? ttEntry.eval : evaluate(pos));
-    int eval    = rawEval;
-    if (!inCheck)
+    int raw_eval = in_check ? VALUE_NONE : (tt_hit && tt_entry.eval != VALUE_NONE ? tt_entry.eval : evaluate(pos));
+    int eval     = raw_eval;
+    if (!in_check)
     {
-        eval += correctionHistory[pos.stm][pos.pawnKey & (CORRHIST_SIZE - 1)] / CORRHIST_GRAIN;
+        eval += correction_history[pos.stm][pos.pawn_key & (CORRHIST_SIZE - 1)] / CORRHIST_GRAIN;
         eval = std::clamp(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
     }
 
     // Reverse futility pruning (static null move).
-    if (!pvNode && !inCheck && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfpMargin * depth >= beta)
+    if (!pv_node && !in_check && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfp_margin * depth >= beta)
     {
         return eval;
     }
 
     // Null-move pruning.
-    if (!pvNode && !inCheck && depth >= 3 && eval >= beta && pos.has_non_pawn_material(pos.stm))
+    if (!pv_node && !in_check && depth >= 3 && eval >= beta && pos.has_non_pawn_material(pos.stm))
     {
-        int      reduction = 3 + depth / 3 + std::min((eval - beta) / g_params.nmpDivisor, 3);
-        Position nullChild = pos;
-        nullChild.make_null();
+        int      reduction  = 3 + depth / 3 + std::min((eval - beta) / g_params.nmp_divisor, 3);
+        Position null_child = pos;
+        null_child.make_null();
         hist.push_back(pos.key);
-        int score = -negamax(nullChild, depth - reduction, -beta, -beta + 1, ply + 1, !cutnode, Move::none());
+        int score = -negamax(null_child, depth - reduction, -beta, -beta + 1, ply + 1, !cutnode, Move::none());
         hist.pop_back();
         if (g_stop)
         {
@@ -455,60 +455,60 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     for (int index = 0; index < moves.size(); index++)
     {
         Move move = moves[index];
-        int  moveScore;
-        if (move == ttMove)
+        int  move_score;
+        if (move == tt_move)
         {
-            moveScore = 2000000000;
+            move_score = 2000000000;
         }
         else if (move.is_capture())
         {
-            moveScore = 1000000 + 100 * SeeValue[move.is_ep() ? PAWN : type_of(pos.board[move.to()])] -
-                        SeeValue[type_of(pos.board[move.from()])];
+            move_score = 1000000 + 100 * SeeValue[move.is_ep() ? PAWN : type_of(pos.board[move.to()])] -
+                         SeeValue[type_of(pos.board[move.from()])];
         }
         else if (move.is_promo())
         {
-            moveScore = 900000 + move.promo_pt();
+            move_score = 900000 + move.promo_pt();
         }
         else if (move == killers[ply][0])
         {
-            moveScore = 800000;
+            move_score = 800000;
         }
         else if (move == killers[ply][1])
         {
-            moveScore = 700000;
+            move_score = 700000;
         }
-        else if (prevPieceTo >= 0 && move == counterMoves[prevPieceTo])
+        else if (prev_piece_to >= 0 && move == counter_moves[prev_piece_to])
         {
-            moveScore = 650000;
+            move_score = 650000;
         }
         else
         {
-            int currentPieceTo = pos.board[move.from()] * 64 + move.to();
-            moveScore          = history[pos.stm][move.from()][move.to()] +
-                        (prevPieceTo >= 0 ? contHist[prevPieceTo * 768 + currentPieceTo] : 0);
+            int current_piece_to = pos.board[move.from()] * 64 + move.to();
+            move_score           = history[pos.stm][move.from()][move.to()] +
+                         (prev_piece_to >= 0 ? cont_hist[prev_piece_to * 768 + current_piece_to] : 0);
         }
-        scores[index] = moveScore;
+        scores[index] = move_score;
     }
 
-    int  bestScore = -VALUE_INF;
-    Move bestMove  = Move::none();
-    int  origAlpha = alpha;
-    int  moveCount = 0;
+    int  best_score = -VALUE_INF;
+    Move best_move  = Move::none();
+    int  orig_alpha = alpha;
+    int  move_count = 0;
     Move quiets[64];
-    int  quietCount = 0;
+    int  quiet_count = 0;
 
     for (int index = 0; index < moves.size(); index++)
     {
-        int bestIndex = index;
+        int best_index = index;
         for (int other = index + 1; other < moves.size(); other++)
         {
-            if (scores[other] > scores[bestIndex])
+            if (scores[other] > scores[best_index])
             {
-                bestIndex = other;
+                best_index = other;
             }
         }
-        std::swap(moves[index], moves[bestIndex]);
-        std::swap(scores[index], scores[bestIndex]);
+        std::swap(moves[index], moves[best_index]);
+        std::swap(scores[index], scores[best_index]);
         Move move = moves[index];
         if (move == excluded)
         {
@@ -516,32 +516,32 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         }
 
         // Copy-free legality: skip illegal pseudo-legal moves BEFORE any make_move, so the LMP/futility/SEE
-        // pruning below runs first and only searched moves pay the ~2KB copy. Skipping before moveCount++
+        // pruning below runs first and only searched moves pay the ~2KB copy. Skipping before move_count++
         // keeps legal-move ordering/pruning identical to a legal generator.
         if (!pos.is_legal_fast(move, checkers, pinned))
         {
             continue;
         }
         bool quiet = move.is_quiet();
-        moveCount++;
+        move_count++;
 
         // Late-move pruning: at low depth, stop trying quiet moves once deep into the ordered list.
-        if (!pvNode && !inCheck && quiet && depth <= 8 && moveCount > g_params.lmpBase + depth * depth &&
-            !is_mate_score(bestScore))
+        if (!pv_node && !in_check && quiet && depth <= 8 && move_count > g_params.lmp_base + depth * depth &&
+            !is_mate_score(best_score))
         {
             continue;
         }
 
         // Futility pruning: at low depth, skip quiet moves that a margin cannot lift to alpha.
-        if (!root && !pvNode && !inCheck && quiet && depth <= 6 && moveCount > 1 && !is_mate_score(bestScore) &&
-            eval + g_params.futilityBase + g_params.futilityMargin * depth <= alpha)
+        if (!root && !pv_node && !in_check && quiet && depth <= 6 && move_count > 1 && !is_mate_score(best_score) &&
+            eval + g_params.futility_base + g_params.futility_margin * depth <= alpha)
         {
             continue;
         }
 
         // SEE pruning of clearly-losing captures at low depth.
-        if (!root && depth <= 6 && move.is_capture() && !is_mate_score(bestScore) &&
-            static_exchange_eval(pos, move) < -g_params.seeCaptureMargin * depth)
+        if (!root && depth <= 6 && move.is_capture() && !is_mate_score(best_score) &&
+            static_exchange_eval(pos, move) < -g_params.see_capture_margin * depth)
         {
             continue;
         }
@@ -549,38 +549,38 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         // Move survived pruning — make it now (legality already established above).
         Position child = pos;
         child.make_move(move);
-        bool childCheck = child.in_check();
-        int  extension  = childCheck ? 1 : 0;
+        bool child_check = child.in_check();
+        int  extension   = child_check ? 1 : 0;
 
         // Singular extension: if the TT move is much better than every alternative — an exclusion search
         // (this position without the TT move) at reduced depth fails low below a margin — extend it.
-        if (!root && move == ttMove && excluded.is_none() && depth >= 8 && ttHit && ttEntry.depth >= depth - 3 &&
-            (ttEntry.bound == BOUND_LOWER || ttEntry.bound == BOUND_EXACT) && !is_mate_score(ttScore))
+        if (!root && move == tt_move && excluded.is_none() && depth >= 8 && tt_hit && tt_entry.depth >= depth - 3 &&
+            (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) && !is_mate_score(tt_score))
         {
-            int singularBeta = ttScore - g_params.singularMargin * depth;
-            int singularScore =
-                negamax(pos, (depth - 1) / 2, singularBeta - 1, singularBeta, ply, cutnode, prevMove, ttMove);
-            if (singularScore < singularBeta)
+            int singular_beta = tt_score - g_params.singular_margin * depth;
+            int singular_score =
+                negamax(pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply, cutnode, prev_move, tt_move);
+            if (singular_score < singular_beta)
             {
                 extension = 1;
             }
         }
 
-        int newDepth = depth - 1 + extension;
+        int new_depth = depth - 1 + extension;
 
         hist.push_back(pos.key);
         int score;
-        if (moveCount == 1)
+        if (move_count == 1)
         {
-            score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false, move);
+            score = -negamax(child, new_depth, -beta, -alpha, ply + 1, false, move);
         }
         else
         {
             int reduction = 0;
-            if (depth >= 3 && moveCount >= 4 && quiet && !inCheck)
+            if (depth >= 3 && move_count >= 4 && quiet && !in_check)
             {
-                reduction = Reductions[std::min(depth, MAX_PLY - 1)][std::min(moveCount, 63)];
-                if (pvNode)
+                reduction = Reductions[std::min(depth, MAX_PLY - 1)][std::min(move_count, 63)];
+                if (pv_node)
                 {
                     reduction--;
                 }
@@ -588,16 +588,16 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
                 {
                     reduction++;
                 }
-                reduction = std::clamp(reduction, 0, newDepth - 1);
+                reduction = std::clamp(reduction, 0, new_depth - 1);
             }
-            score = -negamax(child, newDepth - reduction, -alpha - 1, -alpha, ply + 1, true, move);
+            score = -negamax(child, new_depth - reduction, -alpha - 1, -alpha, ply + 1, true, move);
             if (score > alpha && reduction > 0)
             {
-                score = -negamax(child, newDepth, -alpha - 1, -alpha, ply + 1, !cutnode, move);
+                score = -negamax(child, new_depth, -alpha - 1, -alpha, ply + 1, !cutnode, move);
             }
             if (score > alpha && score < beta)
             {
-                score = -negamax(child, newDepth, -beta, -alpha, ply + 1, false, move);
+                score = -negamax(child, new_depth, -beta, -alpha, ply + 1, false, move);
             }
         }
         hist.pop_back();
@@ -606,19 +606,19 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
             return 0;
         }
 
-        if (quiet && quietCount < 64)
+        if (quiet && quiet_count < 64)
         {
-            quiets[quietCount++] = move;
+            quiets[quiet_count++] = move;
         }
 
-        if (score > bestScore)
+        if (score > best_score)
         {
-            bestScore = score;
-            bestMove  = move;
+            best_score = score;
+            best_move  = move;
             if (score > alpha)
             {
                 alpha = score;
-                if (pvNode)
+                if (pv_node)
                 {
                     update_pv(ply, move);
                 }
@@ -633,29 +633,29 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
                             killers[ply][1] = killers[ply][0];
                             killers[ply][0] = move;
                         }
-                        if (prevPieceTo >= 0)
+                        if (prev_piece_to >= 0)
                         {
-                            counterMoves[prevPieceTo] = move;
+                            counter_moves[prev_piece_to] = move;
                         }
-                        int  bonus         = std::min(depth * depth, g_params.historyMax);
+                        int  bonus         = std::min(depth * depth, g_params.history_max);
                         auto apply_gravity = [&](int &entry, int change) {
                             entry += change - entry * std::abs(change) / 16384;
                         };
-                        int currentPieceTo = pos.board[move.from()] * 64 + move.to();
+                        int current_piece_to = pos.board[move.from()] * 64 + move.to();
                         apply_gravity(history[pos.stm][move.from()][move.to()], bonus);
-                        if (prevPieceTo >= 0)
+                        if (prev_piece_to >= 0)
                         {
-                            apply_gravity(contHist[prevPieceTo * 768 + currentPieceTo], bonus);
+                            apply_gravity(cont_hist[prev_piece_to * 768 + current_piece_to], bonus);
                         }
-                        for (int quietIndex = 0; quietIndex < quietCount - 1; quietIndex++)
+                        for (int quiet_index = 0; quiet_index < quiet_count - 1; quiet_index++)
                         {
-                            Move quietMove = quiets[quietIndex];
-                            apply_gravity(history[pos.stm][quietMove.from()][quietMove.to()], -bonus);
-                            if (prevPieceTo >= 0)
+                            Move quiet_move = quiets[quiet_index];
+                            apply_gravity(history[pos.stm][quiet_move.from()][quiet_move.to()], -bonus);
+                            if (prev_piece_to >= 0)
                             {
-                                apply_gravity(
-                                    contHist[prevPieceTo * 768 + pos.board[quietMove.from()] * 64 + quietMove.to()],
-                                    -bonus);
+                                apply_gravity(cont_hist[prev_piece_to * 768 + pos.board[quiet_move.from()] * 64 +
+                                                        quiet_move.to()],
+                                              -bonus);
                             }
                         }
                     }
@@ -665,39 +665,39 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         }
     }
 
-    if (moveCount == 0)
+    if (move_count == 0)
     {
-        return inCheck ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
+        return in_check ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
     }
 
-    Bound bound = bestScore >= beta ? BOUND_LOWER : (alpha > origAlpha ? BOUND_EXACT : BOUND_UPPER);
+    Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
     if (excluded.is_none())
     {
-        TT.store(pos.key, bestScore, inCheck ? VALUE_NONE : rawEval, depth, bound, bestMove, ply);
+        TT.store(pos.key, best_score, in_check ? VALUE_NONE : raw_eval, depth, bound, best_move, ply);
 
         // Update the eval correction: blend in (search score - raw static eval), but only when the score is
         // a trustworthy signal — not in check, not a tactical (capture) best move, not a mate, and the bound
         // does not contradict the direction of the correction.
-        if (!inCheck && !is_mate_score(bestScore) && (bestMove.is_none() || !bestMove.is_capture()) &&
-            !(bound == BOUND_LOWER && bestScore <= rawEval) && !(bound == BOUND_UPPER && bestScore >= rawEval))
+        if (!in_check && !is_mate_score(best_score) && (best_move.is_none() || !best_move.is_capture()) &&
+            !(bound == BOUND_LOWER && best_score <= raw_eval) && !(bound == BOUND_UPPER && best_score >= raw_eval))
         {
-            int &entry  = correctionHistory[pos.stm][pos.pawnKey & (CORRHIST_SIZE - 1)];
-            int  target = std::clamp((bestScore - rawEval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
+            int &entry  = correction_history[pos.stm][pos.pawn_key & (CORRHIST_SIZE - 1)];
+            int  target = std::clamp((best_score - raw_eval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
             int  weight = std::min(depth + 1, 16);
             entry       = std::clamp((entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
         }
     }
     if (root)
     {
-        rootBest = bestMove;
+        root_best = best_move;
     }
-    return bestScore;
+    return best_score;
 }
 
-Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
+Move Searcher::go(Position root, const SearchLimits &lim, bool is_main_thread)
 {
-    isMain = isMainThread;
-    if (isMain)
+    is_main = is_main_thread;
+    if (is_main)
     {
         g_stop = false; // clear the shared stop before a new search (helpers are launched after this)
     }
@@ -705,12 +705,12 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
     seldepth = 0;
     std::memset(killers, 0, sizeof(killers));
     std::memset(history, 0, sizeof(history));
-    std::memset(correctionHistory, 0, sizeof(correctionHistory));
-    std::memset(counterMoves, 0, sizeof(counterMoves));
-    std::fill(contHist.begin(), contHist.end(), 0);
+    std::memset(correction_history, 0, sizeof(correction_history));
+    std::memset(counter_moves, 0, sizeof(counter_moves));
+    std::fill(cont_hist.begin(), cont_hist.end(), 0);
     start = std::chrono::steady_clock::now();
     set_time(root, lim);
-    if (isMain)
+    if (is_main)
     {
         TT.new_search(); // bump generation once per search, not per helper thread
     }
@@ -719,15 +719,15 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
         nnue::refresh(root.acc, root); // authoritative root accumulator (robust to a net loaded mid-game)
     }
 
-    rootBest      = Move::none();
-    Move best     = Move::none();
-    int  maxDepth = lim.depth > 0 ? lim.depth : MAX_PLY - 2;
-    int  score    = 0;
+    root_best      = Move::none();
+    Move best      = Move::none();
+    int  max_depth = lim.depth > 0 ? lim.depth : MAX_PLY - 2;
+    int  score     = 0;
 
-    for (int depth = 1; depth <= maxDepth; depth++)
+    for (int depth = 1; depth <= max_depth; depth++)
     {
         // Aspiration windows once we have a score to trust.
-        int alpha = -VALUE_INF, beta = VALUE_INF, delta = g_params.aspirationDelta;
+        int alpha = -VALUE_INF, beta = VALUE_INF, delta = g_params.aspiration_delta;
         if (depth >= 4)
         {
             alpha = std::max(-VALUE_INF, score - delta);
@@ -735,21 +735,21 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
         }
         while (true)
         {
-            int windowScore = negamax(root, depth, alpha, beta, 0, false, Move::none());
+            int window_score = negamax(root, depth, alpha, beta, 0, false, Move::none());
             if (g_stop)
             {
                 break;
             }
-            score = windowScore;
-            if (windowScore <= alpha)
+            score = window_score;
+            if (window_score <= alpha)
             {
                 beta  = (alpha + beta) / 2;
-                alpha = std::max(-VALUE_INF, windowScore - delta);
+                alpha = std::max(-VALUE_INF, window_score - delta);
                 delta += delta / 2;
             }
-            else if (windowScore >= beta)
+            else if (window_score >= beta)
             {
-                beta = std::min(VALUE_INF, windowScore + delta);
+                beta = std::min(VALUE_INF, window_score + delta);
                 delta += delta / 2;
             }
             else
@@ -761,29 +761,29 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
         {
             break;
         }
-        best = rootBest;
+        best = root_best;
 
-        if (isMain && !silent)
+        if (is_main && !silent)
         {
-            int64_t  elapsedMs      = elapsed();
-            uint64_t nodesPerSecond = elapsedMs ? nodes * 1000 / elapsedMs : nodes;
+            int64_t  elapsed_ms       = elapsed();
+            uint64_t nodes_per_second = elapsed_ms ? nodes * 1000 / elapsed_ms : nodes;
             // Score string.
-            char scoreStr[32];
+            char score_str[32];
             if (is_mate_score(score))
             {
                 int mate = score > 0 ? (VALUE_MATE - score + 1) / 2 : -(VALUE_MATE + score) / 2;
-                snprintf(scoreStr, sizeof scoreStr, "mate %d", mate);
+                snprintf(score_str, sizeof score_str, "mate %d", mate);
             }
             else
             {
-                snprintf(scoreStr, sizeof scoreStr, "cp %d", score);
+                snprintf(score_str, sizeof score_str, "cp %d", score);
             }
             printf("info depth %d seldepth %d score %s nodes %llu nps %llu time %lld hashfull %d pv", depth, seldepth,
-                   scoreStr, (unsigned long long)nodes, (unsigned long long)nodesPerSecond, (long long)elapsedMs,
+                   score_str, (unsigned long long)nodes, (unsigned long long)nodes_per_second, (long long)elapsed_ms,
                    TT.hashfull());
-            for (int pvIndex = 0; pvIndex < pvLen[0]; pvIndex++)
+            for (int pv_index = 0; pv_index < pv_len[0]; pv_index++)
             {
-                printf(" %s", pvTable[0][pvIndex].to_uci().c_str());
+                printf(" %s", pv_table[0][pv_index].to_uci().c_str());
             }
             printf("\n");
             fflush(stdout);
@@ -795,19 +795,19 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
         }
         // Only the main thread stops on the time budget; helpers keep deepening to fill the shared TT
         // until the main thread ends the search.
-        if (isMain && useTime && elapsed() >= softMs)
+        if (is_main && use_time && elapsed() >= soft_ms)
         {
             break; // don't start a deeper iteration we can't finish
         }
-        if (isMain && is_mate_score(score) && lim.depth == 0 && !lim.infinite)
+        if (is_main && is_mate_score(score) && lim.depth == 0 && !lim.infinite)
         {
             break;
         }
     }
-    if (isMain)
+    if (is_main)
     {
         g_stop = true; // release the helper threads
     }
-    rootScore = score;
-    return best.is_none() ? rootBest : best;
+    root_score = score;
+    return best.is_none() ? root_best : best;
 }

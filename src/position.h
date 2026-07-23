@@ -20,17 +20,17 @@ void init_zobrist();
 class Position
 {
   public:
-    Bitboard byColor[COLOR_NB]     = {0, 0};
-    Bitboard byType[PIECE_TYPE_NB] = {0, 0, 0, 0, 0, 0};
+    Bitboard by_color[COLOR_NB]     = {0, 0};
+    Bitboard by_type[PIECE_TYPE_NB] = {0, 0, 0, 0, 0, 0};
     Piece    board[64];
     Color    stm      = WHITE;
     uint8_t  castling = 0;
-    int      epSq     = NO_SQ; // en-passant TARGET square, only set when a capture is actually possible
+    int      ep_sq    = NO_SQ; // en-passant TARGET square, only set when a capture is actually possible
     int      halfmove = 0;     // 50-move clock (plies)
     int      fullmove = 1;     // full-move number (FEN output only)
     int      ply      = 0;     // plies from the search root (for mate scoring / repetition window)
     uint64_t key      = 0;
-    uint64_t pawnKey  = 0; // Zobrist of pawns only, for the eval correction history (search)
+    uint64_t pawn_key = 0; // Zobrist of pawns only, for the eval correction history (search)
 
     // NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
     // Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
@@ -47,17 +47,17 @@ class Position
     // --- queries ---
     Bitboard occupied() const
     {
-        return byColor[WHITE] | byColor[BLACK];
+        return by_color[WHITE] | by_color[BLACK];
     }
 
-    Bitboard pieces(Color color, PieceType pieceType) const
+    Bitboard pieces(Color color, PieceType piece_type) const
     {
-        return byColor[color] & byType[pieceType];
+        return by_color[color] & by_type[piece_type];
     }
 
-    Bitboard pieces(PieceType pieceType) const
+    Bitboard pieces(PieceType piece_type) const
     {
-        return byType[pieceType];
+        return by_type[piece_type];
     }
 
     int king_sq(Color color) const
@@ -98,11 +98,11 @@ class Position
 
     bool has_non_pawn_material(Color color) const
     {
-        return byColor[color] & ~(byType[PAWN] | byType[KING]);
+        return by_color[color] & ~(by_type[PAWN] | by_type[KING]);
     }
 
   private:
-    void put(Color color, PieceType pieceType, int square);
+    void put(Color color, PieceType piece_type, int square);
     void remove(int square);
     void move_piece(int from, int to);
 };

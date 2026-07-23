@@ -23,8 +23,8 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
 {
     const Color    side = pos.stm, opponent = ~side;
     const Bitboard occupancy = pos.occupied();
-    const Bitboard own       = pos.byColor[side];
-    const Bitboard enemy     = pos.byColor[opponent];
+    const Bitboard own       = pos.by_color[side];
+    const Bitboard enemy     = pos.by_color[opponent];
     const Bitboard empty     = ~occupancy;
 
     // --- Pawns (per-pawn for clarity; correctness before speed) ---
@@ -32,16 +32,16 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
     int      forward = side == WHITE ? 8 : -8;
     while (pawns)
     {
-        int  square    = pop_lsb(pawns);
-        int  oneStep   = square + forward;
-        bool promoRank = relative_rank(side, oneStep) == 7;
+        int  square     = pop_lsb(pawns);
+        int  one_step   = square + forward;
+        bool promo_rank = relative_rank(side, one_step) == 7;
 
         // Captures + promotions on capture.
         Bitboard captures = pawn_attacks(side, square) & enemy;
         while (captures)
         {
             int to = pop_lsb(captures);
-            if (promoRank)
+            if (promo_rank)
             {
                 add_promotions(list, square, to, true);
             }
@@ -51,24 +51,24 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
             }
         }
         // En passant.
-        if (pos.epSq != NO_SQ && (pawn_attacks(side, square) & sq_bb(pos.epSq)))
+        if (pos.ep_sq != NO_SQ && (pawn_attacks(side, square) & sq_bb(pos.ep_sq)))
         {
-            list.add(Move(square, pos.epSq, FLAG_EP));
+            list.add(Move(square, pos.ep_sq, FLAG_EP));
         }
 
         // Quiet pushes (skipped when generating noisy-only, except quiet promotions which are noisy).
-        if (empty & sq_bb(oneStep))
+        if (empty & sq_bb(one_step))
         {
-            if (promoRank)
+            if (promo_rank)
             {
-                add_promotions(list, square, oneStep, false);
+                add_promotions(list, square, one_step, false);
             }
             else if (!noisy)
             {
-                list.add(Move(square, oneStep, FLAG_QUIET));
-                if (relative_rank(side, square) == 1 && (empty & sq_bb(oneStep + forward)))
+                list.add(Move(square, one_step, FLAG_QUIET));
+                if (relative_rank(side, square) == 1 && (empty & sq_bb(one_step + forward)))
                 {
-                    list.add(Move(square, oneStep + forward, FLAG_DOUBLE));
+                    list.add(Move(square, one_step + forward, FLAG_DOUBLE));
                 }
             }
         }
@@ -90,9 +90,9 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
             list.add(Move(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
         }
     }
-    int kingSquare = pos.king_sq(side);
+    int king_square = pos.king_sq(side);
     {
-        Bitboard targets = king_attacks(kingSquare) & ~own;
+        Bitboard targets = king_attacks(king_square) & ~own;
         if (noisy)
         {
             targets &= enemy;
@@ -100,16 +100,16 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
         while (targets)
         {
             int to = pop_lsb(targets);
-            list.add(Move(kingSquare, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+            list.add(Move(king_square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
         }
     }
 
     // --- Sliders ---
-    auto sliders = [&](Bitboard sliderPieces, auto attackFn) {
-        while (sliderPieces)
+    auto sliders = [&](Bitboard slider_pieces, auto attack_fn) {
+        while (slider_pieces)
         {
-            int      square  = pop_lsb(sliderPieces);
-            Bitboard targets = attackFn(square, occupancy) & ~own;
+            int      square  = pop_lsb(slider_pieces);
+            Bitboard targets = attack_fn(square, occupancy) & ~own;
             if (noisy)
             {
                 targets &= enemy;
@@ -126,30 +126,30 @@ void generate_pseudo(const Position &pos, MoveList &list, bool noisy)
     sliders(pos.pieces(side, QUEEN), queen_attacks);
 
     // --- Castling (fully legal: not in check, path empty and unattacked) ---
-    if (!noisy && !pos.attacked_by(kingSquare, opponent))
+    if (!noisy && !pos.attacked_by(king_square, opponent))
     {
-        int     rank          = side == WHITE ? 0 : 7;
-        uint8_t kingsideFlag  = side == WHITE ? CR_WK : CR_BK;
-        uint8_t queensideFlag = side == WHITE ? CR_WQ : CR_BQ;
-        int     eSquare = make_square(4, rank), fSquare = make_square(5, rank), gSquare = make_square(6, rank);
-        int     dSquare = make_square(3, rank), cSquare = make_square(2, rank), bSquare = make_square(1, rank);
-        if ((pos.castling & kingsideFlag) && (empty & sq_bb(fSquare)) && (empty & sq_bb(gSquare)) &&
-            !pos.attacked_by(fSquare, opponent) && !pos.attacked_by(gSquare, opponent))
+        int     rank           = side == WHITE ? 0 : 7;
+        uint8_t kingside_flag  = side == WHITE ? CR_WK : CR_BK;
+        uint8_t queenside_flag = side == WHITE ? CR_WQ : CR_BQ;
+        int     e_square = make_square(4, rank), f_square = make_square(5, rank), g_square = make_square(6, rank);
+        int     d_square = make_square(3, rank), c_square = make_square(2, rank), b_square = make_square(1, rank);
+        if ((pos.castling & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
+            !pos.attacked_by(f_square, opponent) && !pos.attacked_by(g_square, opponent))
         {
-            list.add(Move(eSquare, gSquare, FLAG_KCASTLE));
+            list.add(Move(e_square, g_square, FLAG_KCASTLE));
         }
-        if ((pos.castling & queensideFlag) && (empty & sq_bb(dSquare)) && (empty & sq_bb(cSquare)) &&
-            (empty & sq_bb(bSquare)) && !pos.attacked_by(dSquare, opponent) && !pos.attacked_by(cSquare, opponent))
+        if ((pos.castling & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
+            (empty & sq_bb(b_square)) && !pos.attacked_by(d_square, opponent) && !pos.attacked_by(c_square, opponent))
         {
-            list.add(Move(eSquare, cSquare, FLAG_QCASTLE));
+            list.add(Move(e_square, c_square, FLAG_QCASTLE));
         }
     }
 }
 
-void generate_legal(const Position &pos, MoveList &list, bool noisyOnly)
+void generate_legal(const Position &pos, MoveList &list, bool noisy_only)
 {
     MoveList pseudo;
-    generate_pseudo(pos, pseudo, noisyOnly);
+    generate_pseudo(pos, pseudo, noisy_only);
     for (Move move : pseudo)
     {
         if (pos.is_legal(move))

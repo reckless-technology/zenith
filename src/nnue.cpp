@@ -135,34 +135,34 @@ thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
 } // namespace
 
 // ---- incremental accumulator maintenance -------------------------------------------------------------
-// Each perspective indexes into its own cached king bucket (accumulator.kingBucket[perspective]); a piece
+// Each perspective indexes into its own cached king bucket (accumulator.king_bucket[perspective]); a piece
 // add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
 void add_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square)
 {
     add_column(
         accumulator.values[WHITE],
-        network.feature_transformer_weight[feature_index(accumulator.kingBucket[WHITE], WHITE, colour, type, square)]);
+        network.feature_transformer_weight[feature_index(accumulator.king_bucket[WHITE], WHITE, colour, type, square)]);
     add_column(
         accumulator.values[BLACK],
-        network.feature_transformer_weight[feature_index(accumulator.kingBucket[BLACK], BLACK, colour, type, square)]);
+        network.feature_transformer_weight[feature_index(accumulator.king_bucket[BLACK], BLACK, colour, type, square)]);
 }
 
 void remove_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int square)
 {
     sub_column(
         accumulator.values[WHITE],
-        network.feature_transformer_weight[feature_index(accumulator.kingBucket[WHITE], WHITE, colour, type, square)]);
+        network.feature_transformer_weight[feature_index(accumulator.king_bucket[WHITE], WHITE, colour, type, square)]);
     sub_column(
         accumulator.values[BLACK],
-        network.feature_transformer_weight[feature_index(accumulator.kingBucket[BLACK], BLACK, colour, type, square)]);
+        network.feature_transformer_weight[feature_index(accumulator.king_bucket[BLACK], BLACK, colour, type, square)]);
 }
 
 void move_feature(NnueAccumulator &accumulator, Color colour, PieceType type, int from, int to)
 {
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
-        int bucket = accumulator.kingBucket[perspective];
+        int bucket = accumulator.king_bucket[perspective];
         sub_column(accumulator.values[perspective],
                    network.feature_transformer_weight[feature_index(bucket, Color(perspective), colour, type, from)]);
         add_column(accumulator.values[perspective],
@@ -175,8 +175,8 @@ void move_feature(NnueAccumulator &accumulator, Color colour, PieceType type, in
 // only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
 void refresh_perspective(NnueAccumulator &accumulator, const Position &position, Color perspective)
 {
-    int bucket                          = king_bucket(relative_king_square(perspective, position.king_sq(perspective)));
-    accumulator.kingBucket[perspective] = bucket;
+    int bucket = king_bucket(relative_king_square(perspective, position.king_sq(perspective)));
+    accumulator.king_bucket[perspective] = bucket;
 
     RefreshCacheEntry &cache = g_refresh_cache[perspective][bucket];
     if (cache.net_generation != g_net_generation)
@@ -194,7 +194,7 @@ void refresh_perspective(NnueAccumulator &accumulator, const Position &position,
     {
         for (int type = 0; type < 6; type++)
         {
-            Bitboard current = position.byColor[colour] & position.byType[type];
+            Bitboard current = position.by_color[colour] & position.by_type[type];
             Bitboard cached  = cache.by_color[colour] & cache.by_type[type];
             Bitboard added   = current & ~cached;
             Bitboard removed = cached & ~current;
@@ -212,11 +212,11 @@ void refresh_perspective(NnueAccumulator &accumulator, const Position &position,
             }
         }
     }
-    cache.by_color[WHITE] = position.byColor[WHITE];
-    cache.by_color[BLACK] = position.byColor[BLACK];
+    cache.by_color[WHITE] = position.by_color[WHITE];
+    cache.by_color[BLACK] = position.by_color[BLACK];
     for (int type = 0; type < 6; type++)
     {
-        cache.by_type[type] = position.byType[type];
+        cache.by_type[type] = position.by_type[type];
     }
     std::memcpy(accumulator.values[perspective], cache.values, sizeof(cache.values));
 }
@@ -224,7 +224,7 @@ void refresh_perspective(NnueAccumulator &accumulator, const Position &position,
 void update_king_bucket(NnueAccumulator &accumulator, const Position &position, Color side)
 {
     int new_bucket = king_bucket(relative_king_square(side, position.king_sq(side)));
-    if (new_bucket != accumulator.kingBucket[side])
+    if (new_bucket != accumulator.king_bucket[side])
     {
         refresh_perspective(accumulator, position, side);
     }
