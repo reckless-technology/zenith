@@ -255,11 +255,41 @@ bool Position::is_legal_fast(Move move, Bitboard checkers, Bitboard pinned) cons
     int   from = move.from(), to = move.to();
     int   kingSquare = king_sq(side);
 
-    // Castling is generated fully legal by movegen; en passant can expose the king along a rank (rare).
-    // Defer both to the exact copy-make test.
-    if (move.is_castle() || move.is_ep())
+    // Castling is generated fully legal by movegen (king not in/through check, path empty) — always legal.
+    if (move.is_castle())
     {
-        return is_legal(move);
+        return true;
+    }
+
+    // En passant: removing BOTH pawns (the mover and the captured pawn) can expose our king along a rank or
+    // diagonal, so test king safety directly on the post-capture occupancy (no copy-make).
+    if (move.is_ep())
+    {
+        int      capturedSquare = to + (side == WHITE ? -8 : 8);
+        Bitboard afterOccupied  = (occupied() ^ sq_bb(from) ^ sq_bb(capturedSquare)) | sq_bb(to);
+        // King must be unattacked after the move: sliders on the post-move occupancy; the captured pawn is
+        // dropped from the pawn-attacker set (it is gone), other non-sliders are unaffected by the move.
+        if (rook_attacks(kingSquare, afterOccupied) & (pieces(opponent, ROOK) | pieces(opponent, QUEEN)))
+        {
+            return false;
+        }
+        if (bishop_attacks(kingSquare, afterOccupied) & (pieces(opponent, BISHOP) | pieces(opponent, QUEEN)))
+        {
+            return false;
+        }
+        if (pawn_attacks(side, kingSquare) & (pieces(opponent, PAWN) ^ sq_bb(capturedSquare)))
+        {
+            return false;
+        }
+        if (knight_attacks(kingSquare) & pieces(opponent, KNIGHT))
+        {
+            return false;
+        }
+        if (king_attacks(kingSquare) & pieces(opponent, KING))
+        {
+            return false;
+        }
+        return true;
     }
 
     // King move: the destination must be unattacked once the king vacates (so a slider sees through it).
