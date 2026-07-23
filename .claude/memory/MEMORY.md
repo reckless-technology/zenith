@@ -12,3 +12,4 @@ One line per memory. Full content lives in the linked file.
 - [pawnstar-gap-benchmarks](pawnstar-gap-benchmarks.md) — Elo gaps vs pawnstar: −238 single-thread, −42 at 8v8; deficit is eval quality
 - [zenith-eval-experiments](zenith-eval-experiments.md) — eval-arch experiment log; output buckets NEUTRAL (val loss ≠ Elo), king buckets next
 - [search-speed-levers](search-speed-levers.md) — copy-make + 2KB accumulator is the dominant per-node cost; prune-before-make = +66 Elo
+- [spsa-tuning](spsa-tuning.md) — SPSA search-param tuner (tools/spsa.py); first pass +26.5 Elo; tune fast tc, validate at 8+0.08
