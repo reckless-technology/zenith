@@ -260,6 +260,17 @@ void set_option(std::istringstream &stream)
         }
         fflush(stdout);
     }
+    else
+    {
+        // Tunable search parameters (SPSA): match by original-case name, integer value.
+        try
+        {
+            set_search_param(name, std::stoi(value));
+        }
+        catch (...)
+        {
+        }
+    }
     // Ponder accepted and ignored.
 }
 
@@ -282,6 +293,18 @@ void uci_loop()
             printf("option name Move Overhead type spin default 20 min 0 max 5000\n");
             printf("option name Clear Hash type button\n");
             printf("option name EvalFile type string default <none>\n");
+            // Tunable search parameters (SPSA); defaults reproduce the shipped engine.
+            printf("option name RfpMargin type spin default %d min 20 max 200\n", g_params.rfpMargin);
+            printf("option name NmpDivisor type spin default %d min 50 max 600\n", g_params.nmpDivisor);
+            printf("option name LmpBase type spin default %d min 1 max 10\n", g_params.lmpBase);
+            printf("option name FutilityBase type spin default %d min 0 max 300\n", g_params.futilityBase);
+            printf("option name FutilityMargin type spin default %d min 30 max 200\n", g_params.futilityMargin);
+            printf("option name SeeCaptureMargin type spin default %d min 20 max 300\n", g_params.seeCaptureMargin);
+            printf("option name LmrBase type spin default %d min 0 max 200\n", g_params.lmrBaseX100);
+            printf("option name LmrDivisor type spin default %d min 100 max 400\n", g_params.lmrDivisorX100);
+            printf("option name SingularMargin type spin default %d min 1 max 8\n", g_params.singularMargin);
+            printf("option name AspirationDelta type spin default %d min 5 max 60\n", g_params.aspirationDelta);
+            printf("option name HistoryMax type spin default %d min 100 max 1200\n", g_params.historyMax);
             printf("uciok\n");
             fflush(stdout);
         }

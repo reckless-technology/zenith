@@ -8,6 +8,7 @@
 #include <cstring>
 
 std::atomic<bool> g_stop{false};
+SearchParams      g_params;
 
 namespace
 {
@@ -90,13 +91,70 @@ int static_exchange_eval(const Position &pos, Move move)
 
 void init_search()
 {
+    double lmrBase    = g_params.lmrBaseX100 / 100.0;
+    double lmrDivisor = g_params.lmrDivisorX100 / 100.0;
     for (int depth = 1; depth < MAX_PLY; depth++)
     {
         for (int moveNumber = 1; moveNumber < 64; moveNumber++)
         {
-            Reductions[depth][moveNumber] = int(0.80 + std::log(depth) * std::log(moveNumber) / 2.30);
+            Reductions[depth][moveNumber] = int(lmrBase + std::log(depth) * std::log(moveNumber) / lmrDivisor);
         }
     }
+}
+
+bool set_search_param(const std::string &name, int value)
+{
+    if (name == "RfpMargin")
+    {
+        g_params.rfpMargin = value;
+    }
+    else if (name == "NmpDivisor")
+    {
+        g_params.nmpDivisor = value;
+    }
+    else if (name == "LmpBase")
+    {
+        g_params.lmpBase = value;
+    }
+    else if (name == "FutilityBase")
+    {
+        g_params.futilityBase = value;
+    }
+    else if (name == "FutilityMargin")
+    {
+        g_params.futilityMargin = value;
+    }
+    else if (name == "SeeCaptureMargin")
+    {
+        g_params.seeCaptureMargin = value;
+    }
+    else if (name == "SingularMargin")
+    {
+        g_params.singularMargin = value;
+    }
+    else if (name == "AspirationDelta")
+    {
+        g_params.aspirationDelta = value;
+    }
+    else if (name == "HistoryMax")
+    {
+        g_params.historyMax = value;
+    }
+    else if (name == "LmrBase")
+    {
+        g_params.lmrBaseX100 = value;
+        init_search(); // LMR table depends on this
+    }
+    else if (name == "LmrDivisor")
+    {
+        g_params.lmrDivisorX100 = value;
+        init_search();
+    }
+    else
+    {
+        return false;
+    }
+    return true;
 }
 
 int64_t Searcher::elapsed() const
@@ -365,7 +423,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     }
 
     // Reverse futility pruning (static null move).
-    if (!pvNode && !inCheck && depth <= 8 && !is_mate_score(beta) && eval - 80 * depth >= beta)
+    if (!pvNode && !inCheck && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfpMargin * depth >= beta)
     {
         return eval;
     }
@@ -373,7 +431,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
     // Null-move pruning.
     if (!pvNode && !inCheck && depth >= 3 && eval >= beta && pos.has_non_pawn_material(pos.stm))
     {
-        int      reduction = 3 + depth / 3 + std::min((eval - beta) / 200, 3);
+        int      reduction = 3 + depth / 3 + std::min((eval - beta) / g_params.nmpDivisor, 3);
         Position nullChild = pos;
         nullChild.make_null();
         hist.push_back(pos.key);
@@ -468,21 +526,22 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         moveCount++;
 
         // Late-move pruning: at low depth, stop trying quiet moves once deep into the ordered list.
-        if (!pvNode && !inCheck && quiet && depth <= 8 && moveCount > 3 + depth * depth && !is_mate_score(bestScore))
+        if (!pvNode && !inCheck && quiet && depth <= 8 && moveCount > g_params.lmpBase + depth * depth &&
+            !is_mate_score(bestScore))
         {
             continue;
         }
 
         // Futility pruning: at low depth, skip quiet moves that a margin cannot lift to alpha.
         if (!root && !pvNode && !inCheck && quiet && depth <= 6 && moveCount > 1 && !is_mate_score(bestScore) &&
-            eval + 100 + 90 * depth <= alpha)
+            eval + g_params.futilityBase + g_params.futilityMargin * depth <= alpha)
         {
             continue;
         }
 
         // SEE pruning of clearly-losing captures at low depth.
         if (!root && depth <= 6 && move.is_capture() && !is_mate_score(bestScore) &&
-            static_exchange_eval(pos, move) < -100 * depth)
+            static_exchange_eval(pos, move) < -g_params.seeCaptureMargin * depth)
         {
             continue;
         }
@@ -498,7 +557,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         if (!root && move == ttMove && excluded.is_none() && depth >= 8 && ttHit && ttEntry.depth >= depth - 3 &&
             (ttEntry.bound == BOUND_LOWER || ttEntry.bound == BOUND_EXACT) && !is_mate_score(ttScore))
         {
-            int singularBeta = ttScore - 3 * depth;
+            int singularBeta = ttScore - g_params.singularMargin * depth;
             int singularScore =
                 negamax(pos, (depth - 1) / 2, singularBeta - 1, singularBeta, ply, cutnode, prevMove, ttMove);
             if (singularScore < singularBeta)
@@ -578,7 +637,7 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
                         {
                             counterMoves[prevPieceTo] = move;
                         }
-                        int  bonus         = std::min(depth * depth, 400);
+                        int  bonus         = std::min(depth * depth, g_params.historyMax);
                         auto apply_gravity = [&](int &entry, int change) {
                             entry += change - entry * std::abs(change) / 16384;
                         };
@@ -668,7 +727,7 @@ Move Searcher::go(Position root, const SearchLimits &lim, bool isMainThread)
     for (int depth = 1; depth <= maxDepth; depth++)
     {
         // Aspiration windows once we have a score to trust.
-        int alpha = -VALUE_INF, beta = VALUE_INF, delta = 20;
+        int alpha = -VALUE_INF, beta = VALUE_INF, delta = g_params.aspirationDelta;
         if (depth >= 4)
         {
             alpha = std::max(-VALUE_INF, score - delta);

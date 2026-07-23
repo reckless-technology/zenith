@@ -20,6 +20,27 @@ struct SearchLimits
 
 void init_search();
 
+// Tunable search parameters, exposed as UCI spin options for SPSA tuning. Defaults reproduce the shipped
+// engine exactly, so the bench signature is unchanged. After tuning, the winning values are baked back here.
+struct SearchParams
+{
+    int rfpMargin        = 80;  // reverse-futility margin per depth
+    int nmpDivisor       = 200; // null-move reduction: +min((eval-beta)/nmpDivisor, 3)
+    int lmpBase          = 3;   // late-move-pruning count: base + depth*depth
+    int futilityBase     = 100; // futility margin base
+    int futilityMargin   = 90;  // futility margin per depth
+    int seeCaptureMargin = 100; // SEE capture-pruning threshold per depth
+    int lmrBaseX100      = 80;  // LMR base (x100): reduction = lmrBase/100 + ln(d)*ln(m)/(lmrDivisor/100)
+    int lmrDivisorX100   = 230; // LMR divisor (x100)
+    int singularMargin   = 3;   // singular-extension beta margin per depth
+    int aspirationDelta  = 20;  // initial aspiration half-window
+    int historyMax       = 400; // history bonus cap (min(depth*depth, historyMax))
+};
+extern SearchParams g_params;
+// Set a tunable param by UCI option name (e.g. "RfpMargin"); returns true if the name matched. Recomputes
+// the LMR table when an LMR param changes.
+bool set_search_param(const std::string &name, int value);
+
 // Shared across all Lazy-SMP search threads: the main thread (or a UCI "stop") sets it and every thread
 // exits. A single global keeps Searcher copyable so a thread pool can live in a std::vector.
 extern std::atomic<bool> g_stop;
