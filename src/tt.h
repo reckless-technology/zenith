@@ -21,9 +21,9 @@ struct TTData
     uint64_t move : 16;  // packed Move (0 = none)
     int64_t  score : 16; // score_to_tt-adjusted search score
     int64_t  eval : 16;  // raw static eval (VALUE_NONE if in check)
-    uint64_t depth : 8;
-    uint64_t bound : 2; // Bound
-    uint64_t gen : 6;   // generation the entry was written in
+    int64_t  depth : 8;  // SIGNED [-128,127]: qsearch-style entries (depth <= 0) must not wrap to "deep"
+    uint64_t bound : 2;  // Bound
+    uint64_t gen : 6;    // generation the entry was written in
 };
 
 static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");

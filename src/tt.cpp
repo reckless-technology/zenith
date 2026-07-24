@@ -1,4 +1,5 @@
 #include "tt.h"
+#include <algorithm>
 #include <atomic>
 #include <bit>
 
@@ -51,14 +52,15 @@ void TranspositionTable::store(uint64_t key, int score, int eval, int depth, Bou
         move = Move(uint16_t(current.move));
     }
     // Replace when: empty/torn, this position, from an older search, or a deeper/exact result.
+    // depth comparisons are SIGNED — a qsearch-style entry (depth <= 0) must lose to any real depth.
     if (current_data == 0 || current.bound == BOUND_NONE || same_key || current.gen != generation ||
-        uint64_t(depth + (bound == BOUND_EXACT ? 2 : 0)) >= current.depth)
+        depth + (bound == BOUND_EXACT ? 2 : 0) >= int(current.depth))
     {
         TTData entry{};
         entry.move  = move.raw();
         entry.score = score_to_tt(score, ply);
         entry.eval  = eval;
-        entry.depth = uint64_t(depth);
+        entry.depth = std::clamp(depth, -128, 127); // signed :8 field — clamp, never wrap
         entry.bound = bound;
         entry.gen   = generation;
 
