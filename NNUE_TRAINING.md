@@ -13,8 +13,8 @@ adopt NNUE; the HCE stays as a fallback and as the eval used during data generat
 A **perspective network** (the "simple NNUE" that most 3000+ hobby engines start from):
 
 ```
-inputs:   768 per side  =  6 piece types × 2 colours × 64 squares, from the side-to-move's POV
-          (black-to-move mirrors square vertically and swaps colours)
+inputs:   768 per side  =  6 piece types × 2 colors × 64 squares, from the side-to-move's POV
+          (black-to-move mirrors square vertically and swaps colors)
 king      the perspective's own king square selects 1 of 8 KING BUCKETS (4 file-pairs × 2 board-halves),
 buckets:  offsetting its 768 block → 768×8 = 6144 feature-transformer rows
 FT:       6144 → 512   (feature transformer; one accumulator per side)
@@ -90,7 +90,7 @@ validated end-to-end, or straight away if we want speed.
 ## 4. Engine integration (`src/nnue.{h,c}`) — all implemented
 
 1. **Loader**: read the `.nnue` file into aligned int16 arrays.
-2. **Feature index**: `idx(perspective, colour, pt, sq)` with the mirror/colour-swap for the black POV.
+2. **Feature index**: `idx(perspective, color, pt, sq)` with the mirror/color-swap for the black POV.
 3. **Incremental accumulator** (done): the accumulator lives inside `Position`; put/remove/move piece
    primitives apply the feature deltas. King moves that change the side's king bucket refresh that
    perspective via a thread-local **finny cache** (cached accumulator per (perspective,bucket) + the board

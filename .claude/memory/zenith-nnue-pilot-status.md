@@ -6,7 +6,7 @@ metadata:
 ---
 
 The NNUE pipeline (datagen -> PyTorch train -> quantised `.nnue` -> engine AVX2 full-refresh eval) is
-CORRECT and validated: 0cp gate (engine == trainer, bit-identical), colour-mirror symmetric, finds tactics.
+CORRECT and validated: 0cp gate (engine == trainer, bit-identical), color-mirror symmetric, finds tactics.
 
 **Net progression (fixed-depth-8 Elo vs the PeSTO HCE, unless noted):**
 - pilot (4.1M random-ply, HCE labels): **−325** — underfit + noisy (0.92 corr, ~267cp noise; minimax amplifies).

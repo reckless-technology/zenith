@@ -20,7 +20,7 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
 
 ## King buckets (8, file-pairs × board-halves, ZNNUE3) — SPEED-BOUND, +4 Elo (2026-07-20)
 - FT [768]→[6144][512] (8× rows); refresh-on-king-move when the moving king crosses a bucket boundary.
-  All gates PASS (perft, 0cp all 8 buckets, nnuecheck incl. castling, colour-mirror symmetry). Design:
+  All gates PASS (perft, 0cp all 8 buckets, nnuecheck incl. castling, color-mirror symmetry). Design:
   `scratchpad/king_buckets_design.md`. Trained `zenith-kb1` (pc2 recipe): **best val loss yet, 0.01575**.
 - **Timed SPRT vs pc2: −0.2 ± 8.5 (NEUTRAL).** BUT **fixed-depth 9: +21.3 ± 18.8 Elo** → the eval is
   genuinely stronger; the 8× FT (6.3MB, blows cache) + king-move refresh cost the speed back. nps hit:

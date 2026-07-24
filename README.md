@@ -99,7 +99,7 @@ setoption name OwnBook value true          # default false — testing always ru
 ## Layout
 
 ```
-src/types.h        colours, pieces, squares, packed Move (uint16 + inline accessors), bit tricks
+src/types.h        colors, pieces, squares, packed Move (uint16 + inline accessors), bit tricks
 src/platform.h     C11 threads.h / pthread shim + monotonic clock
 src/bitboard.*     attack tables + rook/bishop magic bitboards, BetweenBB/LineBB
 src/position.*     bitboards + mailbox, Zobrist + pawn key, FEN, copy-make, legality/check oracles,

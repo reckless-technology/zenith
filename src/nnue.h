@@ -22,9 +22,9 @@ int nnue_evaluate(const NnueAccumulator *accumulator, Color stm); // from a main
 // Accumulator maintenance (no-ops for callers to guard with nnue_is_loaded()).
 void nnue_refresh(NnueAccumulator *accumulator, const Position *position); // recompute both perspectives
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, Color perspective);
-void nnue_add_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int square);
-void nnue_remove_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int square);
-void nnue_move_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int from, int to);
+void nnue_add_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square);
+void nnue_remove_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square);
+void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type, int from, int to);
 // After a king move: if `side`'s king-input bucket changed, refresh that perspective (its whole feature
 // block shifts). Call once per king move (including castling) from make_move.
 void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *position, Color side);

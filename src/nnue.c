@@ -14,7 +14,7 @@ bool nnue_g_loaded = false;
 enum
 {
     HIDDEN_SIZE       = NNUE_HIDDEN, // 512
-    BASE_FEATURES     = 768,         // per-king-bucket block (2 colours x 6 types x 64 squares)
+    BASE_FEATURES     = 768,         // per-king-bucket block (2 colors x 6 types x 64 squares)
     NUM_KING_BUCKETS  = 8,           // 4 file-pairs x 2 board-halves, keyed on the perspective king
     INPUT_FEATURES    = NUM_KING_BUCKETS * BASE_FEATURES, // 6144 feature-transformer rows
     QUANT_ACCUMULATOR = 255,                              // QA
@@ -50,18 +50,18 @@ static inline int relative_king_square(Color perspective, int king_square)
 }
 
 // Index within a single 768 king-bucket block (no bucket offset). The caller adds bucket * BASE_FEATURES.
-static inline int base_feature_index(Color perspective, Color piece_colour, PieceType piece_type, int square)
+static inline int base_feature_index(Color perspective, Color piece_color, PieceType piece_type, int square)
 {
-    int relative_colour = (piece_colour == perspective) ? 0 : 1;
+    int relative_color  = (piece_color == perspective) ? 0 : 1;
     int relative_square = (perspective == WHITE) ? square : (square ^ 56);
-    return relative_colour * 384 + piece_type * 64 + relative_square;
+    return relative_color * 384 + piece_type * 64 + relative_square;
 }
 
 // Full king-bucketed feature index for `perspective` given its cached king bucket.
-static inline int feature_index(int king_bucket_index, Color perspective, Color piece_colour, PieceType piece_type,
+static inline int feature_index(int king_bucket_index, Color perspective, Color piece_color, PieceType piece_type,
                                 int square)
 {
-    return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_colour, piece_type, square);
+    return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece_type, square);
 }
 
 static inline void add_column(int16_t *accumulator, const int16_t *column)
@@ -132,31 +132,35 @@ static _Thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
 // Each perspective indexes into its own cached king bucket (accumulator->king_bucket[perspective]); a piece
 // add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
-void nnue_add_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int square)
+void nnue_add_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square)
 {
-    add_column(accumulator->values[WHITE], network.feature_transformer_weight[feature_index(
-                                               accumulator->king_bucket[WHITE], WHITE, colour, type, square)]);
-    add_column(accumulator->values[BLACK], network.feature_transformer_weight[feature_index(
-                                               accumulator->king_bucket[BLACK], BLACK, colour, type, square)]);
+    add_column(
+        accumulator->values[WHITE],
+        network.feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+    add_column(
+        accumulator->values[BLACK],
+        network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_remove_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int square)
+void nnue_remove_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square)
 {
-    sub_column(accumulator->values[WHITE], network.feature_transformer_weight[feature_index(
-                                               accumulator->king_bucket[WHITE], WHITE, colour, type, square)]);
-    sub_column(accumulator->values[BLACK], network.feature_transformer_weight[feature_index(
-                                               accumulator->king_bucket[BLACK], BLACK, colour, type, square)]);
+    sub_column(
+        accumulator->values[WHITE],
+        network.feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+    sub_column(
+        accumulator->values[BLACK],
+        network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_move_feature(NnueAccumulator *accumulator, Color colour, PieceType type, int from, int to)
+void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type, int from, int to)
 {
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
         int bucket = accumulator->king_bucket[perspective];
         sub_column(accumulator->values[perspective],
-                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, colour, type, from)]);
+                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, from)]);
         add_column(accumulator->values[perspective],
-                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, colour, type, to)]);
+                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, to)]);
     }
 }
 
@@ -180,25 +184,25 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
         cache->net_generation = g_net_generation;
     }
 
-    for (int colour = WHITE; colour <= BLACK; colour++)
+    for (int color = WHITE; color <= BLACK; color++)
     {
         for (int type = 0; type < 6; type++)
         {
-            Bitboard current = position->by_color[colour] & position->by_type[type];
-            Bitboard cached  = cache->by_color[colour] & cache->by_type[type];
+            Bitboard current = position->by_color[color] & position->by_type[type];
+            Bitboard cached  = cache->by_color[color] & cache->by_type[type];
             Bitboard added   = current & ~cached;
             Bitboard removed = cached & ~current;
             while (added)
             {
                 int square = pop_lsb(&added);
                 add_column(cache->values, network.feature_transformer_weight[feature_index(
-                                              bucket, perspective, (Color)colour, (PieceType)type, square)]);
+                                              bucket, perspective, (Color)color, (PieceType)type, square)]);
             }
             while (removed)
             {
                 int square = pop_lsb(&removed);
                 sub_column(cache->values, network.feature_transformer_weight[feature_index(
-                                              bucket, perspective, (Color)colour, (PieceType)type, square)]);
+                                              bucket, perspective, (Color)color, (PieceType)type, square)]);
             }
         }
     }

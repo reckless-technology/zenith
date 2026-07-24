@@ -1,5 +1,5 @@
 #pragma once
-// Core value types: colours, pieces, squares, and the packed 16-bit move.
+// Core value types: colors, pieces, squares, and the packed 16-bit move.
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -29,7 +29,7 @@ typedef enum
     NO_PIECE_TYPE = 6
 } PieceType;
 
-// Mailbox piece code = colour*6 + type; NO_PIECE = 12.
+// Mailbox piece code = color*6 + type; NO_PIECE = 12.
 typedef enum
 {
     NO_PIECE = 12

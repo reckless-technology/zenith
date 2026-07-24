@@ -122,7 +122,7 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   positions (16 shards); +57 Elo (kb2, 650M) over the prior 512/190M net, then +8 more (kb3) — data returns
   are now diminishing.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./zenith nnueeval` and diffs against the
-  Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(colour-mirror)`.
+  Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
   noise), not the loader. The pilot net loses to HCE because minimax amplifies leaf-eval noise; see the
   `zenith-nnue-pilot-status` memory. Fix = more/cleaner data + better training, not engine code.

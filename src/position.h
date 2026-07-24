@@ -87,7 +87,7 @@ static inline Piece position_piece_on(const Position *pos, int square)
     return pos->board[square];
 }
 
-// Attackers of colour `color` hitting `square`, given `occupancy` (which lets SEE pass an updated board).
+// Attackers of color `color` hitting `square`, given `occupancy` (which lets SEE pass an updated board).
 Bitboard position_attackers_to(const Position *pos, int square, Color color, Bitboard occupancy);
 
 static inline bool position_attacked_by(const Position *pos, int square, Color color)
