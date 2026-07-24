@@ -1,104 +1,127 @@
 # Zenith
 
-A from-scratch UCI chess engine in C17. Independent design (shares no code or net format with the
-sibling pawnstar engines). The classical core is complete and correct; NNUE + parallel search are the
-next phases — see [DESIGN.md](DESIGN.md) for the full architecture and roadmap, and
-[NNUE_TRAINING.md](NNUE_TRAINING.md) for the GPU training plan (the path to world-class strength).
+A from-scratch UCI chess engine in **C17** with its own independently-trained NNUE evaluation.
+Independent design throughout — no shared code, network, or data format with the sibling pawnstar
+engines, which serve only as the reference opponent. **Zenith beats its reference engine at every
+tested configuration** (single-thread and 8-thread, bullet and classical time controls).
+
+Engine history: originally C++20, ported to C17 and verified bit-identical (the final C++ tree is
+preserved at git tag `cpp-final`). See [DESIGN.md](DESIGN.md) for the architecture and
+[NNUE_TRAINING.md](NNUE_TRAINING.md) for the training pipeline.
 
 ## Build
 
-Requires a C17 compiler (clang 18 or gcc 13+; threads via C11 `threads.h` with a pthread fallback in
-`src/platform.h`). Magic bitboards keep the code portable; `-march=native`
-is for local dev.
+Requires a C17 compiler (clang 18 recommended; gcc 13+ works). Threads use C11 `threads.h` with a
+pthread fallback (`src/platform.h`) for platforms without it (e.g. macOS). Magic bitboards keep the
+code portable; `-march=native` is for local dev — a release build would fan out per microarch.
 
 ```bash
 make            # -> ./zenith  (clang -std=c17, -O3 -flto -march=native)
 make debug      # -> ./zenith-debug  (ASan + UBSan, for correctness work)
-./zenith        # interactive UCI
+./zenith        # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
 ```
 
 ## Verify
 
+Every correctness property has an executable gate (all of these also run in CI):
+
 ```bash
-./zenith perft      # move-gen correctness vs known counts (startpos, Kiwipete, CPW 3/4/5)
-./zenith bench 12   # fixed-depth node count + nps
-make baseline       # snapshot ./zenith -> ./zenith-base for SPRT
+./zenith perft       # movegen vs known counts: startpos/Kiwipete/CPW + the 128-position Ethereal suite
+./zenith bench 13    # deterministic fixed-depth node signature (guards search behaviour) + nps
+./zenith legalcheck  # fast legality/check predicates == copy-make ground truth over a perft walk
+./zenith nnuecheck <net.nnue>   # incremental accumulator == full refresh, bit-identical
+./zenith bookcheck   # Polyglot key computation vs the 9 official spec test vectors
+make baseline        # snapshot ./zenith -> ./zenith-base for SPRT
 tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
 ```
 
-`tools/sprt.sh` runs a self-play/cross-engine SPRT via **fastchess** (falls back to
-`~/pawnstar_nnue/fastchess/fastchess`) with an openings book (`~/pawnstar_nnue/openings.epd` by default;
-any EPD works — e.g. UHO from official-stockfish/books).
+`tools/sprt.sh` runs SPRTs via **fastchess** with an openings EPD. **No strength change lands without
+passing an SPRT** — that discipline is the core of the project.
 
 ## NNUE (independent training pipeline)
 
-Zenith trains its **own** NNUE from scratch — its own self-play data, its own PyTorch trainer, its own
-`.nnue` format (no shared code, net, or data with any other engine). Everything plugs into the single
-`evaluate()` seam behind the UCI `EvalFile` option.
+Zenith's evaluation is a **king-bucketed 768×8 → 512 SCReLU perspective network** (format `ZNNUE3`):
+the side's own king square selects one of 8 input buckets (4 file-pairs × 2 board-halves). The engine
+maintains the accumulator **incrementally** inside `Position`, with a per-thread "finny" refresh cache
+for king-bucket changes, and an AVX2 integer forward pass plus a shared eval cache.
+
+The shipped net `nets/zenith-kb3.nnue` was trained on **1.4B positions** from the public PlentyChess
+dataset with the repo's own PyTorch trainer. The full training loop is:
 
 ```bash
-# 1. Generate Zenith's own self-play data across all cores (fen;stm_score;wdl records)
-tools/datagen_parallel.sh 7000 data/run 32 6000        # gamesPerWorker workers... nodes
+# Option A: generate own self-play data (fen;stm_score;wdl records) across all cores
+tools/datagen_parallel.sh 7000 data/run 32 6000
 
-# 2. Train a quantised net (PyTorch, CUDA); features/quantisation live in trainer/features.py
-. .venv/bin/activate
-PYTHONPATH=trainer python trainer/train.py --data 'data/run/shard_*.txt' \
-    --out nets/zenith.nnue --cache data/run.npz --epochs 60 --wdl-lambda 0.4
+# Option B (how kb3 was trained): convert public bulletformat data, then featurise + stream-train
+./zenith bullet2text <shard.data> data/plenty/shard.txt 0 4
+PYTHONPATH=trainer python trainer/train.py --featurise-shard data/plenty/shard.txt data/shards/s00.npz
+PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
+    --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
 
-# 3. Verify the engine's integer eval is bit-identical to the trainer (must be 0 cp)
-PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens data/run/shard_01.txt
-
-# 4. Use it / test it
-./zenith                                                # setoption name EvalFile value nets/zenith.nnue
-CAND=./zenith CAND_NET=nets/zenith.nnue BASE=./zenith tools/sprt.sh   # NNUE vs HCE
+# Verification gate (never skip): engine integer eval must equal the trainer bit-for-bit
+PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./zenith
 ```
 
-The architecture is a king-bucketed 768×8→512 SCReLU perspective net; the engine maintains the accumulator each
-eval (full refresh) — an incremental accumulator is the planned speed optimisation. See
-[NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and roadmap.
+The contract lives in `trainer/features.py` (feature indexing + quantisation: QA=255, QB=64,
+scale=400); `src/nnue.c` must reproduce it byte-for-byte, and `verify.py` enforces **0 cp** difference.
+The streaming trainer (`--shard-dir`, one ~95M-position shard in RAM at a time) is what allows
+training beyond the machine's RAM.
 
-## Status (current)
+## Opening book
 
-- **Board/movegen:** magic bitboards (runtime-generated), copy-make, incremental Zobrist.
-  **perft matches known counts** on startpos, Kiwipete, and CPW positions 3/4/5/6 (433M nodes, exact).
-- **Search:** iterative deepening + aspiration, fail-soft PVS, transposition table (mate-adjusted bounds),
-  quiescence + SEE, ordering (TT / MVV-LVA / killers / **continuation & butterfly history** / **countermove**),
-  null-move, reverse futility, **futility**, late-move pruning, LMR, check extensions, mate-distance pruning,
-  repetition / 50-move / insufficient-material draws.
-- **Eval:** PeSTO tapered material+PST (+ bishop pair, mobility, tempo) behind a single `evaluate()` seam.
-  **NNUE now plugs in here** (768→512 SCReLU perspective net) when a net is loaded via `EvalFile`, else HCE.
-- **NNUE:** full independent pipeline — `datagen` self-play, PyTorch trainer, quantised loader + integer
-  forward (verified bit-identical to the trainer). Nets improve with data/training; see NNUE_TRAINING.md.
-- **UCI:** `uci` / `isready` / `ucinewgame` / `position` / `go` (clocks, movetime, depth, nodes, infinite,
-  perft) / `setoption` (Hash, Clear Hash, Move Overhead, EvalFile) / `stop` / `quit`; `bench` + `perft` +
-  `datagen` + `nnueeval` CLI.
-- **Verified:** correct mate detection, sensible opening + endgame play, full self-play games to decisive
-  results, ASan/UBSan-clean search. Single-threaded; ~1.8 Mnps (copy-make).
+Standard **Polyglot** `.bin` books are supported (`src/book.c`; keys validated against the official
+spec vectors via `./zenith bookcheck`). `books/komodo.bin` (578k entries) ships in the repo.
 
-Strength: a solid classical engine (~2400–2700 class) with the full NNUE training pipeline now in place
-and verified end-to-end. Closing the world-class gap is now a data + training program (bigger/cleaner
-self-play data, less eval noise, larger nets, incremental accumulator), not new engine code — documented
-in the two design files.
+```
+setoption name BookFile value books/komodo.bin
+setoption name OwnBook value true          # default false — testing always runs bookless
+```
+
+## Status
+
+- **Board/movegen:** magic bitboards (runtime-generated), copy-make, incremental Zobrist + pawn key.
+  Perft-exact on the full 133-position suite. Search filters pseudo-legal moves with a copy-free
+  legality oracle (checkers/pins), differentially validated against copy-make ground truth.
+- **Search:** iterative deepening + aspiration, fail-soft PVS, lockless XOR-guarded transposition
+  table (bit-field payload), quiescence + SEE, ordering (TT / MVV-LVA / killers / countermove /
+  butterfly + continuation history), null-move, reverse futility, futility, LMP, LMR, SEE pruning,
+  check + singular extensions, IIR, mate-distance pruning, pawn-keyed eval correction history.
+  Search parameters are UCI-exposed and **SPSA-tuned** (`tools/spsa.py`).
+- **Parallel:** Lazy SMP (shared lockless TT + eval cache, per-thread history), `Threads` up to 256.
+- **Eval:** king-bucketed NNUE (above) when a net is loaded via `EvalFile`, else a PeSTO tapered HCE.
+- **UCI:** `uci`/`isready`/`ucinewgame`/`position`/`go` (clocks, movetime, depth, nodes, infinite,
+  perft) / `setoption` (Hash, Clear Hash, Threads, Move Overhead, EvalFile, OwnBook, BookFile, plus
+  the tunable search parameters) / `stop` / `quit`; versioned `id name Zenith <version>`.
+- **Strength vs the reference engine (pawnstar, properly controlled matches):** **+78 Elo**
+  single-thread and **+107 Elo** at 8 threads (tc 8+0.08); single-thread nps parity with a deeper
+  effective search. ~2.4 Mnps single-thread with NNUE on a 13900HX.
 
 ## Layout
 
 ```
-src/types.h        colours, pieces, squares, packed Move, bit tricks
-src/bitboard.*     attack tables + rook/bishop magic bitboards
-src/position.*     board + mailbox, Zobrist, FEN, copy-make, attacks-to / in-check
-src/movegen.*      pseudo-legal generation + legality filter (perft-gated)
-src/eval.*         evaluate(): NNUE when a net is loaded, else tapered HCE
-src/nnue.*         quantised NNUE loader + SCReLU integer forward (full-refresh accumulator)
-src/datagen.*      self-play data generation (fen;stm_score;wdl) for NNUE training
-src/tt.*           transposition table (depth-preferred, bounds)
-src/search.*       ID + PVS + qsearch + ordering + pruning/reductions + time management
-src/uci.*          protocol + bench + perft + datagen + nnueeval
+src/types.h        colours, pieces, squares, packed Move (uint16 + inline accessors), bit tricks
+src/platform.h     C11 threads.h / pthread shim + monotonic clock
+src/bitboard.*     attack tables + rook/bishop magic bitboards, BetweenBB/LineBB
+src/position.*     bitboards + mailbox, Zobrist + pawn key, FEN, copy-make, legality/check oracles,
+                   embedded NNUE accumulator (incrementally maintained)
+src/movegen.*      pseudo-legal generation (+ legal wrapper for perft/datagen/UCI)
+src/eval.*         evaluate(): NNUE when a net is loaded, else tapered HCE; shared eval cache
+src/nnue.*         quantised king-bucketed NNUE loader + AVX2 integer forward + finny refresh cache
+src/book.*         Polyglot opening book (key computation, probing, weighted move choice)
+src/tt.*           lockless transposition table ({key^data, data} slots, bit-field payload)
+src/search.*       ID + aspiration + PVS + qsearch + the full pruning/reduction/extension stack,
+                   SPSA-tunable parameters, Lazy SMP entry points, time management
+src/datagen.*      self-play data generation + bulletformat-to-text converter
+src/uci.*          protocol loop + bench/perft/legalcheck/bookcheck CLI + version banner
+src/version.h      major.minor + build number (git commit count, stamped by the Makefile)
 src/main.c         entry
 trainer/           independent PyTorch NNUE trainer (features.py, train.py, verify.py)
-tools/sprt.sh              self-play / cross-engine SPRT harness (fastchess)
-tools/datagen_parallel.sh fan datagen across CPU cores
-tools/spsa.py             SPSA tuner for the search parameters (UCI-exposed) 
-tools/link-memory.sh      wire Claude Code memory to the repo (run once per clone)
+books/             Polyglot opening books (komodo.bin)
+nets/              released .nnue networks (kb2, kb3)
+tools/sprt.sh              SPRT harness (fastchess)
+tools/datagen_parallel.sh  fan datagen across CPU cores
+tools/spsa.py              SPSA tuner for the UCI-exposed search parameters
+tools/link-memory.sh       wire Claude Code memory to the repo (run once per clone)
 ```
 
 Project notes and lessons live in `.claude/memory/` (versioned in git). After cloning, run

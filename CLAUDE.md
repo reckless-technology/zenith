@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Zenith is a from-scratch UCI chess engine in **C17** (~4728 lines, `src/*.{h,c}`; ported from the original
-C++20, preserved at git tag `cpp-final`). The classical core
-is complete and perft-verified; NNUE and parallel search are the planned next phases. Read
-[DESIGN.md](DESIGN.md) for the roadmap and [NNUE_TRAINING.md](NNUE_TRAINING.md) for the Phase-4 GPU handoff.
+Zenith is a from-scratch UCI chess engine in **C17** (~5,300 lines, `src/*.{h,c}`; ported from the original
+C++20, preserved at git tag `cpp-final`). It is feature-complete: king-bucketed NNUE, Lazy SMP, an
+SPSA-tuned search, and a Polyglot opening book — and it beats its reference engine (pawnstar) at every
+tested configuration. Read [DESIGN.md](DESIGN.md) for the architecture and
+[NNUE_TRAINING.md](NNUE_TRAINING.md) for the training pipeline.
 
 ## Build / test / run
 
@@ -17,15 +18,18 @@ make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/m
 make clean
 ./zenith        # interactive UCI loop
 
-./zenith perft         # movegen correctness vs known counts (startpos, Kiwipete, CPW 3/4/5) — must PASS
+./zenith perft         # movegen vs known counts (canonical 5 + the 128-position Ethereal suite) — must PASS
 ./zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
+./zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
+./zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
+./zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./zenith -> ./zenith-base
 tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
 ```
 
 The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
-`tools/sprt.sh` needs `cutechess-cli` on PATH and an openings EPD (`$OPENINGS`, default
+`tools/sprt.sh` runs **fastchess** (cutechess-cli is not installed here) with an openings EPD (`$OPENINGS`, default
 `~/pawnstar_nnue/openings.epd`); tune via env vars `TC` / `ELO0` / `ELO1` / `CONCURRENCY`.
 
 ## The testing discipline (this is the point of the project)
@@ -49,10 +53,14 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/`shift<Dir>`/file+rank masks).
 - **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
   bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable; PEXT is a drop-in later.
-- **position.\*** — board = `byColor[2]` + `byType[6]` bitboards **plus** a `board[64]` mailbox, kept in
-  sync. Incremental **Zobrist** `key`. `attackers_to`/`attacked_by`/`in_check`/`gives_check`, FEN I/O.
-- **movegen.\*** — `generate_legal(pos, list, noisyOnly=false)` emits **fully legal** moves into a fixed
-  `MoveList` (`Move moves[256]`). `noisyOnly` = captures+promotions for quiescence.
+- **position.\*** — board = `by_color[2]` + `by_type[6]` bitboards **plus** a `board[64]` mailbox, kept in
+  sync. Incremental **Zobrist** `key` + pawn-only `pawn_key`; the NNUE accumulator is embedded and updated
+  in the put/remove/move primitives. Copy-free oracles for the search: `is_legal_fast` (checkers+pins),
+  `pinned_to_king`, `gives_check_fast`/`discovered_check_candidates` — all differentially validated by
+  `legalcheck`. FEN I/O.
+- **movegen.\*** — `generate_pseudo` emits pseudo-legal moves into a fixed `MoveList` (`Move moves[256]`);
+  the search filters with `is_legal_fast` *before* pruning/make (the +66 Elo prune-before-make change).
+  `generate_legal` (pseudo + filter) serves perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
 - **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
   when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
   tempo). This single call site is the NNUE seam.
@@ -65,15 +73,22 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
 - **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
   emits `fen;stm_score_cp;wdl` records (one per quiet position). Fan out with `tools/datagen_parallel.sh`.
-- **tt.\*** — `TranspositionTable TT` (global), depth-preferred, `Bound` exact/lower/upper. Mate scores are
-  stored distance-from-node: **always go through `score_to_tt`/`score_from_tt`** across the TT boundary.
+- **tt.\*** — global, **lockless** for Lazy SMP: 16-byte `{key^data, data}` slots with the XOR torn-read
+  guard, relaxed atomics, bit-field payload (`TTData`, signed depth), depth-preferred replacement with
+  generation aging. Mate scores are stored distance-from-node: **always go through
+  `score_to_tt`/`score_from_tt`** across the TT boundary.
 - **search.\*** — the strength engine, all in `Searcher`: iterative deepening + aspiration windows,
-  fail-soft PVS `negamax`, `qsearch` (SEE-pruned), and ordering/pruning (TT move → MVV-LVA/SEE → killers →
-  countermove → butterfly+continuation history; null-move, reverse-futility, futility, LMP, LMR,
-  check extensions, mate-distance pruning). `see()` is a local static-exchange eval.
-- **uci.\*** — protocol loop + `bench`/`perft` CLI. Search runs on a **detached `std::thread`**; `stop` is
-  an atomic checked via `time_up()`. Options: `Hash`, `Clear Hash`, `Move Overhead` (Threads/Ponder
-  accepted but ignored in v1).
+  fail-soft PVS `negamax`, `qsearch` (SEE-pruned), ordering (TT move → MVV-LVA → killers → countermove →
+  butterfly+continuation history), pruning/reductions (null-move, reverse-futility, futility, LMP, LMR,
+  SEE pruning, IIR), check + singular extensions, mate-distance pruning, and a pawn-keyed eval
+  **correction history**. All margins live in `SearchParams` (UCI-exposed spins, **SPSA-tuned** defaults;
+  re-tune with `tools/spsa.py`). `static_exchange_eval()` is the local SEE.
+- **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`datagen`/
+  `bullet2text`/`nnueeval`/`nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
+  sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256),
+  `Move Overhead`, `EvalFile`, `OwnBook`/`BookFile` (Polyglot; OwnBook defaults false — testing stays
+  bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:
+  major.minor.<git commit count>, stamped by the Makefile).
 
 ### Two things the code does that the docs describe differently — trust the code
 
@@ -88,7 +103,7 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 ### Repetition / draw history
 
 Draw detection needs positions played *before* the search root. `uci.c` accumulates pre-root keys in
-`gameHist` (rebuilt on each `position` command) and hands them to `searcher.hist`. Inside `negamax`, the
+`game_hist` (rebuilt on each `position` command) and hands them to each searcher's `hist_keys`. Inside `negamax`, the
 current `pos.key` is `push_back`/`pop_back`-ed around each recursive call so `is_draw()` can scan back to
 the last irreversible move. If you add a make/recurse site, maintain this `hist` push/pop or repetition
 detection breaks.

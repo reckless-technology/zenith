@@ -87,16 +87,17 @@ validated end-to-end, or straight away if we want speed.
 
 ---
 
-## 4. Engine integration (`src/nnue.{h,cpp}`)
+## 4. Engine integration (`src/nnue.{h,c}`) — all implemented
 
 1. **Loader**: read the `.nnue` file into aligned int16 arrays.
 2. **Feature index**: `idx(perspective, colour, pt, sq)` with the mirror/colour-swap for the black POV.
-3. **Incremental accumulator**: keep `Accumulator{ int16 own[512], opp[512] }` on the search stack; on
-   `make_move`, apply the piece deltas (add/sub the moved/captured/promoted feature columns) instead of
-   recomputing — this is what makes NNUE cheap. Full refresh on a king move (needed once king buckets land).
-4. **Forward**: SCReLU + int16/int8 output dot. Start scalar (correct), then add an **AVX2 kernel**
-   (`_mm256_madd_epi16`, the same shape as pawnstar's `outputDotInt8`) for ~8× on the hot path.
-5. **Seam**: `evaluate()` calls `nnue::eval(pos)` when a net is loaded (UCI `EvalFile`), else the HCE.
+3. **Incremental accumulator** (done): the accumulator lives inside `Position`; put/remove/move piece
+   primitives apply the feature deltas. King moves that change the side's king bucket refresh that
+   perspective via a thread-local **finny cache** (cached accumulator per (perspective,bucket) + the board
+   it was built from; rebuilds apply only piece diffs).
+4. **Forward** (done): SCReLU + int16 output dot, AVX2 column add/sub on the accumulator hot path; a
+   shared lockless eval cache memoises evaluate() (biggest win: qsearch stand-pat).
+5. **Seam** (done): `evaluate()` calls the NNUE forward when a net is loaded (UCI `EvalFile`), else the HCE.
 
 **Verification gates** (mirror the perft discipline):
 - `nnue::eval` (int16) == the trainer's float eval to **0 cp** on a fixed FEN set (a `TestNNUEReference`).
@@ -119,28 +120,24 @@ Done (v1 pipeline built + validated 2026-07-18):
 [x] SPRT harness (tools/sprt.sh, fastchess): NNUE vs HCE, cross-engine
 ```
 
-Open (the climb — this is now a data/training program, not engine code):
+All originally-open items are now done:
 ```
-[ ] cut eval NOISE: the pilot net (4M pos, HCE self-play) LOSES to HCE (~-325 Elo) because it correlates
-    only 0.92 with its labels (~267cp noise) and minimax amplifies leaf noise. Fix: more + cleaner data
-    (deeper search labels, dedup), more/better training (lower wdl-lambda, more epochs), larger net.
-[ ] incremental accumulator (make full-refresh ~3x faster) + later an AVX2 kernel
-[ ] once NNUE beats HCE: SPRT vs pawnstar; then bigger net + more data; v2 HalfKA + king buckets
+[x] eval noise cut via public PlentyChess data at scale (190M -> 650M -> 1.4B positions)
+[x] incremental accumulator + AVX2 kernel + finny refresh cache + eval cache
+[x] king buckets (768x8 -> 512, ZNNUE3); output buckets tried and shelved (neutral)
+[x] streaming trainer (--shard-dir) to train past the RAM ceiling
+[x] beats HCE, then beats pawnstar: +78 Elo single-thread, +107 at 8 threads (tc 8+0.08)
 ```
 
-## State (2026-07-19)
+## State (2026-07-24)
 
-- `main` = perft-correct classical core + PVS search + **the full NNUE pipeline** (datagen incl. book &
-  net-in-the-loop, PyTorch trainer, quantised AVX2 loader), all verified (0 cp engine-vs-trainer,
-  colour-mirror symmetric, tactics found). Current release net: `nets/zenith-v6.nnue`.
-- **Net progression (fixed-depth-8 Elo vs the PeSTO HCE):** pilot −325 (underfit/noisy) → v2 −38 → v4 (46M)
-  **+139** → v5 (72M, self-play) **+301 (+166 timed — wins timed)** → v6 (78M window) **+284, +60 over v5**.
-- **Key results & lessons:** more data is the dominant lever; **self-play (net-in-the-loop) compounds**
-  (v5-vs-v4 +211) but with **diminishing returns** (v6-vs-v5 +60); 512 hidden is the sweet spot (768
-  overfits); int16+AVX2 refresh nearly doubled nps (641k→1.08M). vs pawnstar: **−489 → −377/−385** timed.
-- **Strategic read:** the remaining gap to pawnstar is now **speed + search + parallelism bound, not eval
-  quality** (v6's better eval did not close the timed pawnstar gap). Next levers, each SPRT-gated:
-  incremental accumulator (or make/unmake) for speed, singular extensions / IIR, Lazy SMP + lockless TT.
-- Harness: `tools/sprt.sh` uses **fastchess**; `~/pawnstar_nnue/openings.epd` is the default book. SPRT is
-  CPU-bound, training is the GPU job — they run concurrently.
-```
+- Release net: `nets/zenith-kb3.nnue` — king-bucketed 768×8→512, trained on **1.4B** PlentyChess positions
+  with the streaming trainer. Progression: 512/190M (pc2) → +57 king buckets @ 650M (kb2) → +8 @ 1.4B (kb3;
+  data returns now diminishing).
+- Engine side: incremental accumulator in `Position`, finny refresh cache, AVX2 kernel, eval cache — all
+  gated by `nnuecheck` (incremental == refresh) and `verify.py` (0 cp vs the trainer).
+- **Zenith beats pawnstar**: +78 Elo single-thread, +107 at 8 threads (tc 8+0.08, properly controlled —
+  always pass `option.Threads=1 option.OwnBook=false` to pawnstar in matches).
+- The experiment log with every result and lesson lives in `.claude/memory/zenith-eval-experiments.md`.
+- Harness: `tools/sprt.sh` uses **fastchess**; `~/pawnstar_nnue/openings.epd` is the default openings file.
+  SPRT is CPU-bound, training is the GPU job — they run concurrently.
