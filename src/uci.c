@@ -1,4 +1,5 @@
 #include "uci.h"
+#include "book.h"
 #include "eval.h"
 #include "movegen.h"
 #include "nnue.h"
@@ -25,6 +26,7 @@ static zen_thread_t search_thread; // coordinator thread: spawns helpers, runs t
 static bool         search_thread_running = false;
 static int          thread_count          = 1;
 static int64_t      move_overhead         = 20;
+static bool         own_book              = false; // default OFF: testing must stay bookless
 
 static void join_search(void)
 {
@@ -278,6 +280,21 @@ static void go(char **save_ptr)
         perft_divide(&perft_position, perft_depth);
         return;
     }
+    // Opening book (Polyglot): only for real game searches — never for analysis (infinite) or fixed
+    // depth/node test searches, so bench signatures and SPRT harness runs are unaffected even if enabled.
+    if (own_book && book_is_loaded() && !limits.infinite && limits.depth == 0 && limits.nodes == 0)
+    {
+        Move book_move = book_probe(&game);
+        if (!move_is_none(book_move))
+        {
+            char uci_buf[8];
+            printf("info string book move\n");
+            printf("bestmove %s\n", move_to_uci(book_move, uci_buf));
+            fflush(stdout);
+            return;
+        }
+    }
+
     GoArgs *args = malloc(sizeof(GoArgs));
     args->root   = game;
     args->limits = limits;
@@ -342,6 +359,22 @@ static void set_option(char **save_ptr)
         int requested_threads = atoi(value);
         thread_count          = requested_threads < 1 ? 1 : (requested_threads > 256 ? 256 : requested_threads);
     }
+    else if (strcmp(option_name, "ownbook") == 0)
+    {
+        own_book = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+    }
+    else if (strcmp(option_name, "bookfile") == 0)
+    {
+        if (book_load(value))
+        {
+            printf("info string loaded book %s\n", value);
+        }
+        else
+        {
+            printf("info string failed to load book %s\n", value);
+        }
+        fflush(stdout);
+    }
     else if (strcmp(option_name, "evalfile") == 0)
     {
         if (nnue_load(value))
@@ -393,6 +426,8 @@ void uci_loop(void)
             printf("option name Move Overhead type spin default 20 min 0 max 5000\n");
             printf("option name Clear Hash type button\n");
             printf("option name EvalFile type string default <none>\n");
+            printf("option name OwnBook type check default false\n");
+            printf("option name BookFile type string default <none>\n");
             // Tunable search parameters (SPSA); defaults reproduce the shipped engine.
             printf("option name RfpMargin type spin default %d min 20 max 200\n", g_params.rfp_margin);
             printf("option name NmpDivisor type spin default %d min 50 max 600\n", g_params.nmp_divisor);

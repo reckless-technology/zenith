@@ -1,4 +1,5 @@
 #include "bitboard.h"
+#include "book.h"
 #include "datagen.h"
 #include "eval.h"
 #include "nnue.h"
@@ -29,6 +30,10 @@ int main(int argc, char **argv)
         {
             run_perft_suite();
             return 0;
+        }
+        if (!strcmp(argv[1], "bookcheck"))
+        {
+            return run_book_check(); // polyglot key vs the 9 official spec vectors
         }
         if (!strcmp(argv[1], "legalcheck"))
         {
