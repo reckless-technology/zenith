@@ -1,0 +1,166 @@
+#include "movegen.h"
+#include "bitboard.h"
+
+static void add_promotions(MoveList *list, int from, int to, bool capture)
+{
+    unsigned base = capture ? FLAG_PROMO_CAP_N : FLAG_PROMO_N;
+    // Queen first (best for move ordering), then knight/rook/bishop.
+    movelist_add(list, move_make(from, to, base + (QUEEN - KNIGHT)));
+    movelist_add(list, move_make(from, to, base + (KNIGHT - KNIGHT)));
+    movelist_add(list, move_make(from, to, base + (ROOK - KNIGHT)));
+    movelist_add(list, move_make(from, to, base + (BISHOP - KNIGHT)));
+}
+
+// The C++ slider lambda: emit every slider move for one piece type given its attack function.
+static void slider_moves(MoveList *list, Bitboard slider_pieces, Bitboard (*attack_fn)(int, Bitboard), Bitboard own,
+                         Bitboard enemy, Bitboard occupancy, bool noisy)
+{
+    while (slider_pieces)
+    {
+        int      square  = pop_lsb(&slider_pieces);
+        Bitboard targets = attack_fn(square, occupancy) & ~own;
+        if (noisy)
+        {
+            targets &= enemy;
+        }
+        while (targets)
+        {
+            int to = pop_lsb(&targets);
+            movelist_add(list, move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+        }
+    }
+}
+
+// Pseudo-legal moves. Castling is emitted fully legal (king not in/through check); every other move is
+// legal iff it does not leave the mover's own king in check — the search tests that with a single
+// make_move (see negamax/qsearch), avoiding the separate copy-make that generate_legal does per move.
+// The list is reset here (the C++ MoveList default-initialised count to 0 at declaration).
+void generate_pseudo(const Position *pos, MoveList *list, bool noisy)
+{
+    list->count = 0;
+
+    const Color    side = pos->stm, opponent = color_flip(side);
+    const Bitboard occupancy = position_occupied(pos);
+    const Bitboard own       = pos->by_color[side];
+    const Bitboard enemy     = pos->by_color[opponent];
+    const Bitboard empty     = ~occupancy;
+
+    // --- Pawns (per-pawn for clarity; correctness before speed) ---
+    Bitboard pawns   = position_pieces(pos, side, PAWN);
+    int      forward = side == WHITE ? 8 : -8;
+    while (pawns)
+    {
+        int  square     = pop_lsb(&pawns);
+        int  one_step   = square + forward;
+        bool promo_rank = relative_rank(side, one_step) == 7;
+
+        // Captures + promotions on capture.
+        Bitboard captures = pawn_attacks(side, square) & enemy;
+        while (captures)
+        {
+            int to = pop_lsb(&captures);
+            if (promo_rank)
+            {
+                add_promotions(list, square, to, true);
+            }
+            else
+            {
+                movelist_add(list, move_make(square, to, FLAG_CAPTURE));
+            }
+        }
+        // En passant.
+        if (pos->ep_sq != NO_SQ && (pawn_attacks(side, square) & sq_bb(pos->ep_sq)))
+        {
+            movelist_add(list, move_make(square, pos->ep_sq, FLAG_EP));
+        }
+
+        // Quiet pushes (skipped when generating noisy-only, except quiet promotions which are noisy).
+        if (empty & sq_bb(one_step))
+        {
+            if (promo_rank)
+            {
+                add_promotions(list, square, one_step, false);
+            }
+            else if (!noisy)
+            {
+                movelist_add(list, move_make(square, one_step, FLAG_QUIET));
+                if (relative_rank(side, square) == 1 && (empty & sq_bb(one_step + forward)))
+                {
+                    movelist_add(list, move_make(square, one_step + forward, FLAG_DOUBLE));
+                }
+            }
+        }
+    }
+
+    // --- Knights / King (leapers) ---
+    Bitboard knights = position_pieces(pos, side, KNIGHT);
+    while (knights)
+    {
+        int      square  = pop_lsb(&knights);
+        Bitboard targets = knight_attacks(square) & ~own;
+        if (noisy)
+        {
+            targets &= enemy;
+        }
+        while (targets)
+        {
+            int to = pop_lsb(&targets);
+            movelist_add(list, move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+        }
+    }
+    int king_square = position_king_sq(pos, side);
+    {
+        Bitboard targets = king_attacks(king_square) & ~own;
+        if (noisy)
+        {
+            targets &= enemy;
+        }
+        while (targets)
+        {
+            int to = pop_lsb(&targets);
+            movelist_add(list, move_make(king_square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+        }
+    }
+
+    // --- Sliders ---
+    slider_moves(list, position_pieces(pos, side, BISHOP), bishop_attacks, own, enemy, occupancy, noisy);
+    slider_moves(list, position_pieces(pos, side, ROOK), rook_attacks, own, enemy, occupancy, noisy);
+    slider_moves(list, position_pieces(pos, side, QUEEN), queen_attacks, own, enemy, occupancy, noisy);
+
+    // --- Castling (fully legal: not in check, path empty and unattacked) ---
+    if (!noisy && !position_attacked_by(pos, king_square, opponent))
+    {
+        int     rank           = side == WHITE ? 0 : 7;
+        uint8_t kingside_flag  = side == WHITE ? CR_WK : CR_BK;
+        uint8_t queenside_flag = side == WHITE ? CR_WQ : CR_BQ;
+        int     e_square = make_square(4, rank), f_square = make_square(5, rank), g_square = make_square(6, rank);
+        int     d_square = make_square(3, rank), c_square = make_square(2, rank), b_square = make_square(1, rank);
+        if ((pos->castling & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
+            !position_attacked_by(pos, f_square, opponent) && !position_attacked_by(pos, g_square, opponent))
+        {
+            movelist_add(list, move_make(e_square, g_square, FLAG_KCASTLE));
+        }
+        if ((pos->castling & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
+            (empty & sq_bb(b_square)) && !position_attacked_by(pos, d_square, opponent) &&
+            !position_attacked_by(pos, c_square, opponent))
+        {
+            movelist_add(list, move_make(e_square, c_square, FLAG_QCASTLE));
+        }
+    }
+}
+
+void generate_legal(const Position *pos, MoveList *list, bool noisy_only)
+{
+    list->count = 0;
+
+    MoveList pseudo;
+    generate_pseudo(pos, &pseudo, noisy_only);
+    for (int index = 0; index < pseudo.count; index++)
+    {
+        Move move = pseudo.moves[index];
+        if (position_is_legal(pos, move))
+        {
+            movelist_add(list, move);
+        }
+    }
+}
