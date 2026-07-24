@@ -75,6 +75,21 @@ static int draw_value(void)
     return 0;
 }
 
+/**
+ * @brief All pieces of either colour attacking @p square, given @p occupancy.
+ *
+ * Equivalent to position_attackers_to(WHITE) | position_attackers_to(BLACK), but does each slider magic
+ * lookup once instead of once per colour — the exchange loop below recomputes this every ply.
+ */
+static inline Bitboard attackers_to_both(const Position *pos, int square, Bitboard occupancy)
+{
+    return (pawn_attacks(BLACK, square) & position_pieces(pos, WHITE, PAWN)) |
+           (pawn_attacks(WHITE, square) & position_pieces(pos, BLACK, PAWN)) |
+           (knight_attacks(square) & pos->by_type[KNIGHT]) | (king_attacks(square) & pos->by_type[KING]) |
+           (bishop_attacks(square, occupancy) & (pos->by_type[BISHOP] | pos->by_type[QUEEN])) |
+           (rook_attacks(square, occupancy) & (pos->by_type[ROOK] | pos->by_type[QUEEN]));
+}
+
 /** @brief SEE of a capture: net material after the optimal capture sequence on the target square. */
 int static_exchange_eval(const Position *pos, Move move)
 {
@@ -94,8 +109,7 @@ int static_exchange_eval(const Position *pos, Move move)
     PieceType attacker = type_of(pos->board[from]);
     Color     side     = color_flip(pos->stm);
     // Attackers hitting `to` given the current occupancy; recomputed each ply so x-rays reveal.
-    Bitboard attackers =
-        (position_attackers_to(pos, to, WHITE, occupied) | position_attackers_to(pos, to, BLACK, occupied)) & occupied;
+    Bitboard attackers = attackers_to_both(pos, to, occupied) & occupied;
 
     while (true)
     {
@@ -126,10 +140,8 @@ int static_exchange_eval(const Position *pos, Move move)
         }
         attacker = least_valuable_attacker;
         occupied ^= attacker_bit;
-        attackers =
-            (position_attackers_to(pos, to, WHITE, occupied) | position_attackers_to(pos, to, BLACK, occupied)) &
-            occupied;
-        side = color_flip(side);
+        attackers = attackers_to_both(pos, to, occupied) & occupied;
+        side      = color_flip(side);
         if (attacker == KING && (attackers & pos->by_color[side]))
         {
             // Cannot recapture with the king into a still-defended square; stop before it.
@@ -325,15 +337,14 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
 
     Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    Bitboard pinned   = position_pinned_to_king(pos);
-    bool     in_check = checkers != 0;
-    int      best     = -VALUE_INF;
+    bool in_check = checkers != 0;
+    int  best     = -VALUE_INF;
     if (!in_check)
     {
         best = evaluate(pos);
         if (best >= beta)
         {
-            return best;
+            return best; // stand-pat cutoff — returns before the pin scan below
         }
         if (best > alpha)
         {
@@ -342,7 +353,8 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
     }
 
     MoveList moves;
-    generate_pseudo(pos, &moves, !in_check); // in check: all evasions; else captures + promotions
+    generate_pseudo(pos, &moves, !in_check);        // in check: all evasions; else captures + promotions
+    Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // MVV-LVA ordering.
     int scores[256];
@@ -460,12 +472,12 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     }
 
     searcher->nodes++;
-    // Checkers + pinned once per node so the move loop can test legality without a copy-make (is_legal_fast),
-    // and prune before paying make_move.
+    // Checkers once per node (drives IIR / reverse-futility / null-move / in-check logic below). The pinned
+    // bitboard the legality test also needs is computed later, just before the move loop, so the frequent
+    // TT / RFP / null-move cutoffs above it never pay for the pin scan.
     Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    Bitboard pinned   = position_pinned_to_king(pos);
-    bool     in_check = checkers != 0;
+    bool in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
     int prev_piece_to = -1;
@@ -533,7 +545,8 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     }
 
     MoveList moves;
-    generate_pseudo(pos, &moves, false); // legality is filtered in the loop via the single make_move
+    generate_pseudo(pos, &moves, false);            // legality is filtered in the loop via the single make_move
+    Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // Score moves: TT move, captures (MVV-LVA), killers, history.
     int scores[256];

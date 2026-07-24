@@ -5,9 +5,9 @@
  * @brief The PeSTO tapered hand-crafted evaluation and the shared lockless eval cache.
  *
  * PeSTO tapered evaluation (Rofchade's piece-square tables): material + PST interpolated between a
- * middlegame and endgame score by a phase count. Strong, compact, and self-contained; NNUE replaces the
- * whole function later behind the evaluate() seam. A few cheap, uncontroversial terms (bishop pair,
- * mobility, tempo) sit on top.
+ * middlegame and endgame score by a phase count. Strong, compact, and self-contained; it is the fallback
+ * used when no net is loaded — NNUE replaces the whole function behind the evaluate() seam. A few cheap,
+ * uncontroversial terms (bishop pair, mobility, tempo) sit on top.
  */
 #include "eval.h"
 #include "bitboard.h"
@@ -172,7 +172,6 @@ int evaluate(const Position *pos)
     // Cheap extra terms.
     for (int color = WHITE; color <= BLACK; color++)
     {
-        int sign = color == WHITE ? 1 : -1;
         // Bishop pair.
         if (popcount(position_pieces(pos, (Color)color, BISHOP)) >= 2)
         {
@@ -187,7 +186,6 @@ int evaluate(const Position *pos)
                  own_pieces, 2, 4);
         mobility(&middlegame[color], &endgame[color], position_pieces(pos, (Color)color, QUEEN), queen_attacks,
                  occupancy, own_pieces, 1, 2);
-        (void)sign;
     }
 
     int middlegame_score = middlegame[WHITE] - middlegame[BLACK];
