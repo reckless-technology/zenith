@@ -29,7 +29,12 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./zenith -> ./zenith-base
 tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
+make format            # clang-format all sources in place
+make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 ```
+
+A versioned pre-commit hook (`.githooks/pre-commit`, enabled via `make hooks`) rejects commits whose staged
+`src/*.{c,h}` are not clang-format-clean — always keep sources formatted (run `make format`).
 
 The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
