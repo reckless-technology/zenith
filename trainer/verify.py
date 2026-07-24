@@ -1,4 +1,4 @@
-"""Verification gate: the C++ engine's integer NNUE eval must equal the Python reference byte-for-byte.
+"""Verification gate: the C engine's integer NNUE eval must equal the Python reference byte-for-byte.
 
 Loads a .nnue file, evaluates a set of FENs with `features.integer_eval` (the reference), runs the same
 FENs through `./zenith nnueeval <net>`, and compares. Any nonzero difference means the engine loader or

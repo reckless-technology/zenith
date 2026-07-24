@@ -1,7 +1,7 @@
 """Zenith NNUE trainer (PyTorch, independent of any other engine's trainer).
 
 Reads Zenith's own self-play records (`fen;stm_score_cp;wdl`), trains a 768->HIDDEN perspective network
-with SCReLU, and exports a quantised `.nnue` file that the C++ engine loads directly. A float checkpoint
+with SCReLU, and exports a quantised `.nnue` file that the C engine loads directly. A float checkpoint
 is saved alongside for inspection.
 
     python trainer/train.py --data 'data/pilot/shard_*.txt' --out nets/zenith-pilot.nnue \
