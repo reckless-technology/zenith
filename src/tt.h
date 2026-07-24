@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#include <atomic>
+#include <bit>
 #include <cstdint>
 #include <vector>
 
@@ -12,28 +12,32 @@ enum Bound : uint8_t
     BOUND_EXACT = 3
 };
 
-// Unpacked probe result (the search reads this).
-struct TTEntry
+// The 64-bit transposition-table payload as a bit-field struct. Field access compiles to the same shift/mask
+// the old hand-packing used, but only for the fields a caller actually reads (no eager unpack), and stores
+// compose the whole word in one go via std::bit_cast. All fields use 64-bit base types so the struct is a
+// single 8-byte allocation unit (LSB-first on this ABI); signed bit-fields sign-extend on read.
+struct TTData
 {
-    uint64_t key   = 0;
-    int32_t  score = 0;
-    int32_t  eval  = 0;
-    uint16_t move  = 0;
-    int16_t  depth = -1;
-    uint8_t  bound = BOUND_NONE;
-    uint8_t  gen   = 0;
+    uint64_t move : 16;  // packed Move (0 = none)
+    int64_t  score : 16; // score_to_tt-adjusted search score
+    int64_t  eval : 16;  // raw static eval (VALUE_NONE if in check)
+    uint64_t depth : 8;
+    uint64_t bound : 2; // Bound
+    uint64_t gen : 6;   // generation the entry was written in
 };
 
+static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");
+
 // Lockless transposition table for Lazy SMP: each 16-byte slot stores {key ^ data, data}. A torn read
-// (data and key from different writes) fails the `key ^ data == probeKey` check and is treated as a miss,
+// (data and key from different writes) fails the `key ^ data == probe key` check and is treated as a miss,
 // so threads can probe/store concurrently without locks (occasional benign misses on races). Accesses go
 // through std::atomic_ref so the u64 loads/stores are well-defined.
 class TranspositionTable
 {
     struct Slot
     {
-        uint64_t key  = 0; // realKey ^ data
-        uint64_t data = 0; // packed move|score|eval|depth|bound|gen
+        uint64_t key  = 0; // real key ^ data
+        uint64_t data = 0; // std::bit_cast<uint64_t>(TTData)
     };
 
     std::vector<Slot> table;
@@ -49,10 +53,10 @@ class TranspositionTable
         generation++;
     }
 
-    // probe: returns true on a key hit (with a real entry), filling out.
-    bool probe(uint64_t key, TTEntry &out);
+    // probe: returns true on a key hit with a real entry, copying the one-word payload into out.
+    bool probe(uint64_t key, TTData &out) const;
     void store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
-    int  hashfull();
+    int  hashfull() const;
 };
 
 extern TranspositionTable TT;

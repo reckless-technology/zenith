@@ -394,11 +394,11 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
         }
     }
 
-    TTEntry tt_entry;
-    bool    tt_hit   = TT.probe(pos.key, tt_entry);
-    int     tt_score = tt_hit ? score_from_tt(tt_entry.score, ply) : VALUE_NONE;
-    Move    tt_move  = tt_hit ? Move(tt_entry.move) : Move::none();
-    if (excluded.is_none() && !pv_node && tt_hit && tt_entry.depth >= depth &&
+    TTData tt_entry{};
+    bool   tt_hit   = TT.probe(pos.key, tt_entry);
+    int    tt_score = tt_hit ? score_from_tt(int(tt_entry.score), ply) : VALUE_NONE;
+    Move   tt_move  = tt_hit ? Move(uint16_t(tt_entry.move)) : Move::none();
+    if (excluded.is_none() && !pv_node && tt_hit && int(tt_entry.depth) >= depth &&
         (tt_entry.bound == BOUND_EXACT || (tt_entry.bound == BOUND_LOWER && tt_score >= beta) ||
          (tt_entry.bound == BOUND_UPPER && tt_score <= alpha)))
     {
@@ -554,8 +554,9 @@ int Searcher::negamax(Position &pos, int depth, int alpha, int beta, int ply, bo
 
         // Singular extension: if the TT move is much better than every alternative — an exclusion search
         // (this position without the TT move) at reduced depth fails low below a margin — extend it.
-        if (!root && move == tt_move && excluded.is_none() && depth >= 8 && tt_hit && tt_entry.depth >= depth - 3 &&
-            (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) && !is_mate_score(tt_score))
+        if (!root && move == tt_move && excluded.is_none() && depth >= 8 && tt_hit &&
+            int(tt_entry.depth) >= depth - 3 && (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) &&
+            !is_mate_score(tt_score))
         {
             int singular_beta = tt_score - g_params.singular_margin * depth;
             int singular_score =
