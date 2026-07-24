@@ -17,15 +17,21 @@ typedef struct Position
 {
     Bitboard by_color[COLOR_NB];
     Bitboard by_type[PIECE_TYPE_NB];
-    Piece    board[64];
-    Color    stm;
-    uint8_t  castling;
-    int      ep_sq;    // en-passant TARGET square, only set when a capture is actually possible
-    int      halfmove; // 50-move clock (plies)
-    int      fullmove; // full-move number (FEN output only)
-    int      ply;      // plies from the search root (for mate scoring / repetition window)
     uint64_t key;
     uint64_t pawn_key; // Zobrist of pawns only, for the eval correction history (search)
+    // Mailbox stored as 1-byte piece codes (color*6 + type, NO_PIECE=12) rather than the 4-byte `Piece`
+    // enum: 64 vs 256 bytes shrinks Position by 192 bytes, and copy-make copies the whole struct per node.
+    // (Field order is grouped by alignment for tidiness; the accumulator's 32-byte alignment sets the struct
+    // size, so ordering alone changes nothing — the mailbox width is the actual saving.)
+    uint8_t board[64];
+    // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
+    // narrow type would silently truncate); ep_sq (0..64), ply (0..MAX_PLY), stm and castling are small.
+    int32_t halfmove; // 50-move clock (plies)
+    int32_t fullmove; // full-move number (FEN output only)
+    int16_t ep_sq;    // en-passant TARGET square, only set when a capture is actually possible
+    int16_t ply;      // plies from the search root (for mate scoring / repetition window)
+    uint8_t stm;      // side to move (Color; stored narrow — values are 0/1)
+    uint8_t castling;
 
     // NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
     // Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
