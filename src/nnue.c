@@ -98,6 +98,7 @@ static inline void sub_column(int16_t *accumulator, const int16_t *column)
 #endif
 }
 
+#if !defined(__AVX2__)
 static inline int32_t clamp_accumulator(int32_t value)
 {
     if (value < 0)
@@ -110,6 +111,7 @@ static inline int32_t clamp_accumulator(int32_t value)
     }
     return value;
 }
+#endif
 
 // Accumulator refresh cache ("finny tables"). Per thread, for each (perspective, king bucket) we keep the
 // last accumulator computed for that bucket and the board bitboards it was built from. A king move that
@@ -231,11 +233,52 @@ void nnue_refresh(NnueAccumulator *accumulator, const Position *position)
 }
 
 // ---- forward pass ------------------------------------------------------------------------------------
+#if defined(__AVX2__)
+// SCReLU dot for one perspective: sum over i of clamp(acc[i],0,QA)^2 * weight[i], accumulated in int64.
+// Bit-identical to the scalar reference: each term is (int64)(clamped*weight)*clamped (the middle product
+// is exact in int32 — clamped<=255, |weight|<=32767 => <=8.35M), and integer addition is associative so the
+// vector summation order does not matter. QA=255 fits int16, so the clamp is a plain int16 min/max.
+static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
+{
+    const __m256i zero = _mm256_setzero_si256();
+    const __m256i qa   = _mm256_set1_epi16((int16_t)QUANT_ACCUMULATOR);
+    __m256i       sum  = _mm256_setzero_si256(); // 4 int64 partial sums
+
+    for (int i = 0; i < HIDDEN_SIZE; i += 16)
+    {
+        __m256i a = _mm256_loadu_si256((const __m256i *)(acc + i));    // 16 int16 accumulator values
+        __m256i w = _mm256_loadu_si256((const __m256i *)(weight + i)); // 16 int16 output weights
+        __m256i c = _mm256_min_epi16(_mm256_max_epi16(a, zero), qa);   // clamp to [0,255] (16 int16)
+
+        for (int half = 0; half < 2; half++)
+        {
+            __m128i c128 = half ? _mm256_extracti128_si256(c, 1) : _mm256_castsi256_si128(c);
+            __m128i w128 = half ? _mm256_extracti128_si256(w, 1) : _mm256_castsi256_si128(w);
+            __m256i c32  = _mm256_cvtepi16_epi32(c128);  // 8 int32 clamped, [0,255]
+            __m256i w32  = _mm256_cvtepi16_epi32(w128);  // 8 int32 weights
+            __m256i p32  = _mm256_mullo_epi32(c32, w32); // clamped*weight, exact in int32
+            // term = clamped * (clamped*weight) as int64. mul_epi32 reads the low 32 bits of each 64-bit lane
+            // as a SIGNED int32, so even lanes come from (c32,p32) directly and odd lanes after a 32-bit shift.
+            __m256i even = _mm256_mul_epi32(c32, p32);
+            __m256i odd  = _mm256_mul_epi32(_mm256_srli_epi64(c32, 32), _mm256_srli_epi64(p32, 32));
+            sum          = _mm256_add_epi64(sum, _mm256_add_epi64(even, odd));
+        }
+    }
+    int64_t lanes[4];
+    _mm256_storeu_si256((__m256i *)lanes, sum);
+    return lanes[0] + lanes[1] + lanes[2] + lanes[3];
+}
+#endif
+
 int nnue_evaluate(const NnueAccumulator *accumulator, Color stm)
 {
-    const int16_t *own         = accumulator->values[stm];
-    const int16_t *opponent    = accumulator->values[color_flip(stm)];
-    int64_t        accumulated = 0;
+    const int16_t *own      = accumulator->values[stm];
+    const int16_t *opponent = accumulator->values[color_flip(stm)];
+#if defined(__AVX2__)
+    int64_t accumulated =
+        screlu_dot(own, network.output_weight) + screlu_dot(opponent, network.output_weight + HIDDEN_SIZE);
+#else
+    int64_t accumulated = 0;
     for (int i = 0; i < HIDDEN_SIZE; i++)
     {
         int32_t own_clamped = clamp_accumulator(own[i]);
@@ -243,6 +286,7 @@ int nnue_evaluate(const NnueAccumulator *accumulator, Color stm)
         int32_t opponent_clamped = clamp_accumulator(opponent[i]);
         accumulated += (int64_t)(opponent_clamped * network.output_weight[HIDDEN_SIZE + i]) * opponent_clamped;
     }
+#endif
     accumulated /= QUANT_ACCUMULATOR;
     accumulated += network.output_bias;
     return (int)(accumulated * EVALUATION_SCALE / (QUANT_ACCUMULATOR * QUANT_OUTPUT));
