@@ -14,7 +14,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline doc check
+.PHONY: all debug clean perft bench baseline doc check format hooks
 
 all: $(BIN)
 
@@ -54,6 +54,15 @@ check: $(BIN)
 	@echo "== bookcheck ==";   ./$(BIN) bookcheck
 	@echo "== nnuecheck ==";   if [ -f $(NET) ]; then ./$(BIN) nnuecheck $(NET); else echo "  SKIP (no $(NET))"; fi
 	@echo "make check: all gates passed"
+
+# Format all C sources in place with the repo .clang-format.
+format:
+	clang-format -i $(SRCS) $(HDRS)
+
+# Enable the versioned git hooks (clang-format pre-commit check). Run once per clone.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "git hooks enabled (core.hooksPath -> .githooks)"
 
 # API documentation (Doxygen; README.md is the main page). Needs doxygen + graphviz.
 doc:

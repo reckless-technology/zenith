@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
+#
+# Pre-commit hook: reject commits whose staged C sources are not clang-format-clean.
+# Enable it in a clone with:  make hooks   (sets core.hooksPath to .githooks)
+set -euo pipefail
+
+# Prefer the clang-format version CI pins, so local and CI agree.
+CF=""
+for candidate in clang-format-18 clang-format; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        CF="$candidate"
+        break
+    fi
+done
+if [ -z "$CF" ]; then
+    echo "pre-commit: clang-format not found — skipping format check (CI still enforces it)." >&2
+    exit 0
+fi
+
+# Staged, non-deleted C/header files under src/.
+mapfile -d '' staged_files < <(git diff --cached --name-only --diff-filter=ACM -z -- 'src/*.c' 'src/*.h')
+[ ${#staged_files[@]} -eq 0 ] && exit 0
+
+unformatted=()
+for file in "${staged_files[@]}"; do
+    # Compare the STAGED content (not the working tree) against its formatted form.
+    staged_content=$(git show ":$file")
+    formatted=$(printf '%s' "$staged_content" | "$CF" --assume-filename="$file")
+    if [ "$staged_content" != "$formatted" ]; then
+        unformatted+=("$file")
+    fi
+done
+
+if [ ${#unformatted[@]} -gt 0 ]; then
+    echo "pre-commit: these staged files are not clang-format-clean:" >&2
+    printf '  %s\n' "${unformatted[@]}" >&2
+    echo >&2
+    echo "  Fix:  $CF -i ${unformatted[*]}   (or: make format)" >&2
+    echo "  then re-stage (git add) and commit again." >&2
+    exit 1
+fi
+exit 0
