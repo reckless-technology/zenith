@@ -14,7 +14,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline
+.PHONY: all debug clean perft bench baseline doc
 
 all: $(BIN)
 
@@ -33,7 +33,13 @@ bench: $(BIN)
 
 clean:
 	rm -f $(BIN) $(BIN)-debug
+	rm -rf doc/html
 
 baseline: $(BIN)
 	cp $(BIN) $(BIN)-base
 	@echo "baseline -> $(BIN)-base"
+
+# API documentation (Doxygen; README.md is the main page). Needs doxygen + graphviz.
+doc:
+	doxygen Doxyfile
+	@echo "docs -> doc/html/index.html"

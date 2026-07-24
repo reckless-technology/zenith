@@ -20,3 +20,6 @@ __pycache__/
 /zenith-ob
 /zenith-kb
 /zenith-*
+
+# Generated API documentation
+doc/html/

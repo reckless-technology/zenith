@@ -1,0 +1,38 @@
+# Doxygen configuration for Zenith. Generate the docs with `make doc` (output: doc/html/index.html).
+# Only non-default options are set; everything else uses Doxygen's defaults.
+
+PROJECT_NAME           = "Zenith"
+PROJECT_BRIEF          = "A from-scratch UCI chess engine in C17 with its own NNUE"
+OUTPUT_DIRECTORY       = doc
+INPUT                  = README.md DESIGN.md NNUE_TRAINING.md src
+FILE_PATTERNS          = *.c *.h *.md
+RECURSIVE              = YES
+
+# Landing page: render README.md as the main page.
+USE_MDFILE_AS_MAINPAGE = README.md
+MARKDOWN_SUPPORT       = YES
+
+# C engine: document everything, including file-static functions and macros.
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+# Treat the first sentence of a plain comment block above a declaration as its brief.
+MULTILINE_CPP_IS_BRIEF = YES
+
+WARN_IF_UNDOCUMENTED   = NO
+QUIET                  = YES
+
+# Output: HTML only, with a source browser and dot-generated call graphs.
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+HAVE_DOT               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
