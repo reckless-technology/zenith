@@ -9,6 +9,16 @@ metadata:
 
 Zenith's strength is benchmarked against pawnstar C++ (the reference opponent; user wants Zenith stronger). Gaps measured with fastchess, tc=8+0.08, plentychess openings.
 
+**GOAL FULLY ACHIEVED (2026-07-23): Zenith beats pawnstar at BOTH single thread (+77.7 ± 25.2) and 8 threads
+(+107.5 ± 37.8).**
+
+**CRITICAL MEASUREMENT LESSON — pawnstar's UCI defaults are `Threads=32` and `OwnBook=true`.** Every earlier
+"single-thread" gap number (−278, −258, −140, −134) never overrode them, so those matches were actually Zenith
+1-thread vs pawnstar 32-threads(+book) — a measurement artifact, NOT a real deficit. Always pass explicit
+`option.Threads=1 option.OwnBook=false` to pawnstar. The corrected single-thread number (2026-07-23, conc 8):
+**Zenith +77.7 ± 25.2 AHEAD.** Supporting data: single-thread nps parity (zenith 2.47M vs pawnstar 2.4–2.5M,
+kb3 loaded) and zenith reaches depth 20 in 2.7s where pawnstar reaches 17 in 3.1s.
+
 **IMPORTANT — always match `-concurrency` when comparing gap numbers.** Concurrency changes the timed result a lot: pc2 vs pawnstar was −238±52 at conc 30 but −277±44 at conc 8 (same net, same TC). Cross-run comparisons at different concurrency are meaningless.
 
 Single-thread, matched conditions (conc 8):
