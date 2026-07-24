@@ -96,6 +96,12 @@ class Position
     Bitboard pinned_to_king() const;
     bool     is_legal_fast(Move move, Bitboard checkers, Bitboard pinned) const;
 
+    // Fast gives-check for QUIET moves, without copy-make: our pieces that would discover check by moving off
+    // a ray between one of our sliders and the ENEMY king, and the per-move test (direct or discovered check).
+    // Used as a pruning guard (never prune checking moves) — castling conservatively reports true.
+    Bitboard discovered_check_candidates() const;
+    bool     gives_check_fast(Move move, Bitboard discovered, int enemy_king_square) const;
+
     bool has_non_pawn_material(Color color) const
     {
         return by_color[color] & ~(by_type[PAWN] | by_type[KING]);

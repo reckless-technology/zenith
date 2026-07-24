@@ -249,6 +249,67 @@ Bitboard Position::pinned_to_king() const
     return pinned_pieces;
 }
 
+Bitboard Position::discovered_check_candidates() const
+{
+    Color    side = stm, opponent = ~side;
+    int      enemy_king_square = king_sq(opponent);
+    Bitboard occupancy         = occupied();
+    Bitboard candidates        = 0;
+    // Our sliders that would hit the enemy king on an empty board; a single OWN piece between such a slider
+    // and the enemy king is a discovered-check candidate (moving it off the ray delivers check).
+    Bitboard snipers = (rook_attacks(enemy_king_square, 0) & (pieces(side, ROOK) | pieces(side, QUEEN))) |
+                       (bishop_attacks(enemy_king_square, 0) & (pieces(side, BISHOP) | pieces(side, QUEEN)));
+    while (snipers)
+    {
+        int      sniper_square = pop_lsb(snipers);
+        Bitboard between       = between_bb(enemy_king_square, sniper_square) & occupancy;
+        if (between && !(between & (between - 1)) && (between & by_color[side]))
+        {
+            candidates |= between;
+        }
+    }
+    return candidates;
+}
+
+bool Position::gives_check_fast(Move move, Bitboard discovered, int enemy_king_square) const
+{
+    int from = move.from(), to = move.to();
+
+    // Contract: exact only for QUIET non-castle moves (the pruning guards' domain). Anything else reports a
+    // conservative "maybe" (true ⇒ never pruned): castling can check with the rook, and captures/promotions —
+    // en passant especially, which empties a SECOND square and can open a second discovered ray — need
+    // post-capture logic this fast path deliberately does not model.
+    if (!move.is_quiet() || move.is_castle())
+    {
+        return true;
+    }
+
+    // Discovered check: the mover leaves the ray between one of our sliders and the enemy king.
+    if ((discovered & sq_bb(from)) && !(line_bb(enemy_king_square, from) & sq_bb(to)))
+    {
+        return true;
+    }
+
+    // Direct check from the destination square (quiet move: `to` is empty, the mover leaves `from`).
+    Bitboard king_bit  = sq_bb(enemy_king_square);
+    Bitboard occupancy = (occupied() ^ sq_bb(from)) | sq_bb(to);
+    switch (type_of(board[from]))
+    {
+    case PAWN:
+        return pawn_attacks(stm, to) & king_bit;
+    case KNIGHT:
+        return knight_attacks(to) & king_bit;
+    case BISHOP:
+        return bishop_attacks(to, occupancy) & king_bit;
+    case ROOK:
+        return rook_attacks(to, occupancy) & king_bit;
+    case QUEEN:
+        return queen_attacks(to, occupancy) & king_bit;
+    default:
+        return false; // a king never gives direct check
+    }
+}
+
 bool Position::is_legal_fast(Move move, Bitboard checkers, Bitboard pinned) const
 {
     Color side = stm, opponent = ~side;

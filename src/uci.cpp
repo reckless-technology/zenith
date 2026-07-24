@@ -628,8 +628,10 @@ void legal_check_walk(Position &pos, int depth)
 {
     MoveList pseudo;
     generate_pseudo(pos, pseudo, false);
-    Bitboard checkers = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
-    Bitboard pinned   = pos.pinned_to_king();
+    Bitboard checkers          = pos.attackers_to(pos.king_sq(pos.stm), ~pos.stm, pos.occupied());
+    Bitboard pinned            = pos.pinned_to_king();
+    Bitboard discovered        = pos.discovered_check_candidates();
+    int      enemy_king_square = pos.king_sq(~pos.stm);
     for (Move move : pseudo)
     {
         if (pos.is_legal_fast(move, checkers, pinned) != pos.is_legal(move))
@@ -641,6 +643,24 @@ void legal_check_walk(Position &pos, int depth)
                        move.flag(), pos.fen().c_str());
             }
             g_legal_mismatches++;
+        }
+        // gives_check_fast: for legal QUIET non-castle moves it must equal the copy-make ground truth
+        // (castling is allowed to conservatively report true — it is only a pruning guard).
+        if (move.is_quiet() && !move.is_castle() && pos.is_legal(move))
+        {
+            Position child = pos;
+            child.make_move(move);
+            bool truth = child.in_check();
+            bool fast  = pos.gives_check_fast(move, discovered, enemy_king_square);
+            if (fast != truth)
+            {
+                if (g_legal_mismatches < 8)
+                {
+                    printf("  CHECK-MISMATCH fast=%d truth=%d move=%d->%d flag=%d  %s\n", fast, truth, move.from(),
+                           move.to(), move.flag(), pos.fen().c_str());
+                }
+                g_legal_mismatches++;
+            }
         }
     }
     g_legal_nodes++;
