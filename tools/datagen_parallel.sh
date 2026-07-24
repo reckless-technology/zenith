@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 # Fan self-play data generation out across CPU cores. Each worker is an independent ./zenith datagen
 # process with its own seed, writing one shard. Zenith generates its own dataset (no external data).
 #

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #include "datagen.h"
 #include "eval.h"
 #include "movegen.h"
@@ -102,8 +104,8 @@ static char **load_opening_book(const char *path, size_t *count)
         {
             if (*count == capacity)
             {
-                capacity        = capacity ? capacity * 2 : 1024;
-                char **resized  = realloc(book, capacity * sizeof(char *));
+                capacity       = capacity ? capacity * 2 : 1024;
+                char **resized = realloc(book, capacity * sizeof(char *));
                 if (resized == NULL)
                 {
                     break; // out of memory: keep what we have (realloc left `book` valid)
@@ -161,10 +163,10 @@ int run_datagen(int argc, char **argv)
                 argv[0]);
         return 1;
     }
-    long        games         = atol(argv[1]);
-    const char *out_path      = argv[2];
-    uint64_t    seed          = argc > 3 ? strtoull(argv[3], NULL, 10) : 0x9E3779B97F4A7C15ULL;
-    int nodes = argc > 4 ? atoi(argv[4]) : 5000;
+    long        games    = atol(argv[1]);
+    const char *out_path = argv[2];
+    uint64_t    seed     = argc > 3 ? strtoull(argv[3], NULL, 10) : 0x9E3779B97F4A7C15ULL;
+    int         nodes    = argc > 4 ? atoi(argv[4]) : 5000;
     // Clamp opening_plies to the history buffer: random_opening writes one history[] entry per ply, and the
     // buffer is history[SEARCH_HIST_CAP]. Leave headroom so the game itself can still record moves afterwards.
     int opening_plies = argc > 5 ? atoi(argv[5]) : 8;
@@ -176,8 +178,8 @@ int run_datagen(int argc, char **argv)
     {
         opening_plies = SEARCH_HIST_CAP / 2;
     }
-    const char *book_path     = argc > 6 ? argv[6] : "";
-    const char *net_path      = argc > 7 ? argv[7] : "";
+    const char *book_path = argc > 6 ? argv[6] : "";
+    const char *net_path  = argc > 7 ? argv[7] : "";
 
     size_t opening_book_count = 0;
     char **opening_book       = load_opening_book(book_path, &opening_book_count);

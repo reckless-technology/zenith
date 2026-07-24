@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #pragma once
 // Thin portability shim: threads + a monotonic millisecond clock. On POSIX toolchains with C11 threads
 // (glibc >= 2.28) we wrap <threads.h>; on Apple / toolchains without C11 threads we fall back to pthreads.

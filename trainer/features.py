@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 """Shared NNUE constants, FEN featurisation, and the integer forward pass.
 
 This module is the single source of truth for the feature-index convention and the quantisation contract.

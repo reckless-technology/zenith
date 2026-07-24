@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 """Zenith NNUE trainer (PyTorch, independent of any other engine's trainer).
 
 Reads Zenith's own self-play records (`fen;stm_score_cp;wdl`), trains a 768->HIDDEN perspective network

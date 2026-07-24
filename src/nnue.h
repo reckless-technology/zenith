@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #pragma once
 // NNUE evaluation: a quantised SCReLU perspective network. The accumulator is maintained INCREMENTALLY —
 // Position embeds an NnueAccumulator that put/remove/move_piece update, so make_move/set_fen keep it in

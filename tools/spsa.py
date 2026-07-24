@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 """SPSA tuner for Zenith's search parameters (fastchess has no built-in SPSA).
 
 Each iteration perturbs all parameters simultaneously by +/- c_k*Delta (random signs), plays a small

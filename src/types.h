@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #pragma once
 // Core value types: colors, pieces, squares, and the packed 16-bit move.
 #include <stdbool.h>

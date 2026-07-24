@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #pragma once
 // Self-play data generation for NNUE training. Emits one text record per quiet position:
 //   fen ; stm_relative_score_cp ; wdl        (wdl in {1.0, 0.5, 0.0} from the side-to-move's POV)

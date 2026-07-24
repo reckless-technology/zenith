@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 # Wire Claude Code's memory system to this repo's versioned memories.
 #
 # The memory files live in <repo>/.claude/memory/ (committed to git, so every clone gets them). Claude Code,

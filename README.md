@@ -70,10 +70,10 @@ training beyond the machine's RAM.
 ## Opening book
 
 Standard **Polyglot** `.bin` books are supported (`src/book.c`; keys validated against the official
-spec vectors via `./zenith bookcheck`). `books/komodo.bin` (578k entries) ships in the repo.
+spec vectors via `./zenith bookcheck`). No book ships in the repo — supply your own:
 
 ```
-setoption name BookFile value books/komodo.bin
+setoption name BookFile value path/to/your-book.bin
 setoption name OwnBook value true          # default false — testing always runs bookless
 ```
 
@@ -126,3 +126,28 @@ tools/link-memory.sh       wire Claude Code memory to the repo (run once per clo
 
 Project notes and lessons live in `.claude/memory/` (versioned in git). After cloning, run
 `tools/link-memory.sh` once to point Claude Code's memory at the repo copy so those notes are shared.
+
+## Provenance & attribution
+
+Zenith is written from scratch and shares no source code with any other engine. It uses the same
+published, textbook techniques every strong engine does (bitboards, magic bitboards, PVS, transposition
+tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP) — see the
+[Chess Programming Wiki](https://www.chessprogramming.org) — implemented independently.
+
+- **NNUE network:** Zenith's own architecture (king-bucketed 768×8→512 SCReLU), its own trainer
+  (`trainer/`), its own quantised file format (`ZNNUE3`), and its own trained weights. The shipped net
+  was trained on the **public PlentyChess dataset**
+  ([Yoshie2000/plentychess_data_bulletformat](https://huggingface.co/datasets/Yoshie2000/plentychess_data_bulletformat)) —
+  a third-party open-source engine's public self-play data, used to train Zenith's own network; no other
+  engine's code or network is included or derived.
+- **HCE fallback:** PeSTO piece-square tables (public, widely used).
+- **Opening book:** the Polyglot key constants come from the public
+  [book-format specification](http://hgm.nubati.net/book_format.html); no book is bundled.
+
+If you find any concrete originality concern, please open an issue — transparency is the intent.
+
+## License
+
+Zenith is free software licensed under the **GNU General Public License v3.0 or later** (see
+[LICENSE](LICENSE)). Copyright © 2026 Jonny Reckless. You may use, modify, and redistribute it under the
+terms of the GPL; derivative works must remain open under the same license.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Jonny Reckless
 # Self-play / cross-engine SPRT via fastchess (cutechess-cli is not installed on this box). Measures the
 # Elo of a change: a candidate engine/net vs a baseline. Works for:
 #   * NNUE vs HCE:      CAND=./zenith CAND_NET=nets/x.nnue  BASE=./zenith            (BASE_NET unset -> HCE)

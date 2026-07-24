@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jonny Reckless
 #pragma once
 // Polyglot opening book: standard .bin format (big-endian {key u64, move u16, weight u16, learn u32}
 // entries sorted by key). Probing computes the position's Polyglot Zobrist key (its own fixed random
