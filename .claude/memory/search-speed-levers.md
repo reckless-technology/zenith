@@ -29,8 +29,27 @@ Wins realised (both SPRT-gated):
 - Earlier: removing is_legal's redundant per-move copy-make (pseudo-legal + filter-in-search) was +126 Elo — same
   root cause (the 2KB accumulator copy).
 
+More wins realised (2026-07-24, from the independent-review speed pass):
+- **AVX2-vectorized NNUE forward pass: +8.5 ± 5.8 Elo** (commit 851bb83). `nnue_evaluate`'s SCReLU dot was a
+  scalar 512-wide loop run at every `evaluate()` (qsearch stand-pat + leaves). Vectorized: 16-wide int16 clamp
+  → int32 widen → exact int32 clamped*weight → int64 term accumulation via `mul_epi32` (reads low-32 of each
+  64-bit lane as signed; even/odd int32 lanes via one 32-bit shift). BIT-EXACT (0cp gate passes; identical node
+  count at fixed depth) → measured **+5.2%** at identical work (fixed-depth-18 time, pinned P-core). Lesson: the
+  forward pass, though "only per-eval", is a real fraction of time with a net loaded; SIMD it.
+- **Position struct shrink 2464→2240 bytes** (commit bd0c9d3): mailbox `board[64]` as uint8 (not the 4-byte
+  Piece enum, −192) + packed scalars (−32). Behaviour-identical. NOTE: pure field *reordering* saves nothing —
+  the accumulator's `_Alignas(32)` rounds the struct to a 32-byte multiple, so removed internal padding just
+  becomes trailing padding; the mailbox WIDTH is the lever. The accumulator's 2048 bytes of int16 `values` are
+  irreducible (they hold feature-column sums that overflow int8 — the accumulator can NOT be int8; only the
+  hidden-layer matmul could use int8/VNNI, but SCReLU + a 1024→1 output make that a non-win here).
+
+**Measurement caveat (13900HX):** clean nps needs a pinned P-core AND an idle box — the SPRT contending + P/E
+scheduling made A/B swings of ±30% (a core frequency dip lands ~62% of turbo, hitting both binaries). Use
+fixed-DEPTH time (identical tree for a bit-exact change → compare ms), best-of-N, `taskset -c <P-core>`.
+
 **Next speed lever (biggest ceiling): make/unmake with an accumulator stack** — eliminates the per-node Position
-copy entirely (DESIGN.md's aspirational "undo stack"). Large refactor touching every recursion site.
+copy entirely (DESIGN.md's aspirational "undo stack"). Large refactor touching every recursion site. But note
+the make/unmake result above: reverse-delta unmake was SLOWER; an accumulator-stack variant is the untried form.
 
 **How to apply:** when adding a per-move operation, ask "does this pay a make_move (2KB copy) it could avoid?"
 Prune/filter before make_move wherever possible. Any change that alters the search tree must keep the bench node
