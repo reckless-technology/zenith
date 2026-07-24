@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief The UCI protocol loop, the Lazy-SMP search coordinator, and the CLI self-test subcommands.
+ */
 #include "uci.h"
 #include "book.h"
 #include "eval.h"
@@ -30,6 +34,7 @@ static int          thread_count          = 1;
 static int64_t      move_overhead         = 20;
 static bool         own_book              = false; // default OFF: testing must stay bookless
 
+/** @brief Stop any in-flight search and join the coordinator thread (safe to call when idle). */
 static void join_search(void)
 {
     if (search_thread_running)
@@ -40,6 +45,7 @@ static void join_search(void)
     }
 }
 
+/** @brief Match UCI move @p text against @p pos's legal moves. @return the move, or MOVE_NONE if none matches. */
 static Move parse_move(const Position *pos, const char *text)
 {
     MoveList moves;
@@ -55,6 +61,7 @@ static Move parse_move(const Position *pos, const char *text)
     return MOVE_NONE;
 }
 
+/** @brief Handle the `position` command: set the board (startpos/fen) and replay any `moves`, rebuilding history. */
 static void set_position(char **save_ptr)
 {
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
@@ -114,7 +121,7 @@ static void set_position(char **save_ptr)
     game    = pos;
 }
 
-// recursive perft (the C++ used a std::function lambda inside perft_divide)
+/** @brief Recursive perft node count under @p node to @p remaining_depth (helper for perft_divide). */
 static uint64_t perft_recurse(const Position *node, int remaining_depth)
 {
     if (remaining_depth == 0)
@@ -137,6 +144,7 @@ static uint64_t perft_recurse(const Position *node, int remaining_depth)
     return node_count;
 }
 
+/** @brief Perft with a per-root-move breakdown (the UCI `go perft` command); prints each move's node count. */
 static void perft_divide(Position *pos, int depth)
 {
     MoveList moves;
@@ -157,21 +165,23 @@ static void perft_divide(Position *pos, int depth)
     printf("\nnodes %llu  time %.2fs  %.1f Mnps\n", (unsigned long long)total, seconds, total / seconds / 1e6);
 }
 
-// The coordinator thread's captured state (the C++ lambda captured root/history/limits by value).
+/** @brief The coordinator thread's captured search state (root, limits, pre-root history), passed by pointer. */
 typedef struct GoArgs
 {
-    Position     root;
-    SearchLimits limits;
-    uint64_t     hist[SEARCH_HIST_CAP];
-    int          hist_count;
+    Position     root;                  ///< root position to search
+    SearchLimits limits;                ///< stopping conditions
+    uint64_t     hist[SEARCH_HIST_CAP]; ///< pre-root position keys for repetition detection
+    int          hist_count;            ///< number of valid entries in @ref hist
 } GoArgs;
 
+/** @brief Arguments handed to one Lazy-SMP helper thread. */
 typedef struct HelperArgs
 {
-    Searcher     *searcher;
-    const GoArgs *args;
+    Searcher     *searcher; ///< this helper's search state
+    const GoArgs *args;     ///< shared root/limits (read-only)
 } HelperArgs;
 
+/** @brief Lazy-SMP helper thread entry: search silently, sharing the TT and stopping when the main thread does. */
 static int helper_thread_main(void *raw)
 {
     HelperArgs *helper = raw;
@@ -179,6 +189,7 @@ static int helper_thread_main(void *raw)
     return 0;
 }
 
+/** @brief Search coordinator thread: (re)size the pool, launch helpers, run the main search, print bestmove. */
 static int go_thread_main(void *raw)
 {
     GoArgs *args           = raw;
@@ -238,6 +249,7 @@ static int go_thread_main(void *raw)
     return 0;
 }
 
+/** @brief Handle the `go` command: parse limits, do perft/book shortcuts, else spawn the search coordinator. */
 static void go(char **save_ptr)
 {
     join_search();
@@ -353,6 +365,7 @@ static void go(char **save_ptr)
     }
 }
 
+/** @brief Handle the `setoption` command: parse name/value and apply Hash/Threads/EvalFile/book/SPSA params. */
 static void set_option(char **save_ptr)
 {
     // setoption may only arrive while the engine is idle (UCI spec). Defensively stop any in-flight search
@@ -577,14 +590,15 @@ void run_bench(int depth)
     free(searcher);
 }
 
+/** @brief One perft test case: a position and its known leaf count at a given depth. */
 typedef struct PerftCase
 {
-    const char *fen;
-    int         depth;
-    uint64_t    expected;
+    const char *fen;      ///< position FEN
+    int         depth;    ///< perft depth
+    uint64_t    expected; ///< known-correct leaf count at @ref depth
 } PerftCase;
 
-// Plain perft: number of legal-move leaves at depth d — the movegen correctness invariant.
+/** @brief Plain perft: number of legal-move leaves at depth @p depth — the movegen correctness invariant. */
 static uint64_t perft(Position *pos, int depth)
 {
     MoveList moves;
@@ -823,6 +837,7 @@ void run_perft_suite(void)
 // --- CLI: legalcheck — the copy-free is_legal_fast must agree with is_legal on every pseudo-legal move ---
 static uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
 
+/** @brief Recurse to @p depth checking is_legal_fast / gives_check_fast against copy-make ground truth. */
 static void legal_check_walk(Position *pos, int depth)
 {
     MoveList pseudo;

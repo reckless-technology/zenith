@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Engine version constants and the "major.minor.build" version string.
+ *
+ * The major and minor numbers are edited by hand below (the human-meaningful version). The build number is
+ * supplied at compile time via the ZENITH_BUILD_NUMBER macro, which the Makefile derives from the git commit
+ * count (`git rev-list --count HEAD`) — a globally-reproducible number, identical for every clone at a given
+ * commit (mirrors pawnstar's scheme). It defaults to 0 so that editor tooling and builds outside a git
+ * checkout still compile cleanly without the define.
+ */
 #pragma once
-// Engine version constants and the "major.minor.build" version string.
-//
-// The major and minor numbers are edited by hand below (the human-meaningful version). The build number is
-// supplied at compile time via the ZENITH_BUILD_NUMBER macro, which the Makefile derives from the git commit
-// count (`git rev-list --count HEAD`) — a globally-reproducible number, identical for every clone at a given
-// commit (mirrors pawnstar's scheme). It defaults to 0 so that editor tooling and builds outside a git
-// checkout still compile cleanly without the define.
-
-#define ZENITH_VERSION_MAJOR 1
-#define ZENITH_VERSION_MINOR 0
+#define ZENITH_VERSION_MAJOR 1 ///< human-meaningful major version (edited by hand)
+#define ZENITH_VERSION_MINOR 0 ///< human-meaningful minor version (edited by hand)
 
 #ifndef ZENITH_BUILD_NUMBER
 #define ZENITH_BUILD_NUMBER 0

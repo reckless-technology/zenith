@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief The lockless transposition table for Lazy SMP, its payload, and mate-score conversion.
+ */
 #pragma once
 #include "types.h"
 #include <stdatomic.h>
@@ -7,33 +11,38 @@
 #include <stdint.h>
 #include <string.h>
 
+/** @brief The kind of bound a stored score represents. */
 typedef enum
 {
-    BOUND_NONE  = 0,
-    BOUND_UPPER = 1,
-    BOUND_LOWER = 2,
-    BOUND_EXACT = 3
+    BOUND_NONE  = 0, ///< no/empty entry
+    BOUND_UPPER = 1, ///< fail-low: score is an upper bound
+    BOUND_LOWER = 2, ///< fail-high: score is a lower bound
+    BOUND_EXACT = 3  ///< exact score (PV node)
 } Bound;
 
-#define TT_MAX_MB 65536 // must match the advertised `Hash` spin max in uci.c
+#define TT_MAX_MB 65536 ///< max hash size (MB); must match the advertised `Hash` spin max in uci.c
 
-// The 64-bit transposition-table payload as a bit-field struct. Field access compiles to the same shift/mask
-// the old hand-packing used, but only for the fields a caller actually reads (no eager unpack), and stores
-// compose the whole word in one go via memcpy (the C spelling of std::bit_cast). All fields use 64-bit base
-// types so the struct is a single 8-byte allocation unit (LSB-first on this ABI); signed bit-fields
-// sign-extend on read.
+/**
+ * @brief The 64-bit transposition-table payload as a bit-field struct.
+ *
+ * Field access compiles to the same shift/mask the old hand-packing used, but only for the fields a caller
+ * actually reads (no eager unpack), and stores compose the whole word in one go via memcpy (the C spelling
+ * of std::bit_cast). All fields use 64-bit base types so the struct is a single 8-byte allocation unit
+ * (LSB-first on this ABI); signed bit-fields sign-extend on read.
+ */
 typedef struct TTData
 {
-    uint64_t move : 16;  // packed Move (0 = none)
-    int64_t  score : 16; // score_to_tt-adjusted search score
-    int64_t  eval : 16;  // raw static eval (VALUE_NONE if in check)
-    int64_t  depth : 8;  // SIGNED [-128,127]: qsearch-style entries (depth <= 0) must not wrap to "deep"
-    uint64_t bound : 2;  // Bound
-    uint64_t gen : 6;    // generation the entry was written in
+    uint64_t move : 16;  ///< packed Move (0 = none)
+    int64_t  score : 16; ///< score_to_tt-adjusted search score
+    int64_t  eval : 16;  ///< raw static eval (VALUE_NONE if in check)
+    int64_t  depth : 8;  ///< SIGNED [-128,127]: qsearch-style entries (depth <= 0) must not wrap to "deep"
+    uint64_t bound : 2;  ///< Bound
+    uint64_t gen : 6;    ///< generation the entry was written in
 } TTData;
 
 _Static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");
 
+/** @brief Reinterpret a TTData bit-field as its raw 64-bit word (the C spelling of std::bit_cast). */
 static inline uint64_t tt_data_to_u64(TTData data)
 {
     uint64_t word;
@@ -41,6 +50,7 @@ static inline uint64_t tt_data_to_u64(TTData data)
     return word;
 }
 
+/** @brief Reinterpret a raw 64-bit word back into a TTData bit-field. */
 static inline TTData u64_to_tt_data(uint64_t word)
 {
     TTData data;
@@ -48,41 +58,54 @@ static inline TTData u64_to_tt_data(uint64_t word)
     return data;
 }
 
-// Lockless transposition table for Lazy SMP: each 16-byte slot stores {key ^ data, data}. A torn read
-// (data and key from different writes) fails the `key ^ data == probe key` check and is treated as a miss,
-// so threads can probe/store concurrently without locks (occasional benign misses on races). The slot words
-// are _Atomic so the relaxed u64 loads/stores are well-defined.
+/**
+ * @brief One transposition-table slot, stored as {key ^ data, data} for a lockless torn-read guard.
+ *
+ * A torn read (data and key from different writes) fails the `key ^ data == probe key` check and is treated
+ * as a miss, so threads can probe/store concurrently without locks (occasional benign misses on races). The
+ * slot words are _Atomic so the relaxed u64 loads/stores are well-defined.
+ */
 typedef struct TTSlot
 {
-    _Atomic uint64_t key;  // real key ^ data
-    _Atomic uint64_t data; // tt_data_to_u64(TTData)
+    _Atomic uint64_t key;  ///< real key ^ data
+    _Atomic uint64_t data; ///< tt_data_to_u64(TTData)
 } TTSlot;
 
+/** @brief The global transposition table: a power-of-two array of slots with a generation counter. */
 typedef struct TranspositionTable
 {
-    TTSlot  *table;
-    size_t   slot_count;
-    uint64_t mask;
-    uint8_t  generation;
+    TTSlot  *table;      ///< slot array (calloc'd)
+    size_t   slot_count; ///< number of slots (a power of two)
+    uint64_t mask;       ///< slot_count - 1, for indexing by key
+    uint8_t  generation; ///< current search generation, for aging
 } TranspositionTable;
 
-extern TranspositionTable TT;
+extern TranspositionTable TT; ///< the single global transposition table
 
+/** @brief (Re)allocate the table to @p megabytes (clamped to [1, TT_MAX_MB]); clears it. */
 void tt_resize(size_t megabytes);
+/** @brief Zero every slot and reset the generation. */
 void tt_clear(void);
 
+/** @brief Advance the generation so older entries become replaceable. Call once at the start of a search. */
 static inline void tt_new_search(void)
 {
     TT.generation++;
 }
 
-// probe: returns true on a key hit with a real entry, copying the one-word payload into out.
+/** @brief Probe @p key. @return true on a key hit with a real entry, copying the payload into @p out. */
 bool tt_probe(uint64_t key, TTData *out);
+/** @brief Store a result under @p key (depth-preferred replacement with generation aging). */
 void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
-int  tt_hashfull(void);
+/** @brief Approximate table fill (per mille) over a 1000-slot sample, of the current generation. */
+int tt_hashfull(void);
 
-// Mate scores are stored as distance-from-this-node; convert on the way in/out so a mate found deep in
-// the tree is scored correctly wherever the entry is reused.
+/**
+ * @brief Adjust a mate score to distance-from-this-node before storing it.
+ *
+ * Mate scores are stored as distance-from-this-node; convert on the way in/out so a mate found deep in the
+ * tree is scored correctly wherever the entry is reused.
+ */
 static inline int score_to_tt(int score, int ply)
 {
     if (score >= VALUE_MATE_IN_MAX)
@@ -96,6 +119,7 @@ static inline int score_to_tt(int score, int ply)
     return score;
 }
 
+/** @brief Adjust a mate score read from the TT back to distance-from-root. Inverse of score_to_tt(). */
 static inline int score_from_tt(int score, int ply)
 {
     if (score == VALUE_NONE)

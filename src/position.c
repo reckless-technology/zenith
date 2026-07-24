@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Board mutation and queries: Zobrist init, make_move, FEN I/O, and the copy-free legality oracles.
+ */
 #include "position.h"
 #include "bitboard.h"
 #include "nnue.h"
@@ -63,6 +67,7 @@ static const uint8_t CastleMask[64] = {
     CR_ALL,          CR_ALL, (uint8_t)~CR_BK, // rank 8
 };
 
+/** @brief Place a piece and update every representation: bitboards, mailbox, Zobrist keys, NNUE accumulator. */
 static void put(Position *pos, Color color, PieceType piece_type, int square)
 {
     Bitboard square_bit = sq_bb(square);
@@ -81,6 +86,7 @@ static void put(Position *pos, Color color, PieceType piece_type, int square)
     }
 }
 
+/** @brief Remove the piece on @p square and update every representation (inverse of put). */
 static void remove_piece(Position *pos, int square)
 {
     Piece    piece      = pos->board[square];
@@ -99,6 +105,7 @@ static void remove_piece(Position *pos, int square)
     }
 }
 
+/** @brief Move the piece @p from -> @p to (no capture) and update every representation. */
 static void move_piece(Position *pos, int from, int to)
 {
     Piece    piece    = pos->board[from];
@@ -132,6 +139,7 @@ Bitboard position_attackers_to(const Position *pos, int square, Color color, Bit
     return attackers;
 }
 
+/** @brief Apply @p move to @p pos in place (copy-make: the caller copied @p pos first — there is no unmake). */
 void position_make_move(Position *pos, Move move)
 {
     Color     side = pos->stm, opponent = color_flip(pos->stm);
@@ -285,6 +293,7 @@ Bitboard position_discovered_check_candidates(const Position *pos)
     return candidates;
 }
 
+/** @brief Copy-free gives-check test for a QUIET @p move (direct or discovered check). */
 bool position_gives_check_fast(const Position *pos, Move move, Bitboard discovered, int enemy_king_square)
 {
     int from = move_from(move), to = move_to(move);
@@ -324,6 +333,7 @@ bool position_gives_check_fast(const Position *pos, Move move, Bitboard discover
     }
 }
 
+/** @brief Copy-free legality test for a pseudo-legal @p move, given the node's @p checkers and @p pinned. */
 bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, Bitboard pinned)
 {
     Color side = pos->stm, opponent = color_flip(side);
@@ -398,6 +408,7 @@ bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, B
     return true;
 }
 
+/** @brief Parse @p fen into @p pos, hardened against malformed input. @return false if malformed/kingless. */
 bool position_set_fen(Position *pos, const char *fen)
 {
     for (int color = 0; color < COLOR_NB; color++)

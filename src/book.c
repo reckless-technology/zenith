@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Polyglot book implementation: the spec random array, key computation, loading, and probing.
+ */
 #include "book.h"
 #include "movegen.h"
 #include "platform.h"
@@ -259,12 +263,13 @@ uint64_t polyglot_key(const Position *pos)
 }
 
 // ---- book storage ------------------------------------------------------------------------------------
+/** @brief One decoded Polyglot book entry (native byte order). */
 typedef struct BookEntry
 {
-    uint64_t key;
-    uint16_t move;
-    uint16_t weight;
-    uint32_t learn;
+    uint64_t key;    ///< Polyglot position key
+    uint16_t move;   ///< Polyglot-encoded move
+    uint16_t weight; ///< selection weight
+    uint32_t learn;  ///< learn field (unused)
 } BookEntry;
 
 static BookEntry *book_entries = NULL;
@@ -341,8 +346,11 @@ bool book_is_loaded(void)
 }
 
 // ---- probing -----------------------------------------------------------------------------------------
-// Polyglot move encoding: to_file 0-2 | to_rank 3-5 | from_file 6-8 | from_rank 9-11 | promo 12-14
-// (promo: 0 none, 1 knight, 2 bishop, 3 rook, 4 queen). Castling is encoded king-takes-rook (e1h1 etc.).
+/**
+ * @brief Encode a move in Polyglot form: to_file 0-2 | to_rank 3-5 | from_file 6-8 | from_rank 9-11 | promo 12-14.
+ *
+ * (promo: 0 none, 1 knight, 2 bishop, 3 rook, 4 queen.) Castling is encoded king-takes-rook (e1h1 etc.).
+ */
 static uint16_t polyglot_encode(const Position *pos, Move move)
 {
     int from = move_from(move), to = move_to(move);
@@ -359,6 +367,7 @@ static uint16_t polyglot_encode(const Position *pos, Move move)
 // Weighted-random pick needs nondeterminism for opening variety (xorshift64*, seeded once from the clock).
 static uint64_t book_rng_state = 0;
 
+/** @brief Next value from the book's xorshift64* PRNG (lazily seeded from the clock on first use). */
 static uint64_t book_rng(void)
 {
     if (book_rng_state == 0)

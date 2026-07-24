@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Transposition-table storage: allocation, lockless probe/store, and fill estimation.
+ */
 #include "tt.h"
 #include <stdlib.h>
 
@@ -10,7 +14,7 @@ static int clamp_int(int value, int low, int high)
     return value < low ? low : (value > high ? high : value);
 }
 
-// Largest power of two <= x (x > 0) — the C spelling of std::bit_floor.
+/** @brief Largest power of two <= @p x (x > 0) — the C spelling of std::bit_floor. */
 static size_t bit_floor_size(size_t x)
 {
     return (size_t)1 << (63 - __builtin_clzll((uint64_t)x));

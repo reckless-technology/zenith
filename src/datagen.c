@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Self-play datagen and bulletformat conversion: game loop, adjudication, and record emission.
+ */
 #include "datagen.h"
 #include "eval.h"
 #include "movegen.h"
@@ -16,20 +20,21 @@
 
 static const char *START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-// Datagen adjudication / filtering knobs.
+/** @brief Datagen adjudication / filtering knobs. */
 enum
 {
-    MAX_GAME_PLIES   = 400,  // hard cap; unfinished games score as draws
-    WIN_ADJ_SCORE    = 2000, // |cp| threshold to start counting toward a win adjudication
-    WIN_ADJ_PLIES    = 5,    // consecutive plies above threshold -> adjudicate
-    RECORD_SCORE_CAP = 1500  // skip positions already this decided (noise for eval training)
+    MAX_GAME_PLIES   = 400,  ///< hard cap; unfinished games score as draws
+    WIN_ADJ_SCORE    = 2000, ///< |cp| threshold to start counting toward a win adjudication
+    WIN_ADJ_PLIES    = 5,    ///< consecutive plies above threshold -> adjudicate
+    RECORD_SCORE_CAP = 1500  ///< skip positions already this decided (noise for eval training)
 };
 
+/** @brief One pending training record, held until the game's WDL result is known. */
 typedef struct Record
 {
-    char  fen[128];
-    int   score; // cp, side-to-move POV
-    Color stm;
+    char  fen[128]; ///< position FEN
+    int   score;    ///< cp, side-to-move POV
+    Color stm;      ///< side to move (fixes the WDL POV)
 } Record;
 
 // DELIBERATE DEVIATION from the C++: std::mt19937_64 is replaced by the same xorshift64* PRNG the magic
@@ -48,8 +53,11 @@ static uint64_t rng_next(DatagenRng *rng)
     return rng->state * 0x2545F4914F6CDD1DULL;
 }
 
-// Local draw test (search's is_draw is private): 50-move, insufficient material, and 2-fold repetition
-// over the in-game history (keys of positions *before* `pos`).
+/**
+ * @brief Local draw test (search's is_draw is private): 50-move, insufficient material, and 2-fold repetition.
+ *
+ * Repetition scans the in-game @p history (keys of positions *before* @p pos).
+ */
 static bool datagen_is_draw(const Position *pos, const uint64_t *history, int history_count)
 {
     if (pos->halfmove >= 100)
@@ -80,8 +88,12 @@ static bool datagen_is_draw(const Position *pos, const uint64_t *history, int hi
     return false;
 }
 
-// Load an openings file (EPD/FEN, one position per line) into memory. set_fen ignores trailing EPD
-// opcodes, so raw EPD lines work directly. Returns NULL (count 0) if the path is empty/unreadable.
+/**
+ * @brief Load an openings file (EPD/FEN, one position per line) into memory.
+ *
+ * set_fen ignores trailing EPD opcodes, so raw EPD lines work directly.
+ * @return an array of @p count strings, or NULL (count 0) if the path is empty/unreadable.
+ */
 static char **load_opening_book(const char *path, size_t *count)
 {
     *count = 0;
@@ -124,9 +136,12 @@ static char **load_opening_book(const char *path, size_t *count)
     return book;
 }
 
-// Set up a game start: a book position (if a book is loaded) or the standard start, then `opening_plies`
-// uniformly-random legal plies for variety. Returns false if a terminal position is hit (caller retries)
-// so every game starts from a legal, non-terminal, varied position.
+/**
+ * @brief Set up a game start: @p start_fen, then @p opening_plies uniformly-random legal plies for variety.
+ *
+ * @return false if a terminal position is hit (the caller retries), so every game starts from a legal,
+ *         non-terminal, varied position.
+ */
 static bool random_opening(Position *pos, uint64_t *history, int *history_count, DatagenRng *rng, int opening_plies,
                            const char *start_fen)
 {

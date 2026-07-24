@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief NNUE internals: king-bucketed feature indexing, incremental accumulator maintenance, and the integer forward.
+ */
 #include "nnue.h"
 #include "movegen.h"
 #include "types.h"
@@ -12,7 +16,7 @@
 
 bool nnue_g_loaded = false;
 
-// Architecture / quantisation contract — must match trainer/features.py exactly.
+/** @brief Architecture / quantisation contract — must match trainer/features.py exactly. */
 enum
 {
     HIDDEN_SIZE       = NNUE_HIDDEN, // 512
@@ -26,18 +30,22 @@ enum
 
 static const char NNUE_MAGIC[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'};
 
+/** @brief The quantised network weights, loaded from a `.nnue` file. */
 typedef struct Network
 {
-    int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; // feature-major, king-bucketed
-    int16_t feature_transformer_bias[HIDDEN_SIZE];
-    int16_t output_weight[2 * HIDDEN_SIZE]; // own half [0,HIDDEN), opponent half [HIDDEN,2*HIDDEN)
-    int32_t output_bias;
+    int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; ///< feature-major, king-bucketed
+    int16_t feature_transformer_bias[HIDDEN_SIZE];                   ///< feature-transformer bias
+    int16_t output_weight[2 * HIDDEN_SIZE]; ///< own half [0,HIDDEN), opponent half [HIDDEN,2*HIDDEN)
+    int32_t output_bias;                    ///< output bias
 } Network;
 
 static Network network;
 
-// King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
-// Must match king_bucket() in trainer/features.py.
+/**
+ * @brief King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
+ *
+ * Must match king_bucket() in trainer/features.py.
+ */
 static inline int king_bucket(int relative_king_square)
 {
     int file_pair = (relative_king_square & 7) / 2;  // 0..3
@@ -45,13 +53,13 @@ static inline int king_bucket(int relative_king_square)
     return half * 4 + file_pair;                     // 0..7
 }
 
-// Perspective-relative king square (Black mirrors vertically), for bucket selection.
+/** @brief Perspective-relative king square (Black mirrors vertically), for bucket selection. */
 static inline int relative_king_square(Color perspective, int king_square)
 {
     return (perspective == WHITE) ? king_square : (king_square ^ 56);
 }
 
-// Index within a single 768 king-bucket block (no bucket offset). The caller adds bucket * BASE_FEATURES.
+/** @brief Feature index within one 768 king-bucket block; the caller adds bucket * BASE_FEATURES. */
 static inline int base_feature_index(Color perspective, Color piece_color, PieceType piece_type, int square)
 {
     int relative_color  = (piece_color == perspective) ? 0 : 1;
@@ -59,13 +67,14 @@ static inline int base_feature_index(Color perspective, Color piece_color, Piece
     return relative_color * 384 + piece_type * 64 + relative_square;
 }
 
-// Full king-bucketed feature index for `perspective` given its cached king bucket.
+/** @brief Full king-bucketed feature index for @p perspective given its cached king bucket. */
 static inline int feature_index(int king_bucket_index, Color perspective, Color piece_color, PieceType piece_type,
                                 int square)
 {
     return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece_type, square);
 }
 
+/** @brief Add a feature-transformer weight column into an accumulator half (AVX2 or scalar). */
 static inline void add_column(int16_t *accumulator, const int16_t *column)
 {
 #if defined(__AVX2__)
@@ -83,6 +92,7 @@ static inline void add_column(int16_t *accumulator, const int16_t *column)
 #endif
 }
 
+/** @brief Subtract a feature-transformer weight column from an accumulator half (AVX2 or scalar). */
 static inline void sub_column(int16_t *accumulator, const int16_t *column)
 {
 #if defined(__AVX2__)
@@ -101,6 +111,7 @@ static inline void sub_column(int16_t *accumulator, const int16_t *column)
 }
 
 #if !defined(__AVX2__)
+/** @brief Clamp an accumulator value to [0, QA] for the scalar SCReLU path. */
 static inline int32_t clamp_accumulator(int32_t value)
 {
     if (value < 0)
@@ -115,19 +126,24 @@ static inline int32_t clamp_accumulator(int32_t value)
 }
 #endif
 
-// Accumulator refresh cache ("finny tables"). Per thread, for each (perspective, king bucket) we keep the
-// last accumulator computed for that bucket and the board bitboards it was built from. A king move that
-// switches a perspective to bucket B rebuilds by applying only the piece diffs versus that cached board — a
-// handful of column ops instead of a full 32-piece rescan. Always correct (the diffs are exact); a net
-// generation counter invalidates the whole cache when a new net is loaded. _Thread_local ⇒ Lazy-SMP safe.
+/**
+ * @brief Net generation counter that invalidates the whole refresh cache when a new net is loaded.
+ *
+ * The accumulator refresh cache ("finny tables"): per thread, for each (perspective, king bucket) we keep
+ * the last accumulator computed for that bucket and the board bitboards it was built from. A king move that
+ * switches a perspective to bucket B rebuilds by applying only the piece diffs versus that cached board — a
+ * handful of column ops instead of a full 32-piece rescan. Always correct (the diffs are exact); this
+ * generation counter invalidates the whole cache when a new net is loaded. _Thread_local ⇒ Lazy-SMP safe.
+ */
 static uint32_t g_net_generation = 0;
 
+/** @brief One cached refresh-cache accumulator plus the board bitboards it was built from. */
 typedef struct RefreshCacheEntry
 {
-    _Alignas(32) int16_t values[HIDDEN_SIZE];
-    Bitboard by_color[2];
-    Bitboard by_type[6];
-    uint32_t net_generation; // 0 ⇒ never populated for the current net
+    _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
+    Bitboard by_color[2];                     ///< board occupancy per colour when @ref values was built
+    Bitboard by_type[6];                      ///< board occupancy per piece type when @ref values was built
+    uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
 
 static _Thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
@@ -168,9 +184,12 @@ void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type
     }
 }
 
-// Rebuild a single perspective's half (used when that side's king bucket changes, and by refresh()). Uses
-// the thread-local refresh cache: start from the cached accumulator for this (perspective, bucket) and apply
-// only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
+/**
+ * @brief Rebuild a single perspective's half (when that side's king bucket changes, and from refresh()).
+ *
+ * Uses the thread-local refresh cache: start from the cached accumulator for this (perspective, bucket) and
+ * apply only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
+ */
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, Color perspective)
 {
     int bucket = king_bucket(relative_king_square(perspective, position_king_sq(position, perspective)));
@@ -236,10 +255,13 @@ void nnue_refresh(NnueAccumulator *accumulator, const Position *position)
 
 // ---- forward pass ------------------------------------------------------------------------------------
 #if defined(__AVX2__)
-// SCReLU dot for one perspective: sum over i of clamp(acc[i],0,QA)^2 * weight[i], accumulated in int64.
-// Bit-identical to the scalar reference: each term is (int64)(clamped*weight)*clamped (the middle product
-// is exact in int32 — clamped<=255, |weight|<=32767 => <=8.35M), and integer addition is associative so the
-// vector summation order does not matter. QA=255 fits int16, so the clamp is a plain int16 min/max.
+/**
+ * @brief SCReLU dot for one perspective: sum over i of clamp(acc[i],0,QA)^2 * weight[i], accumulated in int64.
+ *
+ * Bit-identical to the scalar reference: each term is (int64)(clamped*weight)*clamped (the middle product is
+ * exact in int32 — clamped<=255, |weight|<=32767 => <=8.35M), and integer addition is associative so the
+ * vector summation order does not matter. QA=255 fits int16, so the clamp is a plain int16 min/max.
+ */
 static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 {
     const __m256i zero = _mm256_setzero_si256();
@@ -378,6 +400,7 @@ int nnue_eval_fens_from_stdin(const char *net_path)
 static uint64_t g_check_nodes = 0, g_check_mismatches = 0;
 static int      g_check_maxdiff = 0;
 
+/** @brief Recurse to @p depth comparing the incrementally-maintained accumulator against a full refresh. */
 static void self_check_walk(Position *position, int depth)
 {
     NnueAccumulator fresh;

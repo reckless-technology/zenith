@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Program entry point: startup init order, then dispatch a CLI subcommand or the UCI loop.
+ */
 #include "bitboard.h"
 #include "book.h"
 #include "datagen.h"
@@ -13,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** @brief Initialise subsystems (order matters), then run a CLI subcommand if given, else the UCI loop. */
 int main(int argc, char **argv)
 {
     init_bitboards();

@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Thin portability shim: threads + a monotonic millisecond clock.
+ *
+ * On POSIX toolchains with C11 threads (glibc >= 2.28) we wrap <threads.h>; on Apple / toolchains without
+ * C11 threads we fall back to pthreads.
+ */
 #pragma once
-// Thin portability shim: threads + a monotonic millisecond clock. On POSIX toolchains with C11 threads
-// (glibc >= 2.28) we wrap <threads.h>; on Apple / toolchains without C11 threads we fall back to pthreads.
 #include <stdint.h>
 
-typedef int (*zen_thread_fn)(void *);
+typedef int (*zen_thread_fn)(void *); ///< thread entry point (return value ignored)
 
 #if defined(__APPLE__) || defined(__STDC_NO_THREADS__)
 

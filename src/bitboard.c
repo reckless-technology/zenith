@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Attack-table construction: leaper tables and startup-generated magic bitboards.
+ */
 #include "bitboard.h"
 #include <stdlib.h>
 
@@ -28,7 +32,7 @@ static uint64_t prng_sparse(PRNG *prng)
     return prng_next(prng) & prng_next(prng) & prng_next(prng); // few set bits -> good magic candidates
 }
 
-// Ray-walk sliding attacks (used to build masks and to fill the magic tables).
+/** @brief Ray-walk sliding attacks from @p square (used to build masks and to fill the magic tables). */
 static Bitboard sliding_attack(int square, Bitboard occupancy, const int deltas[4])
 {
     Bitboard attacks = 0;
@@ -81,6 +85,13 @@ static Magic    BishopMagics[64];
 static Bitboard RookTable[0x19000];  // 102400
 static Bitboard BishopTable[0x1480]; // 5248
 
+/**
+ * @brief Find a magic multiplier per square and fill the attack table for one slider kind.
+ *
+ * For each square: build the relevant-occupancy mask, enumerate every occupancy subset (Carry-Rippler),
+ * then search sparse random magics until one maps every subset to a collision-free index (an epoch counter
+ * distinguishes "not yet written this attempt" from a real collision).
+ */
 static void init_magics(bool rook, Bitboard *table, Magic magics[64], const int deltas[4])
 {
     Bitboard  occupancy[4096], reference[4096];

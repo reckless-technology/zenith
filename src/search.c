@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief The search: iterative deepening, PVS negamax, quiescence, SEE, and all pruning/ordering heuristics.
+ */
 #include "search.h"
 #include "bitboard.h"
 #include "eval.h"
@@ -28,13 +32,17 @@ SearchParams g_params = {
 static int       Reductions[MAX_PLY][64];
 static const int SeeValue[6] = {100, 320, 330, 500, 900, 10000};
 
-// Eval correction history: a running average of (search score - static eval) keyed by pawn structure, used
-// to nudge the static eval toward what search has historically found. Entries are cp * CORRHIST_GRAIN.
+/**
+ * @brief Eval correction-history scale constants.
+ *
+ * A running average of (search score - static eval) keyed by pawn structure, used to nudge the static eval
+ * toward what search has historically found. Entries are cp * CORRHIST_GRAIN.
+ */
 enum
 {
-    CORRHIST_SIZE  = 16384, // power of two -> index by (pawn_key & (SIZE-1))
-    CORRHIST_GRAIN = 256,
-    CORRHIST_MAX   = 64 * CORRHIST_GRAIN // clamp the correction to +/-64 cp
+    CORRHIST_SIZE  = 16384,              ///< power of two -> index by (pawn_key & (SIZE-1))
+    CORRHIST_GRAIN = 256,                ///< fixed-point scale of a stored correction
+    CORRHIST_MAX   = 64 * CORRHIST_GRAIN ///< clamp the correction to +/-64 cp
 };
 
 static int min_int(int a, int b)
@@ -67,7 +75,7 @@ static int draw_value(void)
     return 0;
 }
 
-// Static Exchange Evaluation of a capture: net material after the optimal capture sequence on move_to().
+/** @brief SEE of a capture: net material after the optimal capture sequence on the target square. */
 static int static_exchange_eval(const Position *pos, Move move)
 {
     int to = move_to(move), from = move_from(move);
@@ -208,6 +216,7 @@ static int64_t elapsed(const Searcher *searcher)
     return platform_now_ms() - searcher->start_ms;
 }
 
+/** @brief Whether the search must stop now (g_stop set, or the main thread hit its node/time budget). */
 static bool time_up(Searcher *searcher)
 {
     if (atomic_load_explicit(&g_stop, memory_order_relaxed))
@@ -224,6 +233,7 @@ static bool time_up(Searcher *searcher)
     return false;
 }
 
+/** @brief Compute this search's soft/hard time budgets and node cap from @p lim and the root side's clock. */
 static void set_time(Searcher *searcher, const Position *root, const SearchLimits *lim)
 {
     searcher->use_time = false;
@@ -253,6 +263,7 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
     }
 }
 
+/** @brief Whether @p pos is a draw by 50-move rule, insufficient material, or repetition within the history. */
 static bool is_draw(const Searcher *searcher, const Position *pos)
 {
     if (pos->halfmove >= 100)
@@ -295,6 +306,7 @@ static inline void apply_gravity(int *entry, int change)
     *entry += change - *entry * abs(change) / 16384;
 }
 
+/** @brief Quiescence search: extend the leaf with captures/promotions (SEE-pruned) until the position is quiet. */
 static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int ply)
 {
     if (time_up(searcher))
@@ -408,6 +420,11 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
     return best;
 }
 
+/**
+ * @brief Fail-soft PVS negamax: the main recursive search with all pruning, extensions, and move ordering.
+ *
+ * The `excluded` argument skips a move (for the singular-extension exclusion search), or is MOVE_NONE.
+ */
 static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int beta, int ply, bool cutnode,
                    Move prev_move, Move excluded)
 {

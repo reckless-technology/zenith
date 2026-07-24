@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief Move generation: the pseudo-legal generator and the legal filter built on top of it.
+ */
 #include "movegen.h"
 #include "bitboard.h"
 
+/** @brief Emit all four promotions for a pawn reaching the last rank (queen first for move ordering). */
 static void add_promotions(MoveList *list, int from, int to, bool capture)
 {
     unsigned base = capture ? FLAG_PROMO_CAP_N : FLAG_PROMO_N;
@@ -13,7 +18,7 @@ static void add_promotions(MoveList *list, int from, int to, bool capture)
     movelist_add(list, move_make(from, to, base + (BISHOP - KNIGHT)));
 }
 
-// The C++ slider lambda: emit every slider move for one piece type given its attack function.
+/** @brief Emit every slider move for one piece type given its attack function (noisy = captures only). */
 static void slider_moves(MoveList *list, Bitboard slider_pieces, Bitboard (*attack_fn)(int, Bitboard), Bitboard own,
                          Bitboard enemy, Bitboard occupancy, bool noisy)
 {
@@ -33,10 +38,13 @@ static void slider_moves(MoveList *list, Bitboard slider_pieces, Bitboard (*atta
     }
 }
 
-// Pseudo-legal moves. Castling is emitted fully legal (king not in/through check); every other move is
-// legal iff it does not leave the mover's own king in check — the search tests that with a single
-// make_move (see negamax/qsearch), avoiding the separate copy-make that generate_legal does per move.
-// The list is reset here (the C++ MoveList default-initialised count to 0 at declaration).
+/**
+ * @brief Generate pseudo-legal moves into @p list (which is reset here).
+ *
+ * Castling is emitted fully legal (king not in/through check); every other move is legal iff it does not
+ * leave the mover's own king in check — the search tests that with a single make_move (see negamax/qsearch),
+ * avoiding the separate copy-make that generate_legal does per move.
+ */
 void generate_pseudo(const Position *pos, MoveList *list, bool noisy)
 {
     list->count = 0;
@@ -151,6 +159,7 @@ void generate_pseudo(const Position *pos, MoveList *list, bool noisy)
     }
 }
 
+/** @brief Generate fully legal moves: pseudo-legal generation followed by a copy-make legality filter. */
 void generate_legal(const Position *pos, MoveList *list, bool noisy_only)
 {
     list->count = 0;

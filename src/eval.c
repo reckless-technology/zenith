@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Jonny Reckless
+/**
+ * @file
+ * @brief The PeSTO tapered hand-crafted evaluation and the shared lockless eval cache.
+ *
+ * PeSTO tapered evaluation (Rofchade's piece-square tables): material + PST interpolated between a
+ * middlegame and endgame score by a phase count. Strong, compact, and self-contained; NNUE replaces the
+ * whole function later behind the evaluate() seam. A few cheap, uncontroversial terms (bishop pair,
+ * mobility, tempo) sit on top.
+ */
 #include "eval.h"
 #include "bitboard.h"
 #include "nnue.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-
-// PeSTO tapered evaluation (Rofchade's piece-square tables). Material + PST interpolated between a
-// middlegame and endgame score by a phase count. Strong, compact, and self-contained; NNUE replaces the
-// whole function later behind the evaluate() seam. A few cheap, uncontroversial terms (bishop pair,
-// mobility, tempo) sit on top.
 
 static const int mg_value[6]  = {82, 337, 365, 477, 1025, 0};
 static const int eg_value[6]  = {94, 281, 297, 512, 936, 0};
@@ -111,7 +115,7 @@ void eval_cache_clear(void)
     }
 }
 
-// The C++ mobility lambda: attacked squares not occupied by own pieces, small weights.
+/** @brief Accumulate a mobility term: attacked squares not occupied by own pieces, small weights. */
 static void mobility(int *middlegame, int *endgame, Bitboard piece_bitboard, Bitboard (*attack_fn)(int, Bitboard),
                      Bitboard occupancy, Bitboard own_pieces, int middlegame_weight, int endgame_weight)
 {
