@@ -25,7 +25,7 @@ typedef struct SearchLimits
     bool    has_time_control; ///< a clock/movetime token was given (so a 0/negative clock ⇒ move now, not hang)
 } SearchLimits;
 
-/** @brief Zero-initialise @p limits (the C++ relied on default member initializers). */
+/** @brief Zero-initialise @p limits (all fields off / no limit). */
 static inline void search_limits_init(SearchLimits *limits)
 {
     memset(limits, 0, sizeof *limits);
@@ -85,8 +85,8 @@ extern atomic_bool g_stop;
  * @brief Repetition/50-move context capacity.
  *
  * Keys of positions played before the root (from UCI) plus the in-tree path. 8192 covers any practical game
- * (a UCI move list of thousands of plies) plus MAX_PLY of search extension; the C++ used an unbounded
- * std::vector.
+ * (a UCI move list of thousands of plies) plus MAX_PLY of search depth; the UCI layer caps the pre-root
+ * replay to leave that headroom.
  */
 enum
 {
@@ -106,7 +106,7 @@ typedef struct Searcher
     uint64_t hist_keys[SEARCH_HIST_CAP]; ///< pre-root + in-tree position keys
     int      hist_count;                 ///< number of valid entries in @ref hist_keys
 
-    // --- internals (the C++ kept these private) ---
+    // --- internals ---
     int64_t start_ms;                     ///< search start time (platform_now_ms)
     int64_t soft_ms, hard_ms, node_limit; ///< soft/hard time budgets and node cap
     bool    use_time;                     ///< whether a time budget applies

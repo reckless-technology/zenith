@@ -25,10 +25,10 @@ typedef enum
 /**
  * @brief The 64-bit transposition-table payload as a bit-field struct.
  *
- * Field access compiles to the same shift/mask the old hand-packing used, but only for the fields a caller
- * actually reads (no eager unpack), and stores compose the whole word in one go via memcpy (the C spelling
- * of std::bit_cast). All fields use 64-bit base types so the struct is a single 8-byte allocation unit
- * (LSB-first on this ABI); signed bit-fields sign-extend on read.
+ * Field access compiles to a shift/mask, but only for the fields a caller actually reads (no eager unpack),
+ * and stores compose the whole word in one go by type-punning through memcpy. All fields use 64-bit base
+ * types so the struct is a single 8-byte allocation unit (LSB-first on this ABI); signed bit-fields
+ * sign-extend on read.
  */
 typedef struct TTData
 {
@@ -42,7 +42,7 @@ typedef struct TTData
 
 _Static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");
 
-/** @brief Reinterpret a TTData bit-field as its raw 64-bit word (the C spelling of std::bit_cast). */
+/** @brief Reinterpret a TTData bit-field as its raw 64-bit word (type-punning via memcpy). */
 static inline uint64_t tt_data_to_u64(TTData data)
 {
     uint64_t word;

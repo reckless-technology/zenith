@@ -100,7 +100,7 @@ void init_eval(void)
             eg_table[piece_type + 6][square] = eg_value[piece_type] + eg_pst[piece_type][square];
         }
     }
-    // The C++ held the cache in a zero-initialised global vector; here it is allocated on first init.
+    // The eval cache is a zero-initialised table allocated on first init.
     if (eval_cache == NULL)
     {
         eval_cache = calloc(EVAL_CACHE_ENTRIES, sizeof(_Atomic uint64_t));

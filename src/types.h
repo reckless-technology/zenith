@@ -134,7 +134,7 @@ enum
 /**
  * @brief A packed move: a bare uint16 (from | to<<6 | flag<<12); MOVE_NONE (0) is "no move".
  *
- * Being a plain integer typedef keeps == / != working directly where the C++ class had operator overloads.
+ * A plain integer typedef so == / != and array indexing work directly, with the accessors below for fields.
  */
 typedef uint16_t Move;
 
@@ -293,8 +293,7 @@ static inline bool more_than_one(Bitboard bitboard)
 /**
  * @brief Compass directions as square-index deltas, for the directional shift helpers.
  *
- * The C++ shift<Dir> template becomes one inline function per direction (wrap-safe via file masks),
- * preserving the semantics exactly.
+ * One inline shift function per direction (wrap-safe via file masks), keyed by this Direction enum.
  */
 typedef enum
 {

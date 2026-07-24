@@ -37,9 +37,9 @@ typedef struct Record
     Color stm;      ///< side to move (fixes the WDL POV)
 } Record;
 
-// DELIBERATE DEVIATION from the C++: std::mt19937_64 is replaced by the same xorshift64* PRNG the magic
-// generator uses, so datagen output differs from the C++ for the same seed. Accepted — no gate depends on
-// datagen's move choices; the data format and game logic are identical.
+// The same xorshift64* PRNG the magic-bitboard generator uses, for opening/move randomisation. Datagen's
+// move choices are not covered by any gate (only the data format and game logic matter), so a fast,
+// self-contained generator is all that is needed here.
 typedef struct DatagenRng
 {
     uint64_t state;

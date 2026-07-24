@@ -14,7 +14,7 @@ static int clamp_int(int value, int low, int high)
     return value < low ? low : (value > high ? high : value);
 }
 
-/** @brief Largest power of two <= @p x (x > 0) — the C spelling of std::bit_floor. */
+/** @brief Largest power of two <= @p x (x > 0), so the table size becomes an index mask. */
 static size_t bit_floor_size(size_t x)
 {
     return (size_t)1 << (63 - __builtin_clzll((uint64_t)x));

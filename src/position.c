@@ -432,7 +432,7 @@ bool position_set_fen(Position *pos, const char *fen)
     pos->ply      = 0;
     pos->stm      = WHITE;
 
-    // Tokenize a local copy on whitespace (the C++ used istringstream >>). Missing fields read as "".
+    // Tokenize a local copy on whitespace; missing trailing fields read as "".
     char fen_copy[512];
     snprintf(fen_copy, sizeof fen_copy, "%s", fen);
     char       *save_ptr     = NULL;
@@ -459,8 +459,8 @@ bool position_set_fen(Position *pos, const char *fen)
     {
         ep_str = "";
     }
-    // Match C++ istream int extraction: a failed/absent read stores 0 and poisons later reads (which then
-    // keep their initial value — so a 4-field FEN gets halfmove 0, fullmove 1).
+    // Lenient integer fields: a failed/absent halfmove read stores 0 and stops later parsing, so a 4-field
+    // FEN (no clocks) yields halfmove 0, fullmove 1.
     int   halfmove_clock = 0, fullmove_number = 1;
     char *end_ptr = NULL;
     if (halfmove_str != NULL)

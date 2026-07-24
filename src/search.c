@@ -300,7 +300,7 @@ static void update_pv(Searcher *searcher, int ply, Move move)
     searcher->pv_len[ply] = searcher->pv_len[ply + 1] + 1;
 }
 
-// History gravity (the C++ apply_gravity lambda): saturating blend toward the new bonus.
+// History gravity: saturating blend toward the new bonus (larger entries move less).
 static inline void apply_gravity(int *entry, int change)
 {
     *entry += change - *entry * abs(change) / 16384;

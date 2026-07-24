@@ -55,7 +55,7 @@ typedef struct Position
  * @brief Initialise @p pos to an empty board: White to move, zeroed keys, both cached king buckets at 0.
  *
  * The zeroed king buckets are crucial so set_fen's incremental put() calls index the net in bounds before
- * the authoritative refresh. Call it wherever the C++ declared a fresh `Position pos;`.
+ * the authoritative refresh. Call it before using any freshly-declared `Position`.
  */
 static inline void position_init(Position *pos)
 {

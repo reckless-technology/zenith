@@ -264,7 +264,7 @@ static void go(char **save_ptr)
             limits.infinite = true;
             continue;
         }
-        // Every other keyword takes one numeric argument; unknown tokens are skipped (as the C++ did).
+        // Every other keyword takes one numeric argument; unknown tokens are skipped.
         bool takes_value = strcmp(token, "wtime") == 0 || strcmp(token, "btime") == 0 || strcmp(token, "winc") == 0 ||
                            strcmp(token, "binc") == 0 || strcmp(token, "movestogo") == 0 ||
                            strcmp(token, "movetime") == 0 || strcmp(token, "depth") == 0 ||
@@ -450,8 +450,8 @@ static void set_option(char **save_ptr)
     }
     else
     {
-        // Tunable search parameters (SPSA): match by original-case name, integer value. The C++ wrapped
-        // std::stoi in try/catch; here a non-numeric value simply skips the call.
+        // Tunable search parameters (SPSA): match by original-case name, integer value. A non-numeric value
+        // simply skips the call.
         char *end_ptr = NULL;
         long  parsed  = strtol(value, &end_ptr, 10);
         if (end_ptr != value)
@@ -576,7 +576,7 @@ void run_bench(int depth)
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, BenchFens[fen_index]);
-        searcher_init(searcher); // the C++ constructed a fresh Searcher per position
+        searcher_init(searcher); // fresh search state per position
         searcher->move_overhead = 0;
         SearchLimits limits;
         search_limits_init(&limits);
