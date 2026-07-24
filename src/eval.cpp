@@ -1,6 +1,8 @@
 #include "eval.h"
 #include "bitboard.h"
 #include "nnue.h"
+#include <atomic>
+#include <vector>
 
 // PeSTO tapered evaluation (Rofchade's piece-square tables). Material + PST interpolated between a
 // middlegame and endgame score by a phase count. Strong, compact, and self-contained; NNUE replaces the
@@ -84,13 +86,46 @@ void init_eval()
     }
 }
 
+namespace
+{
+
+// Shared lockless eval cache: 2^20 single-u64 entries = 8 MB. Each entry packs the key's high 48 bits with
+// the 16-bit eval; the slot index uses the key's low 20 bits, so a verified hit implies ALL 64 key bits
+// match (bits 0-19 via the index, 16-63 via the compare) — false hits are impossible, a collision only
+// evicts. Single-word relaxed atomics cannot tear, so it is Lazy-SMP-safe like the TT. The big win is
+// qsearch, which evaluates at every stand-pat with no other caching.
+constexpr size_t      EVAL_CACHE_ENTRIES = 1ull << 20;
+std::vector<uint64_t> eval_cache(EVAL_CACHE_ENTRIES, 0);
+
+inline uint64_t eval_cache_pack(uint64_t key, int value)
+{
+    return (key & ~0xFFFFull) | uint16_t(int16_t(value));
+}
+
+} // namespace
+
+void eval_cache_clear()
+{
+    std::fill(eval_cache.begin(), eval_cache.end(), 0);
+}
+
 int evaluate(const Position &pos)
 {
+    uint64_t &slot  = eval_cache[pos.key & (EVAL_CACHE_ENTRIES - 1)];
+    uint64_t  entry = std::atomic_ref<uint64_t>(slot).load(std::memory_order_relaxed);
+    if (entry != 0 && ((entry ^ pos.key) & ~0xFFFFull) == 0)
+    {
+        return int16_t(uint16_t(entry)); // hit: the low 16 bits hold the cached eval
+    }
+
+    int value;
     // NNUE replaces the whole hand-crafted evaluation when a net is loaded (UCI EvalFile). Read the
     // incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
     if (nnue::is_loaded())
     {
-        return nnue::evaluate(pos.acc, pos.stm);
+        value = nnue::evaluate(pos.acc, pos.stm);
+        std::atomic_ref<uint64_t>(slot).store(eval_cache_pack(pos.key, value), std::memory_order_relaxed);
+        return value;
     }
 
     int middlegame[2] = {0, 0}, endgame[2] = {0, 0}, phase = 0;
@@ -142,5 +177,7 @@ int evaluate(const Position &pos)
     }
     int score              = (middlegame_score * phase + endgame_score * (24 - phase)) / 24; // White-relative
     int side_to_move_score = (pos.stm == WHITE ? score : -score);
-    return side_to_move_score + 10; // tempo: a small bonus for the side to move
+    value                  = side_to_move_score + 10; // tempo: a small bonus for the side to move
+    std::atomic_ref<uint64_t>(slot).store(eval_cache_pack(pos.key, value), std::memory_order_relaxed);
+    return value;
 }

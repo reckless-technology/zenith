@@ -238,6 +238,7 @@ void set_option(std::istringstream &stream)
     else if (option_name == "clear hash")
     {
         TT.clear();
+        eval_cache_clear();
     }
     else if (option_name == "move overhead")
     {
@@ -252,6 +253,7 @@ void set_option(std::istringstream &stream)
     {
         if (nnue::load(value))
         {
+            eval_cache_clear(); // a new net changes every evaluation
             printf("info string loaded NNUE %s\n", value.c_str());
         }
         else
