@@ -18,9 +18,13 @@ make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/m
 make clean
 ./zenith        # interactive UCI loop
 
-./zenith perft         # movegen vs known counts (canonical 5 + the 128-position Ethereal suite) — must PASS
+make check             # run EVERY gate below (perft, bench-signature, legalcheck, seecheck, fuzzcheck,
+                       #   bookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
+./zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
 ./zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
 ./zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
+./zenith seecheck      # static_exchange_eval vs hand-verified capture positions
+./zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
 ./zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
 ./zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./zenith -> ./zenith-base

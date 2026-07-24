@@ -14,7 +14,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline doc
+.PHONY: all debug clean perft bench baseline doc check
 
 all: $(BIN)
 
@@ -38,6 +38,22 @@ clean:
 baseline: $(BIN)
 	cp $(BIN) $(BIN)-base
 	@echo "baseline -> $(BIN)-base"
+
+# Full local test suite — every self-check gate (mirrors CI). Any failure aborts with a non-zero exit.
+# nnuecheck runs only if the shipped net is present (nets/ is gitignored).
+NET = nets/zenith-kb3.nnue
+check: $(BIN)
+	@echo "== perft ==";      ./$(BIN) perft | tail -1
+	@./$(BIN) perft >/dev/null 2>&1 || { echo "perft FAILED"; exit 1; }
+	@echo "== bench signature =="; \
+	  sig=`./$(BIN) bench 13 | tail -1 | grep -oE '^[0-9]+'`; \
+	  if [ "$$sig" = "3325894" ]; then echo "  $$sig PASS"; else echo "  $$sig FAIL (want 3325894)"; exit 1; fi
+	@echo "== legalcheck ==";  ./$(BIN) legalcheck
+	@echo "== seecheck ==";    ./$(BIN) seecheck
+	@echo "== fuzzcheck ==";   ./$(BIN) fuzzcheck
+	@echo "== bookcheck ==";   ./$(BIN) bookcheck
+	@echo "== nnuecheck ==";   if [ -f $(NET) ]; then ./$(BIN) nnuecheck $(NET); else echo "  SKIP (no $(NET))"; fi
+	@echo "make check: all gates passed"
 
 # API documentation (Doxygen; README.md is the main page). Needs doxygen + graphviz.
 doc:

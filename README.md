@@ -26,9 +26,12 @@ make debug      # -> ./zenith-debug  (ASan + UBSan, for correctness work)
 Every correctness property has an executable gate (all of these also run in CI):
 
 ```bash
-./zenith perft       # movegen vs known counts: startpos/Kiwipete/CPW + the 128-position Ethereal suite
+make check           # run every gate below (mirrors CI); aborts non-zero on any failure
+./zenith perft       # movegen vs known counts: canonical + ep/castling/promotion catchers + Ethereal 128
 ./zenith bench 13    # deterministic fixed-depth node signature (guards search behaviour) + nps
 ./zenith legalcheck  # fast legality/check predicates == copy-make ground truth over a perft walk
+./zenith seecheck    # static exchange evaluation vs hand-verified capture positions
+./zenith fuzzcheck   # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
 ./zenith nnuecheck <net.nnue>   # incremental accumulator == full refresh, bit-identical
 ./zenith bookcheck   # Polyglot key computation vs the 9 official spec test vectors
 make baseline        # snapshot ./zenith -> ./zenith-base for SPRT

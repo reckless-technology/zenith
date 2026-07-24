@@ -753,14 +753,28 @@ static const char *PerftEpd[] = {
     "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -;D1 44;D2 1486;D3 62379;D4 2103487;D5 89941194",
 };
 
-void run_perft_suite(void)
+int run_perft_suite(void)
 {
     PerftCase suite[] = {
+        // The canonical CPW positions 1-5.
         {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 6, 119060324ULL},
         {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 193690690ULL},
         {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 6, 11030083ULL},
         {"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 5, 15833292ULL},
         {"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 5, 89941194ULL},
+        {"r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 1", 4, 3894594ULL}, // CPW pos 6
+        // Sedlak's edge-case "catcher" positions (published counts): en passant that reveals check or is
+        // pinned, castling rights, and promotion/underpromotion — the cases naive movegen most often gets wrong.
+        {"3k4/3p4/8/K1P4r/8/8/8/8 b - - 0 1", 6, 1134888ULL},         // ep capture reveals a rank check
+        {"8/8/4k3/8/2p5/8/B2P2K1/8 w - - 0 1", 6, 1015133ULL},        // ep discovered check
+        {"8/8/1k6/2b5/2pP4/8/5K2/8 b - d3 0 1", 6, 1440467ULL},       // ep would expose the king (pinned)
+        {"5k2/8/8/8/8/8/8/4K2R w K - 0 1", 6, 661072ULL},             // kingside castling
+        {"3k4/8/8/8/8/8/8/R3K3 w Q - 0 1", 6, 803711ULL},             // queenside castling
+        {"r3k2r/1b4bq/8/8/8/8/7B/R3K2R w KQkq - 0 1", 4, 1274206ULL}, // all four castles available
+        {"2K2r2/4P3/8/8/8/8/8/3k4 w - - 0 1", 6, 3821001ULL},         // promotion under/into check
+        {"8/P1k5/K7/8/8/8/8/8 w - - 0 1", 6, 92683ULL},               // promotion near the enemy king
+        {"K1k5/8/P7/8/8/8/8/8 w - - 0 1", 6, 2217ULL},                // promotion + stalemate traps
+        {"8/k1P5/8/1K6/8/8/8/8 w - - 0 1", 7, 567584ULL},             // deep promotion race
     };
     bool ok = true;
     for (size_t case_index = 0; case_index < sizeof(suite) / sizeof(suite[0]); case_index++)
@@ -832,6 +846,7 @@ void run_perft_suite(void)
     }
     printf("Ethereal perft suite: %d/%d positions pass\n", passed, total);
     printf("%s\n", ok ? "ALL PERFT PASS" : "PERFT FAILURES");
+    return ok ? 0 : 1;
 }
 
 // --- CLI: legalcheck — the copy-free is_legal_fast must agree with is_legal on every pseudo-legal move ---
@@ -980,5 +995,62 @@ int run_fuzz_check(void)
     }
     printf("fuzzcheck: %d input(s) failed -> %s\n", failures,
            failures ? "FAIL" : "PASS (malformed input handled safely)");
+    return failures ? 1 : 0;
+}
+
+/**
+ * @brief SEE unit test: static_exchange_eval on hand-verified capture positions.
+ *
+ * Each case is a {position, capture move, expected SEE} triple worked out by hand against the engine's
+ * piece values (P=100, R=500, Q=900) — free captures, singly-defended captures, an equal trade, a
+ * queen-takes-defended-pawn blunder, an x-ray battery (a rear rook joins once the front one is removed),
+ * and an en-passant capture. Genuine oracle values (correct chess), not a lock-in of current behaviour.
+ * @return 0 if every case matches, 1 otherwise.
+ */
+int run_see_check(void)
+{
+    static const struct
+    {
+        const char *fen;
+        const char *move;
+        int         expected;
+    } cases[] = {
+        {"4k3/8/8/4p3/8/8/8/4RK2 w - - 0 1", "e1e5", 100},      // rook takes an undefended pawn
+        {"4k3/8/3p4/4p3/8/8/8/4RK2 w - - 0 1", "e1e5", -400},   // rook takes a pawn-defended pawn (100-500)
+        {"4k3/8/5p2/4p3/3P4/8/8/4K3 w - - 0 1", "d4e5", 0},     // equal pawn trade (100-100)
+        {"4k3/8/8/2p5/3p4/8/8/3QK3 w - - 0 1", "d1d4", -800},   // queen takes a pawn-defended pawn (100-900)
+        {"4k3/8/8/4r3/8/8/8/4RK2 w - - 0 1", "e1e5", 500},      // rook takes an undefended rook
+        {"4k3/8/8/4q3/8/8/8/4RK2 w - - 0 1", "e1e5", 900},      // rook takes an undefended queen
+        {"4k3/8/4p3/3p4/8/8/3R4/3RK3 w - - 0 1", "d2d5", -300}, // x-ray: RxP, pxR, RxP (200-500)
+        {"4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1", "d5e6", 100},     // en-passant capture, undefended
+    };
+
+    int case_count = (int)(sizeof cases / sizeof cases[0]);
+    int failures   = 0;
+    for (int i = 0; i < case_count; i++)
+    {
+        Position pos;
+        position_init(&pos);
+        if (!position_set_fen(&pos, cases[i].fen))
+        {
+            printf("  BAD FEN: %s\n", cases[i].fen);
+            failures++;
+            continue;
+        }
+        Move move = parse_move(&pos, cases[i].move);
+        if (move_is_none(move))
+        {
+            printf("  ILLEGAL MOVE %s in %s\n", cases[i].move, cases[i].fen);
+            failures++;
+            continue;
+        }
+        int see = static_exchange_eval(&pos, move);
+        if (see != cases[i].expected)
+        {
+            printf("  MISMATCH %s %s: see=%d want=%d\n", cases[i].fen, cases[i].move, see, cases[i].expected);
+            failures++;
+        }
+    }
+    printf("seecheck: %d/%d SEE cases -> %s\n", case_count - failures, case_count, failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;
 }

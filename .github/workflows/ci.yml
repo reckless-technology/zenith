@@ -25,6 +25,8 @@ jobs:
         run: ./zenith bookcheck
       - name: Adversarial-input hardening (malformed FEN/UCI)
         run: ./zenith fuzzcheck
+      - name: SEE unit tests (static_exchange_eval vs hand-verified captures)
+        run: ./zenith seecheck
       - name: Bench (fixed-depth node signature — must match; guards search determinism)
         run: |
           signature=$(./zenith bench 13 | tail -1 | grep -oE '^[0-9]+')

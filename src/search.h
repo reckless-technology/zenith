@@ -65,6 +65,15 @@ extern SearchParams g_params; ///< the live tunable search parameters
 bool set_search_param(const char *name, int value);
 
 /**
+ * @brief Static Exchange Evaluation of a capture: net material after the optimal capture sequence on the
+ *        move's target square. Exposed for the `seecheck` unit test.
+ * @param pos  the position before the capture.
+ * @param move the capture move to evaluate.
+ * @return the material swing in centipawns (positive = good for the side to move).
+ */
+int static_exchange_eval(const Position *pos, Move move);
+
+/**
  * @brief The shared stop flag across all Lazy-SMP search threads.
  *
  * The main thread (or a UCI "stop") sets it and every thread exits. A single global keeps Searcher copyable

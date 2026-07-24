@@ -35,8 +35,7 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "perft"))
         {
-            run_perft_suite();
-            return 0;
+            return run_perft_suite(); // exit code reflects pass/fail (used by `make check`)
         }
         if (!strcmp(argv[1], "bookcheck"))
         {
@@ -45,6 +44,10 @@ int main(int argc, char **argv)
         if (!strcmp(argv[1], "fuzzcheck"))
         {
             return run_fuzz_check(); // malformed-input hardening (meaningful under an ASan/UBSan build)
+        }
+        if (!strcmp(argv[1], "seecheck"))
+        {
+            return run_see_check(); // static_exchange_eval vs hand-verified capture positions
         }
         if (!strcmp(argv[1], "legalcheck"))
         {

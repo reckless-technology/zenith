@@ -76,7 +76,7 @@ static int draw_value(void)
 }
 
 /** @brief SEE of a capture: net material after the optimal capture sequence on the target square. */
-static int static_exchange_eval(const Position *pos, Move move)
+int static_exchange_eval(const Position *pos, Move move)
 {
     int to = move_to(move), from = move_from(move);
     int captured = move_is_ep(move) ? SeeValue[PAWN] : SeeValue[type_of(pos->board[to])];
