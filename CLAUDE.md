@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Zenith is a from-scratch UCI chess engine in **C17** (~5,300 lines, `src/*.{h,c}`; ported from the original
 C++20, preserved at git tag `cpp-final`). It is feature-complete: king-bucketed NNUE, Lazy SMP, an
 SPSA-tuned search, and a Polyglot opening book — and it beats its reference engine (pawnstar) at every
-tested configuration. Read [DESIGN.md](DESIGN.md) for the architecture and
+tested configuration. Read [README.md](README.md) for the architecture and
 [NNUE_TRAINING.md](NNUE_TRAINING.md) for the training pipeline.
 
 ## Build / test / run
@@ -94,15 +94,12 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:
   major.minor.<git commit count>, stamped by the Makefile).
 
-### Two things the code does that the docs describe differently — trust the code
+### Copy-make, not an undo stack
 
-- **Copy-make, not an undo stack.** `Position` is a value type; search does `Position child = pos;
-  child.make_move(m);` and "undoes" by discarding the copy (see `position.h` and every recursion site in
-  `search.c`). DESIGN.md's "copy-free make/unmake with an undo stack" is aspirational — there is **no**
-  `unmake_move`. If you add one, it's a real architectural change, not a bug fix.
-- **DESIGN.md has stale phrasing from earlier drafts** (Rust/Go tooling asides, and it still says "C++" —
-  the engine is now C17; the original C++20 tree lives at tag `cpp-final`). The *structure*
-  DESIGN.md describes is accurate, the language/tooling asides are not.
+`Position` is a value type; search does `Position child = pos; child.make_move(m);` and "undoes" by
+discarding the copy (see `position.h` and every recursion site in `search.c`). There is **no**
+`unmake_move`. Adding one is a real architectural change, not a bug fix — and it was tried and measured
+*slower* (the embedded accumulator's feature-column reads dominate; see the `search-speed-levers` memory).
 
 ### Repetition / draw history
 

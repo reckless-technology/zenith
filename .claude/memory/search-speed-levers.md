@@ -48,7 +48,7 @@ scheduling made A/B swings of ±30% (a core frequency dip lands ~62% of turbo, h
 fixed-DEPTH time (identical tree for a bit-exact change → compare ms), best-of-N, `taskset -c <P-core>`.
 
 **Next speed lever (biggest ceiling): make/unmake with an accumulator stack** — eliminates the per-node Position
-copy entirely (DESIGN.md's aspirational "undo stack"). Large refactor touching every recursion site. But note
+copy entirely (the aspirational "undo stack"). Large refactor touching every recursion site. But note
 the make/unmake result above: reverse-delta unmake was SLOWER; an accumulator-stack variant is the untried form.
 
 **How to apply:** when adding a per-move operation, ask "does this pay a make_move (2KB copy) it could avoid?"

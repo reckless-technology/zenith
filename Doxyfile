@@ -4,7 +4,7 @@
 PROJECT_NAME           = "Zenith"
 PROJECT_BRIEF          = "A from-scratch UCI chess engine in C17 with its own NNUE"
 OUTPUT_DIRECTORY       = doc
-INPUT                  = README.md DESIGN.md NNUE_TRAINING.md src
+INPUT                  = README.md NNUE_TRAINING.md src
 FILE_PATTERNS          = *.c *.h *.md
 RECURSIVE              = YES
 
