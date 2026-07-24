@@ -103,7 +103,10 @@ void init_eval(void)
 
 void eval_cache_clear(void)
 {
-    memset((void *)eval_cache, 0, EVAL_CACHE_ENTRIES * sizeof(_Atomic uint64_t));
+    if (eval_cache)
+    {
+        memset((void *)eval_cache, 0, EVAL_CACHE_ENTRIES * sizeof(_Atomic uint64_t));
+    }
 }
 
 // The C++ mobility lambda: attacked squares not occupied by own pieces, small weights.
@@ -121,11 +124,16 @@ static void mobility(int *middlegame, int *endgame, Bitboard piece_bitboard, Bit
 
 int evaluate(const Position *pos)
 {
-    _Atomic uint64_t *slot  = &eval_cache[pos->key & (EVAL_CACHE_ENTRIES - 1)];
-    uint64_t          entry = atomic_load_explicit(slot, memory_order_relaxed);
-    if (entry != 0 && ((entry ^ pos->key) & ~0xFFFFull) == 0)
+    // eval_cache is NULL only if its allocation failed at init — degrade to an uncached eval rather than
+    // dereferencing NULL. The branch is perfectly predicted (cache is non-NULL in every normal run).
+    _Atomic uint64_t *slot = eval_cache ? &eval_cache[pos->key & (EVAL_CACHE_ENTRIES - 1)] : NULL;
+    if (slot)
     {
-        return (int16_t)(uint16_t)entry; // hit: the low 16 bits hold the cached eval
+        uint64_t entry = atomic_load_explicit(slot, memory_order_relaxed);
+        if (entry != 0 && ((entry ^ pos->key) & ~0xFFFFull) == 0)
+        {
+            return (int16_t)(uint16_t)entry; // hit: the low 16 bits hold the cached eval
+        }
     }
 
     int value;
@@ -134,7 +142,10 @@ int evaluate(const Position *pos)
     if (nnue_is_loaded())
     {
         value = nnue_evaluate(&pos->acc, pos->stm);
-        atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
+        if (slot)
+        {
+            atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
+        }
         return value;
     }
 
@@ -182,6 +193,9 @@ int evaluate(const Position *pos)
     int score              = (middlegame_score * phase + endgame_score * (24 - phase)) / 24; // White-relative
     int side_to_move_score = (pos->stm == WHITE ? score : -score);
     value                  = side_to_move_score + 10; // tempo: a small bonus for the side to move
-    atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
+    if (slot)
+    {
+        atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
+    }
     return value;
 }

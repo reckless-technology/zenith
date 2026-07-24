@@ -16,15 +16,36 @@ static size_t bit_floor_size(size_t x)
 
 void tt_resize(size_t megabytes)
 {
-    size_t bytes      = megabytes * 1024 * 1024;
+    // Clamp to the advertised UCI range before the byte multiply, so a negative/huge `Hash` value (it reaches
+    // here as a wrapped size_t via atoi) cannot overflow `bytes` and request an absurd allocation.
+    if (megabytes < 1)
+    {
+        megabytes = 1;
+    }
+    if (megabytes > TT_MAX_MB)
+    {
+        megabytes = TT_MAX_MB;
+    }
+    size_t bytes      = megabytes * 1024u * 1024u;
     size_t slot_count = bytes / sizeof(TTSlot);
     if (slot_count < 1024)
     {
         slot_count = 1024;
     }
     slot_count = bit_floor_size(slot_count); // power of two so index is a mask
+
+    TTSlot *fresh = calloc(slot_count, sizeof(TTSlot));
+    while (fresh == NULL && slot_count > 1024)
+    {
+        slot_count /= 2; // back off on allocation failure rather than run with a NULL table
+        fresh = calloc(slot_count, sizeof(TTSlot));
+    }
+    if (fresh == NULL)
+    {
+        return; // keep the existing table (never leave TT.table NULL for probe/store to dereference)
+    }
     free(TT.table);
-    TT.table      = calloc(slot_count, sizeof(TTSlot));
+    TT.table      = fresh;
     TT.slot_count = slot_count;
     TT.mask       = slot_count - 1;
     TT.generation = 0;

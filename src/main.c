@@ -35,6 +35,10 @@ int main(int argc, char **argv)
         {
             return run_book_check(); // polyglot key vs the 9 official spec vectors
         }
+        if (!strcmp(argv[1], "fuzzcheck"))
+        {
+            return run_fuzz_check(); // malformed-input hardening (meaningful under an ASan/UBSan build)
+        }
         if (!strcmp(argv[1], "legalcheck"))
         {
             return run_legal_check(); // is_legal_fast == is_legal over a perft-like walk

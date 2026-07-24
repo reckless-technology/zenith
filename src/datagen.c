@@ -102,10 +102,20 @@ static char **load_opening_book(const char *path, size_t *count)
         {
             if (*count == capacity)
             {
-                capacity = capacity ? capacity * 2 : 1024;
-                book     = realloc(book, capacity * sizeof(char *));
+                capacity        = capacity ? capacity * 2 : 1024;
+                char **resized  = realloc(book, capacity * sizeof(char *));
+                if (resized == NULL)
+                {
+                    break; // out of memory: keep what we have (realloc left `book` valid)
+                }
+                book = resized;
             }
-            book[(*count)++] = strdup(line);
+            char *copy = strdup(line);
+            if (copy == NULL)
+            {
+                break;
+            }
+            book[(*count)++] = copy;
         }
     }
     fclose(file);
@@ -118,7 +128,10 @@ static char **load_opening_book(const char *path, size_t *count)
 static bool random_opening(Position *pos, uint64_t *history, int *history_count, DatagenRng *rng, int opening_plies,
                            const char *start_fen)
 {
-    position_set_fen(pos, start_fen);
+    if (!position_set_fen(pos, start_fen))
+    {
+        return false; // malformed opening (bad book/EPD line) — caller retries with the next opening
+    }
     *history_count = 0;
     for (int ply_index = 0; ply_index < opening_plies; ply_index++)
     {
@@ -151,8 +164,18 @@ int run_datagen(int argc, char **argv)
     long        games         = atol(argv[1]);
     const char *out_path      = argv[2];
     uint64_t    seed          = argc > 3 ? strtoull(argv[3], NULL, 10) : 0x9E3779B97F4A7C15ULL;
-    int         nodes         = argc > 4 ? atoi(argv[4]) : 5000;
-    int         opening_plies = argc > 5 ? atoi(argv[5]) : 8;
+    int nodes = argc > 4 ? atoi(argv[4]) : 5000;
+    // Clamp opening_plies to the history buffer: random_opening writes one history[] entry per ply, and the
+    // buffer is history[SEARCH_HIST_CAP]. Leave headroom so the game itself can still record moves afterwards.
+    int opening_plies = argc > 5 ? atoi(argv[5]) : 8;
+    if (opening_plies < 0)
+    {
+        opening_plies = 0;
+    }
+    if (opening_plies > SEARCH_HIST_CAP / 2)
+    {
+        opening_plies = SEARCH_HIST_CAP / 2;
+    }
     const char *book_path     = argc > 6 ? argv[6] : "";
     const char *net_path      = argc > 7 ? argv[7] : "";
 

@@ -293,7 +293,9 @@ bool book_load(const char *path)
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
     fseek(file, 0, SEEK_SET);
-    if (size <= 0 || size % 16 != 0)
+    // Reject non-multiples of the 16-byte entry size, and bound the entry count so `count * sizeof(BookEntry)`
+    // cannot overflow the allocation size for a hostile (huge) book file.
+    if (size <= 0 || size % 16 != 0 || (size_t)(size / 16) > SIZE_MAX / sizeof(BookEntry))
     {
         fclose(file);
         return false;

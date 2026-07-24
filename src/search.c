@@ -90,6 +90,11 @@ static int static_exchange_eval(const Position *pos, Move move)
     while (true)
     {
         swap_index++;
+        if (swap_index >= 32)
+        {
+            break; // gain[32] guard: real positions never approach 32 recaptures, but a crafted illegal
+                   // FEN with >32 attackers on one square could otherwise overflow the array.
+        }
         gain[swap_index]        = SeeValue[attacker] - gain[swap_index - 1];
         Bitboard side_attackers = attackers & pos->by_color[side];
         if (!side_attackers)
@@ -235,6 +240,14 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
         int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
         searcher->soft_ms   = max_i64(1, budget - searcher->move_overhead);
         searcher->hard_ms   = max_i64(1, min_i64(remaining - searcher->move_overhead, searcher->soft_ms * 4));
+    }
+    else if (lim->has_time_control)
+    {
+        // A clock/movetime token was given but the side-to-move time is non-positive (flag fall, or a GUI
+        // that sent a zero/negative time). Move immediately on a minimal budget instead of searching
+        // unbounded — the distinction from a bare `go` needs the explicit flag (wtime 0 reads as time 0).
+        searcher->use_time = true;
+        searcher->soft_ms = searcher->hard_ms = 1;
     }
 }
 

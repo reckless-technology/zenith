@@ -101,7 +101,9 @@ static inline bool position_in_check(const Position *pos)
 }
 
 // --- mutation ---
-void  position_set_fen(Position *pos, const char *fen);
+// Parse a FEN. Returns false and leaves `pos` unusable if the FEN is malformed or lacks exactly one king
+// per side; parsing never writes out of bounds regardless of input. Untrusted-input callers must check it.
+bool  position_set_fen(Position *pos, const char *fen);
 char *position_fen(const Position *pos, char *buf);      // writes the FEN into buf (>= 128 bytes), returns buf
 void  position_make_move(Position *pos, Move move);      // apply move in place (caller copied first)
 void  position_make_null(Position *pos);                 // side-to-move passes (null-move pruning)

@@ -1,15 +1,24 @@
 #pragma once
 #include "position.h"
 
+// A legal chess position has at most 218 moves; 256 covers that with margin. Illegal positions (reachable
+// only via a hand-crafted FEN — e.g. a board full of queens) can exceed it, so movelist_add caps at capacity
+// and drops the overflow rather than writing past the array. Legal positions never hit the cap, so search
+// behaviour (and the bench signature) is unchanged.
+#define MOVELIST_CAP 256
+
 typedef struct MoveList
 {
-    Move moves[256];
+    Move moves[MOVELIST_CAP];
     int  count;
 } MoveList;
 
 static inline void movelist_add(MoveList *list, Move move)
 {
-    list->moves[list->count++] = move;
+    if (list->count < MOVELIST_CAP)
+    {
+        list->moves[list->count++] = move;
+    }
 }
 
 // Fully legal moves. noisy_only restricts to captures + promotions (for quiescence).

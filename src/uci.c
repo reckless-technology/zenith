@@ -58,9 +58,10 @@ static void set_position(char **save_ptr)
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
     Position    pos;
     position_init(&pos);
+    bool valid = false;
     if (token != NULL && strcmp(token, "startpos") == 0)
     {
-        position_set_fen(&pos, START_FEN);
+        valid = position_set_fen(&pos, START_FEN);
         token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr); // maybe "moves"
     }
     else if (token != NULL && strcmp(token, "fen") == 0)
@@ -79,7 +80,13 @@ static void set_position(char **save_ptr)
                 fen[fen_length]   = '\0';
             }
         }
-        position_set_fen(&pos, fen);
+        valid = position_set_fen(&pos, fen);
+    }
+    // Ignore a malformed / illegal `position` command rather than searching an inconsistent board — keep the
+    // previous game position (standard, forgiving UCI behaviour).
+    if (!valid)
+    {
+        return;
     }
     game_hist_count = 0;
     if (token != NULL && strcmp(token, "moves") == 0)
@@ -91,6 +98,10 @@ static void set_position(char **save_ptr)
             if (move_is_none(move))
             {
                 break;
+            }
+            if (game_hist_count >= SEARCH_HIST_CAP - MAX_PLY)
+            {
+                break; // leave MAX_PLY headroom so the in-tree hist pushes during search stay in bounds
             }
             game_hist[game_hist_count++] = pos.key;
             pos.ply                      = 0;
@@ -172,13 +183,29 @@ static int go_thread_main(void *raw)
     int     active_threads = thread_count < 1 ? 1 : thread_count;
     if (pool_size != active_threads)
     {
-        free(pool);
-        pool = malloc(active_threads * sizeof(Searcher)); // (re)size the Lazy-SMP thread pool
-        for (int thread_index = 0; thread_index < active_threads; thread_index++)
+        Searcher *resized = malloc(active_threads * sizeof(Searcher)); // (re)size the Lazy-SMP thread pool
+        if (resized == NULL)
         {
-            searcher_init(&pool[thread_index]);
+            // Out of memory resizing the pool: keep the existing pool if usable, else give up this search.
+            if (pool == NULL || pool_size < 1)
+            {
+                printf("bestmove 0000\n");
+                fflush(stdout);
+                free(args);
+                return 0;
+            }
+            active_threads = pool_size; // fall back to the pool we already have
         }
-        pool_size = active_threads;
+        else
+        {
+            free(pool);
+            pool = resized;
+            for (int thread_index = 0; thread_index < active_threads; thread_index++)
+            {
+                searcher_init(&pool[thread_index]);
+            }
+            pool_size = active_threads;
+        }
     }
     for (int thread_index = 0; thread_index < active_threads; thread_index++)
     {
@@ -239,27 +266,33 @@ static void go(char **save_ptr)
         }
         if (strcmp(token, "wtime") == 0)
         {
-            limits.time[WHITE] = strtoll(value, NULL, 10);
+            limits.time[WHITE]      = strtoll(value, NULL, 10);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "btime") == 0)
         {
-            limits.time[BLACK] = strtoll(value, NULL, 10);
+            limits.time[BLACK]      = strtoll(value, NULL, 10);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "winc") == 0)
         {
-            limits.inc[WHITE] = strtoll(value, NULL, 10);
+            limits.inc[WHITE]       = strtoll(value, NULL, 10);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "binc") == 0)
         {
-            limits.inc[BLACK] = strtoll(value, NULL, 10);
+            limits.inc[BLACK]       = strtoll(value, NULL, 10);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "movestogo") == 0)
         {
-            limits.movestogo = atoi(value);
+            limits.movestogo        = atoi(value);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "movetime") == 0)
         {
-            limits.movetime = strtoll(value, NULL, 10);
+            limits.movetime         = strtoll(value, NULL, 10);
+            limits.has_time_control = true;
         }
         else if (strcmp(token, "depth") == 0)
         {
@@ -296,6 +329,12 @@ static void go(char **save_ptr)
     }
 
     GoArgs *args = malloc(sizeof(GoArgs));
+    if (args == NULL)
+    {
+        printf("bestmove 0000\n"); // out of memory: still answer the GUI rather than go silent
+        fflush(stdout);
+        return;
+    }
     args->root   = game;
     args->limits = limits;
     memcpy(args->hist, game_hist, game_hist_count * sizeof(uint64_t));
@@ -307,11 +346,17 @@ static void go(char **save_ptr)
     else
     {
         free(args);
+        printf("bestmove 0000\n"); // thread spawn failed: answer so the GUI isn't left hanging
+        fflush(stdout);
     }
 }
 
 static void set_option(char **save_ptr)
 {
+    // setoption may only arrive while the engine is idle (UCI spec). Defensively stop any in-flight search
+    // first: Hash/Clear Hash/EvalFile mutate state the Lazy-SMP threads read live (tt_resize frees TT.table;
+    // nnue_load overwrites the network), so mutating mid-search would be a use-after-free / data race.
+    join_search();
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr); // "name"
     char        name[256], value[256];
     name[0]  = '\0';
@@ -407,7 +452,9 @@ void uci_loop(void)
     // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
     printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
     fflush(stdout);
-    position_init(&game); // the C++ global Position was default-constructed
+    position_init(&game);
+    position_set_fen(&game, START_FEN); // start from a legal position, so a bare/invalid `go` never searches
+                                        // the empty board (king_sq would then do lsb(0))
     static char line[1 << 16];
     while (fgets(line, sizeof line, stdin) != NULL)
     {
@@ -857,4 +904,64 @@ int run_legal_check(void)
     printf("legalcheck: %llu nodes, %llu mismatches -> %s\n", (unsigned long long)g_legal_nodes,
            (unsigned long long)g_legal_mismatches, g_legal_mismatches ? "FAIL" : "PASS (is_legal_fast == is_legal)");
     return g_legal_mismatches ? 1 : 0;
+}
+
+// Adversarial-input gate: exercises the untrusted-input paths (FEN parsing + movegen/eval on the result)
+// with malformed and hostile inputs. Meaningful under an ASan/UBSan build (the CI runs it there) — it must
+// reject the malformed FENs, accept the legal ones, and never read/write out of bounds. Guards the memory-
+// safety hardening against regressions.
+int run_fuzz_check(void)
+{
+    // Malformed FENs that MUST be rejected (return false) without any out-of-bounds access.
+    static const char *reject_fens[] = {
+        "pppppppppppppppppppp/8/8/8/8/8/8/8 w - - 0 1", // over-long rank
+        "8/8/8/8/8/8/8/8/8/8/Q7 w - - 0 1",             // too many ranks
+        "8/8/8/8/8/8/8/8 w - - 0 1",                    // no kings
+        "4k3/8/8/8/8/8/8/8 w - - 0 1",                  // only a black king
+        "4K3/8/8/8/8/8/8/8 w - - 0 1",                  // only a white king
+        "zzzz w - - 0 1",                               // garbage board
+        "",                                             // empty
+        "8",                                            // truncated
+        "rnbqkbnr/pppppppp w - - 0 1",                  // too few ranks (no kings placed)
+    };
+    // Legal (or leniently-accepted) positions that MUST be accepted and safely searched. The last two carry a
+    // malformed ep field, which the parser safely ignores (position otherwise valid → no-ep). The queen swarm
+    // has one king per side (so it is accepted) yet generates > 256 pseudo-legal moves — movegen must cap.
+    static const char *accept_fens[] = {
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",  "8/5pk1/6p1/3K4/8/5PP1/8/8 w - - 0 1",
+        "QQQ2QQ1/3Q4/1Q4QQ/Q3Q2Q/Q6Q/Q6Q/Q5Q1/KQQQQQQk w - - 0 1",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq z9 0 1", // bad ep, safely ignored
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq !5 0 1", // bad ep char, safely ignored
+    };
+    int failures = 0;
+    for (size_t i = 0; i < sizeof(reject_fens) / sizeof(reject_fens[0]); i++)
+    {
+        Position pos;
+        position_init(&pos);
+        if (position_set_fen(&pos, reject_fens[i]))
+        {
+            printf("  NOT REJECTED: %s\n", reject_fens[i]);
+            failures++;
+        }
+    }
+    for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
+    {
+        Position pos;
+        position_init(&pos);
+        if (!position_set_fen(&pos, accept_fens[i]))
+        {
+            printf("  WRONGLY REJECTED: %s\n", accept_fens[i]);
+            failures++;
+            continue;
+        }
+        // Exercise the downstream paths that OOB'd before hardening: movegen (MoveList cap), the legality
+        // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
+        MoveList pseudo, legal;
+        generate_pseudo(&pos, &pseudo, false);
+        generate_legal(&pos, &legal, false);
+        (void)evaluate(&pos);
+    }
+    printf("fuzzcheck: %d input(s) failed -> %s\n", failures,
+           failures ? "FAIL" : "PASS (malformed input handled safely)");
+    return failures ? 1 : 0;
 }

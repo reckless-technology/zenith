@@ -23,11 +23,28 @@ jobs:
         run: ./zenith legalcheck
       - name: Polyglot book keys (9 official spec vectors)
         run: ./zenith bookcheck
+      - name: Adversarial-input hardening (malformed FEN/UCI)
+        run: ./zenith fuzzcheck
       - name: Bench (fixed-depth node signature — must match; guards search determinism)
         run: |
           signature=$(./zenith bench 13 | tail -1 | grep -oE '^[0-9]+')
           echo "bench 13 node signature: $signature (expected 3325894)"
           test "$signature" = "3325894" || { echo "::error::bench signature changed — if intentional, update the expected value in ci.yml"; exit 1; }
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Build with AddressSanitizer + UndefinedBehaviorSanitizer
+        run: make debug
+      - name: Perft under ASan/UBSan
+        run: ./zenith-debug perft
+      - name: Legality oracle under ASan/UBSan
+        run: ./zenith-debug legalcheck
+      - name: Adversarial-input fuzz under ASan/UBSan (memory-safety gate)
+        run: ./zenith-debug fuzzcheck
 
   format-check:
     runs-on: ubuntu-latest

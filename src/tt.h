@@ -13,6 +13,8 @@ typedef enum
     BOUND_EXACT = 3
 } Bound;
 
+#define TT_MAX_MB 65536 // must match the advertised `Hash` spin max in uci.c
+
 // The 64-bit transposition-table payload as a bit-field struct. Field access compiles to the same shift/mask
 // the old hand-packing used, but only for the fields a caller actually reads (no eager unpack), and stores
 // compose the whole word in one go via memcpy (the C spelling of std::bit_cast). All fields use 64-bit base

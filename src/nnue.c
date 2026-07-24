@@ -271,20 +271,33 @@ bool nnue_load(const char *path)
         fclose(file);
         return false;
     }
-    ok = ok && fread(network.feature_transformer_weight, 1, sizeof(network.feature_transformer_weight), file) ==
-                   sizeof(network.feature_transformer_weight);
-    ok = ok && fread(network.feature_transformer_bias, 1, sizeof(network.feature_transformer_bias), file) ==
-                   sizeof(network.feature_transformer_bias);
-    ok = ok && fread(network.output_weight, 1, sizeof(network.output_weight), file) == sizeof(network.output_weight);
-    ok = ok && fread(&network.output_bias, 1, sizeof(network.output_bias), file) == sizeof(network.output_bias);
+    // Read into a heap temporary and only commit to the live `network` on a fully-successful read. Reading
+    // straight into the global would leave a previously-good net half-overwritten (and still flagged loaded)
+    // if the file is truncated — the engine would then evaluate with garbage weights.
+    Network *loaded = malloc(sizeof(Network));
+    if (loaded == NULL)
+    {
+        fclose(file);
+        fprintf(stderr, "nnue: out of memory loading %s\n", path);
+        return false;
+    }
+    ok = ok && fread(loaded->feature_transformer_weight, 1, sizeof(loaded->feature_transformer_weight), file) ==
+                   sizeof(loaded->feature_transformer_weight);
+    ok = ok && fread(loaded->feature_transformer_bias, 1, sizeof(loaded->feature_transformer_bias), file) ==
+                   sizeof(loaded->feature_transformer_bias);
+    ok = ok && fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) == sizeof(loaded->output_weight);
+    ok = ok && fread(&loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
     fclose(file);
     if (!ok)
     {
-        fprintf(stderr, "nnue: truncated file %s\n", path);
+        free(loaded);
+        fprintf(stderr, "nnue: truncated file %s\n", path); // previously-loaded net (if any) stays intact
         return false;
     }
+    network       = *loaded;
     nnue_g_loaded = true;
     g_net_generation++; // invalidate every thread's refresh cache (weights/bias changed)
+    free(loaded);
     return true;
 }
 
@@ -306,7 +319,11 @@ int nnue_eval_fens_from_stdin(const char *net_path)
         }
         Position position;
         position_init(&position);
-        position_set_fen(&position, line);
+        if (!position_set_fen(&position, line))
+        {
+            printf("0\n"); // malformed FEN: emit a placeholder so output stays line-aligned with the input
+            continue;
+        }
         printf("%d\n", nnue_evaluate_position(&position));
     }
     return 0;

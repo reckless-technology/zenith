@@ -15,6 +15,7 @@ typedef struct SearchLimits
     int     depth;    // fixed depth
     int64_t nodes;    // node cap
     bool    infinite;
+    bool    has_time_control; // a clock/movetime token was given (so a 0/negative clock ⇒ move now, not hang)
 } SearchLimits;
 
 // The C++ relied on default member initializers; C callers zero the struct through this instead.

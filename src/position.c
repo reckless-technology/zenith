@@ -396,7 +396,7 @@ bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, B
     return true;
 }
 
-void position_set_fen(Position *pos, const char *fen)
+bool position_set_fen(Position *pos, const char *fen)
 {
     for (int color = 0; color < COLOR_NB; color++)
     {
@@ -466,7 +466,12 @@ void position_set_fen(Position *pos, const char *fen)
         }
     }
 
-    int file = 0, rank = 7;
+    // Piece placement. Every square index is bounds-checked before put(): a malformed board field (over-long
+    // rank, too many '/', stray digits) can drive file/rank out of [0,8), and put() writes board[square] +
+    // indexes Zobrist[..][square] + shifts 1<<square, so an unchecked square is a memory-safety hole reachable
+    // from a single `position fen` line. Out-of-range placements are skipped rather than written.
+    int  file = 0, rank = 7;
+    bool malformed = false;
     for (const char *cursor = board_str; *cursor; cursor++)
     {
         char ch = *cursor;
@@ -500,11 +505,21 @@ void position_set_fen(Position *pos, const char *fen)
             case 'q':
                 piece_type = QUEEN;
                 break;
-            default:
+            case 'k':
                 piece_type = KING;
                 break;
+            default:
+                malformed = true; // unknown piece letter
+                continue;
             }
-            put(pos, color, piece_type, make_square(file, rank));
+            if (file >= 0 && file < 8 && rank >= 0 && rank < 8)
+            {
+                put(pos, color, piece_type, make_square(file, rank));
+            }
+            else
+            {
+                malformed = true; // placement outside the board — skip, don't write OOB
+            }
             file++;
         }
     }
@@ -532,12 +547,17 @@ void position_set_fen(Position *pos, const char *fen)
     }
     if (strcmp(ep_str, "-") != 0 && strlen(ep_str) >= 2)
     {
-        int ep_square = make_square(ep_str[0] - 'a', ep_str[1] - '1');
-        // Keep the ep square only when a pawn of the side to move can actually capture there — matches
-        // make_move, so equal positions hash equally regardless of how they were reached.
-        if (pawn_attacks(color_flip(pos->stm), ep_square) & position_pieces(pos, pos->stm, PAWN))
+        int ep_file = ep_str[0] - 'a', ep_rank = ep_str[1] - '1';
+        // Validate the coordinates before make_square: an out-of-range ep field (e.g. "z9") would otherwise
+        // index pawn_attacks[..][ep_square] out of bounds. Keep the ep square only when a pawn of the side to
+        // move can actually capture there — matches make_move, so equal positions hash equally.
+        if (ep_file >= 0 && ep_file < 8 && ep_rank >= 0 && ep_rank < 8)
         {
-            pos->ep_sq = ep_square;
+            int ep_square = make_square(ep_file, ep_rank);
+            if (pawn_attacks(color_flip(pos->stm), ep_square) & position_pieces(pos, pos->stm, PAWN))
+            {
+                pos->ep_sq = ep_square;
+            }
         }
     }
     pos->halfmove = halfmove_clock;
@@ -552,11 +572,18 @@ void position_set_fen(Position *pos, const char *fen)
     {
         pos->key ^= ZobristEpFile[file_of(pos->ep_sq)];
     }
+    // A legal position has exactly one king per side. Reject anything else: a kingless side would make
+    // position_king_sq() do lsb(0) (ctz of zero is UB) and then read the attack tables out of bounds during
+    // search. Callers handling untrusted input (UCI `position fen`, datagen openings) must honour `false`.
+    bool valid = !malformed && popcount(position_pieces(pos, WHITE, KING)) == 1 &&
+                 popcount(position_pieces(pos, BLACK, KING)) == 1;
+
     // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
     if (nnue_is_loaded())
     {
         nnue_refresh(&pos->acc, pos);
     }
+    return valid;
 }
 
 char *position_fen(const Position *pos, char *buf)
