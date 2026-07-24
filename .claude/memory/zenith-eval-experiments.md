@@ -58,6 +58,28 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
   but further gains need a DIFFERENT lever: speed (make/unmake, transfers ~1:1 to pawnstar) or better/own data.
 - The streaming trainer (`--shard-dir`) + parallel `--featurise-shard` handled 1.4B on a 62GB box fine.
 
+## Pawnstar-idea adoption experiments (2026-07-23/24) — 1 shipped, 2 neutral
+After the corrected benchmarks showed Zenith AHEAD of pawnstar, we tried adopting the three techniques pawnstar
+has that Zenith lacked:
+1. **Checking-aware LMP/futility** (never prune checking quiets): SPRT **NEUTRAL** (−3.0 ± 14.1 @ 822 games,
+   cancelled). Zenith's SPSA-tuned margins already price in check-blind pruning; pawnstar needs the exemption
+   because its cruder untuned pruning over-prunes. KEPT the infrastructure: `gives_check_fast` +
+   `discovered_check_candidates` (differentially validated in legalcheck, 0 mismatches / 7.26M nodes, in CI) —
+   reusable for future check-aware ideas (e.g. quiet checks in qsearch).
+2. **8MB eval cache** (2^20 × u64, key-high-bits verify ⇒ false hits impossible, Lazy-SMP-safe): **SHIPPED**
+   (2d7e581). Behaviour-identical, +0.1% (midgame) to +2.2% (endgame) nps — main win is qsearch stand-pat.
+3. **TT-move-before-movegen** (hash-trusted TT move searched before generating; structural 4-compare guard
+   instead of is_pseudo_legal): **REVERTED**. Two findings: (a) the speed win is ~ZERO — magic-bitboard movegen
+   isn't a real cost at TT-cutoff nodes; (b) it is NOT behaviour-identical — move scoring then runs AFTER the
+   TT subtree, so siblings get ordered with fresher killers/history (inherent tension: can't skip movegen AND
+   score with pre-search state; killers could be snapshotted, the history tables can't). SPRT of the combined
+   change trended neutral-negative (−4.7 @ ~300 games, cancelled).
+
+**Meta-lesson: an engine's techniques don't transfer just because the engine is strong.** Pawnstar's tricks
+compensate for ITS weaknesses (crude LMR, no futility/SEE-prune/aspiration/corrhist). Zenith's tuned search
+already extracts what those tricks provide. Adopt ideas that fix a measured cost (eval cache → uncached qsearch
+stand-pat), not ideas that exist in the other engine.
+
 **How to apply:** Never trust val loss alone — Elo via SPRT is the only verdict (CLAUDE.md discipline). Isolate
 one architecture change per SPRT. Diagnose neutral timed results with a FIXED-DEPTH match to split eval-quality
 from speed before shelving; if the eval is genuinely better, scale data before abandoning — but watch for
