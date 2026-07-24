@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Zenith is a from-scratch UCI chess engine in **C++20** (~1,750 lines, `src/*.{h,cpp}`). The classical core
+Zenith is a from-scratch UCI chess engine in **C17** (~4728 lines, `src/*.{h,c}`; ported from the original
+C++20, preserved at git tag `cpp-final`). The classical core
 is complete and perft-verified; NNUE and parallel search are the planned next phases. Read
 [DESIGN.md](DESIGN.md) for the roadmap and [NNUE_TRAINING.md](NNUE_TRAINING.md) for the Phase-4 GPU handoff.
 
 ## Build / test / run
 
 ```bash
-make            # -> ./zenith   (clang++, -O3 -flto -march=native, whole-program single-shot compile)
+make            # -> ./zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
 make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
 make clean
 ./zenith        # interactive UCI loop
@@ -22,7 +23,7 @@ make baseline          # snapshot ./zenith -> ./zenith-base
 tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
 ```
 
-The build is **one `clang++` invocation over all of `src/*.cpp`** so LTO sees everything — there are no
+The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
 `tools/sprt.sh` needs `cutechess-cli` on PATH and an openings EPD (`$OPENINGS`, default
 `~/pawnstar_nnue/openings.epd`); tune via env vars `TC` / `ELO0` / `ELO1` / `CONCURRENCY`.
@@ -39,7 +40,8 @@ real verdict on whether a change gains Elo.
 
 ## Architecture
 
-Single translation unit per file, flat `src/`. Init order in `main.cpp` matters:
+Single translation unit per file, flat `src/`. Threads and the monotonic clock go through `platform.h`
+(C11 `threads.h` with a pthread fallback for Apple/`__STDC_NO_THREADS__`). Init order in `main.c` matters:
 `init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `TT.resize()`.
 
 - **types.h** — `Color`/`PieceType`/`Piece` (mailbox code = `color*6 + type`, `NO_PIECE=12`), packed 16-bit
@@ -77,15 +79,15 @@ Single translation unit per file, flat `src/`. Init order in `main.cpp` matters:
 
 - **Copy-make, not an undo stack.** `Position` is a value type; search does `Position child = pos;
   child.make_move(m);` and "undoes" by discarding the copy (see `position.h` and every recursion site in
-  `search.cpp`). DESIGN.md's "copy-free make/unmake with an undo stack" is aspirational — there is **no**
+  `search.c`). DESIGN.md's "copy-free make/unmake with an undo stack" is aspirational — there is **no**
   `unmake_move`. If you add one, it's a real architectural change, not a bug fix.
-- **DESIGN.md has stale Rust-era phrasing.** It says "C++" but references `trait Evaluator`, `criterion`
-  benches, Go GC, `-race`, and loom — leftovers from an earlier draft. The engine is C++20; the *structure*
+- **DESIGN.md has stale phrasing from earlier drafts** (Rust/Go tooling asides, and it still says "C++" —
+  the engine is now C17; the original C++20 tree lives at tag `cpp-final`). The *structure*
   DESIGN.md describes is accurate, the language/tooling asides are not.
 
 ### Repetition / draw history
 
-Draw detection needs positions played *before* the search root. `uci.cpp` accumulates pre-root keys in
+Draw detection needs positions played *before* the search root. `uci.c` accumulates pre-root keys in
 `gameHist` (rebuilt on each `position` command) and hands them to `searcher.hist`. Inside `negamax`, the
 current `pos.key` is `push_back`/`pop_back`-ed around each recursive call so `is_draw()` can scan back to
 the last irreversible move. If you add a make/recurse site, maintain this `hist` push/pop or repetition
@@ -93,11 +95,11 @@ detection breaks.
 
 ## NNUE training pipeline (independent — no shared code/net/data with any other engine)
 
-`datagen` (C++) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.cpp` (engine). The
+`datagen` (C) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.c` (engine). The
 venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
 
 - **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
-  king-bucketed 768×8→512, SCReLU). `src/nnue.cpp` must reproduce `feature_index`, `king_bucket`, and
+  king-bucketed 768×8→512, SCReLU). `src/nnue.c` must reproduce `feature_index`, `king_bucket`, and
   `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,

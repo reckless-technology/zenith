@@ -14,6 +14,6 @@ trainer (NOT pawnstar's Rust `bullet`), on its OWN self-play data (NOT pawnstar'
 with its own architecture (768→512 perspective) and its own `.nnue` file format. Do not reuse pawnstar
 code, nets, or training data.
 
-**How to apply:** Pipeline is datagen ([src/datagen.cpp](../../src/datagen.cpp)) → PyTorch trainer
+**How to apply:** Pipeline is datagen ([src/datagen.c](../../src/datagen.c)) → PyTorch trainer
 (trainer/train.py) → engine NNUE (src/nnue.*) → SPRT vs HCE, then vs pawnstar. Every strength change is
 still perft/bench/SPRT-gated. Related: [[pawnstar-reference-opponent]] [[training-setup]]

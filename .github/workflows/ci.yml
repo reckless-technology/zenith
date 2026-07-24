@@ -32,4 +32,4 @@ jobs:
       - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)
         run: sudo apt-get update && sudo apt-get install -y clang-format-18
       - name: Check formatting (repo .clang-format)
-        run: clang-format-18 --dry-run --Werror src/*.cpp src/*.h
+        run: clang-format-18 --dry-run --Werror src/*.c src/*.h

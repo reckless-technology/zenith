@@ -3,7 +3,7 @@
 This is the resume-here doc for Phase 4 (the ~+500–700 Elo jump). It is written so that on an
 NVIDIA-GPU machine we can pick up and train Zenith's own net from scratch, independent of pawnstar.
 
-Everything below plugs into the existing `evaluate()` seam in `src/eval.cpp` — no search changes needed to
+Everything below plugs into the existing `evaluate()` seam in `src/eval.c` — no search changes needed to
 adopt NNUE; the HCE stays as a fallback and as the eval used during data generation.
 
 ---
@@ -39,7 +39,7 @@ OUT bias    : round(b * QA*QB)   -> int32   [1]
 ```
 
 **File `zenith-<tag>.nnue`** (little-endian): 8-byte magic `"ZNNUE3\0\0"`, then the four arrays back-to-back
-in the order above. The engine loader (`src/nnue.cpp`) reads it directly. Forward pass:
+in the order above. The engine loader (`src/nnue.c`) reads it directly. Forward pass:
 `acc = FT·features + FT_bias` (per side, maintained incrementally with king-bucket refreshes), then
 `out = Σ screlu(acc_own,acc_opp) · OUT_w + OUT_bias`, `eval_cp = out / (QA*QB) * eval_scale / QA` (fold the
 constants into one final divide; verify against the trainer to 0 cp on a fixed FEN set).
@@ -48,7 +48,7 @@ constants into one final divide; verify against the trainer to 0 cp on a fixed F
 
 ## 2. Data generation (self-play; independent of any external dataset)
 
-Add a `datagen` mode to the engine (new `src/datagen.cpp`, invoked `./zenith datagen <games> <out.txt>`):
+Add a `datagen` mode to the engine (new `src/datagen.c`, invoked `./zenith datagen <games> <out.txt>`):
 
 - Play self-play games from **random UHO openings** (or 8 random legal plies) at a **fixed node budget**
   (e.g. `go nodes 5000`), single-thread, hash cleared per game.
@@ -111,7 +111,7 @@ validated end-to-end, or straight away if we want speed.
 Done (v1 pipeline built + validated 2026-07-18):
 ```
 [x] make ; ./zenith perft                                   # core builds + correct
-[x] src/datagen.cpp (§2) + tools/datagen_parallel.sh        # ./zenith datagen; fan over cores
+[x] src/datagen.c (§2) + tools/datagen_parallel.sh        # ./zenith datagen; fan over cores
 [x] trainer/train.py + trainer/features.py (§3, PyTorch)    # quantised .nnue export
 [x] src/nnue.{h,cpp} (§4): loader + SCReLU integer forward  # FULL REFRESH (not yet incremental)
 [x] verification gate: trainer/verify.py == 0 cp            # engine int eval == trainer, bit-identical

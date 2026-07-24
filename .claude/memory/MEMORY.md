@@ -3,7 +3,7 @@
 One line per memory. Full content lives in the linked file.
 
 - [prefer-full-names](prefer-full-names.md) — spell out names, avoid terse abbreviations
-- [clang-format-consistency](clang-format-consistency.md) — always clang-format all C++ with the repo .clang-format
+- [clang-format-consistency](clang-format-consistency.md) — always clang-format all C source with the repo .clang-format
 - [zenith-goal-independence](zenith-goal-independence.md) — beat pawnstar C++ while staying fully independent (own trainer/data/arch/net)
 - [pawnstar-reference-opponent](pawnstar-reference-opponent.md) — where the opponent, SPRT harness, GPU, and tooling live
 - [training-setup](training-setup.md) — venv/torch, datagen command, GitHub remote + gh CI

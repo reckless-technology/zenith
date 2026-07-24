@@ -8,7 +8,7 @@ metadata:
 Zenith has an SPSA tuner for its hand-set search constants (fastchess has no built-in SPSA).
 
 - **Engine side:** 11 search params are exposed as UCI spin options via `SearchParams` (search.h) + `set_search_param`
-  (search.cpp). Option NAMES are PascalCase strings (`RfpMargin`, `LmrDivisor`, `HistoryMax`, …) even though the C++
+  (search.c). Option NAMES are PascalCase strings (`RfpMargin`, `LmrDivisor`, `HistoryMax`, …) even though the engine
   members are snake_case — spsa.py and GUIs depend on those strings, so don't rename them. Defaults reproduce the
   shipped engine; changing a param changes the search (verify via a fixed-depth node count).
 - **Tuner:** `tools/spsa.py` — Spall SPSA with decaying gains, perturbs all params +/- c_k*Delta, plays a theta+ vs

@@ -1,22 +1,24 @@
 #pragma once
 #include "types.h"
-#include <bit>
-#include <cstdint>
-#include <vector>
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-enum Bound : uint8_t
+typedef enum
 {
     BOUND_NONE  = 0,
     BOUND_UPPER = 1,
     BOUND_LOWER = 2,
     BOUND_EXACT = 3
-};
+} Bound;
 
 // The 64-bit transposition-table payload as a bit-field struct. Field access compiles to the same shift/mask
 // the old hand-packing used, but only for the fields a caller actually reads (no eager unpack), and stores
-// compose the whole word in one go via std::bit_cast. All fields use 64-bit base types so the struct is a
-// single 8-byte allocation unit (LSB-first on this ABI); signed bit-fields sign-extend on read.
-struct TTData
+// compose the whole word in one go via memcpy (the C spelling of std::bit_cast). All fields use 64-bit base
+// types so the struct is a single 8-byte allocation unit (LSB-first on this ABI); signed bit-fields
+// sign-extend on read.
+typedef struct TTData
 {
     uint64_t move : 16;  // packed Move (0 = none)
     int64_t  score : 16; // score_to_tt-adjusted search score
@@ -24,46 +26,60 @@ struct TTData
     int64_t  depth : 8;  // SIGNED [-128,127]: qsearch-style entries (depth <= 0) must not wrap to "deep"
     uint64_t bound : 2;  // Bound
     uint64_t gen : 6;    // generation the entry was written in
-};
+} TTData;
 
-static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");
+_Static_assert(sizeof(TTData) == 8, "TTData must pack into one 64-bit word");
+
+static inline uint64_t tt_data_to_u64(TTData data)
+{
+    uint64_t word;
+    memcpy(&word, &data, sizeof word);
+    return word;
+}
+
+static inline TTData u64_to_tt_data(uint64_t word)
+{
+    TTData data;
+    memcpy(&data, &word, sizeof data);
+    return data;
+}
 
 // Lockless transposition table for Lazy SMP: each 16-byte slot stores {key ^ data, data}. A torn read
 // (data and key from different writes) fails the `key ^ data == probe key` check and is treated as a miss,
-// so threads can probe/store concurrently without locks (occasional benign misses on races). Accesses go
-// through std::atomic_ref so the u64 loads/stores are well-defined.
-class TranspositionTable
+// so threads can probe/store concurrently without locks (occasional benign misses on races). The slot words
+// are _Atomic so the relaxed u64 loads/stores are well-defined.
+typedef struct TTSlot
 {
-    struct Slot
-    {
-        uint64_t key  = 0; // real key ^ data
-        uint64_t data = 0; // std::bit_cast<uint64_t>(TTData)
-    };
+    _Atomic uint64_t key;  // real key ^ data
+    _Atomic uint64_t data; // tt_data_to_u64(TTData)
+} TTSlot;
 
-    std::vector<Slot> table;
-    uint64_t          mask       = 0;
-    uint8_t           generation = 0;
-
-  public:
-    void resize(size_t megabytes);
-    void clear();
-
-    void new_search()
-    {
-        generation++;
-    }
-
-    // probe: returns true on a key hit with a real entry, copying the one-word payload into out.
-    bool probe(uint64_t key, TTData &out) const;
-    void store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
-    int  hashfull() const;
-};
+typedef struct TranspositionTable
+{
+    TTSlot  *table;
+    size_t   slot_count;
+    uint64_t mask;
+    uint8_t  generation;
+} TranspositionTable;
 
 extern TranspositionTable TT;
 
+void tt_resize(size_t megabytes);
+void tt_clear(void);
+
+static inline void tt_new_search(void)
+{
+    TT.generation++;
+}
+
+// probe: returns true on a key hit with a real entry, copying the one-word payload into out.
+bool tt_probe(uint64_t key, TTData *out);
+void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
+int  tt_hashfull(void);
+
 // Mate scores are stored as distance-from-this-node; convert on the way in/out so a mate found deep in
 // the tree is scored correctly wherever the entry is reused.
-inline int score_to_tt(int score, int ply)
+static inline int score_to_tt(int score, int ply)
 {
     if (score >= VALUE_MATE_IN_MAX)
     {
@@ -76,7 +92,7 @@ inline int score_to_tt(int score, int ply)
     return score;
 }
 
-inline int score_from_tt(int score, int ply)
+static inline int score_from_tt(int score, int ply)
 {
     if (score == VALUE_NONE)
     {

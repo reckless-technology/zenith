@@ -1,17 +1,18 @@
 # Zenith
 
-A from-scratch UCI chess engine in C++20. Independent design (shares no code or net format with the
+A from-scratch UCI chess engine in C17. Independent design (shares no code or net format with the
 sibling pawnstar engines). The classical core is complete and correct; NNUE + parallel search are the
 next phases — see [DESIGN.md](DESIGN.md) for the full architecture and roadmap, and
 [NNUE_TRAINING.md](NNUE_TRAINING.md) for the GPU training plan (the path to world-class strength).
 
 ## Build
 
-Requires a C++20 compiler (clang++ 18 or g++ 13+). Magic bitboards keep the code portable; `-march=native`
+Requires a C17 compiler (clang 18 or gcc 13+; threads via C11 `threads.h` with a pthread fallback in
+`src/platform.h`). Magic bitboards keep the code portable; `-march=native`
 is for local dev.
 
 ```bash
-make            # -> ./zenith  (clang++, -O3 -flto -march=native)
+make            # -> ./zenith  (clang -std=c17, -O3 -flto -march=native)
 make debug      # -> ./zenith-debug  (ASan + UBSan, for correctness work)
 ./zenith        # interactive UCI
 ```
@@ -52,7 +53,7 @@ PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens data/r
 CAND=./zenith CAND_NET=nets/zenith.nnue BASE=./zenith tools/sprt.sh   # NNUE vs HCE
 ```
 
-The architecture is a 768→512 SCReLU perspective net (v1); the C++ side recomputes the accumulator each
+The architecture is a king-bucketed 768×8→512 SCReLU perspective net; the engine maintains the accumulator each
 eval (full refresh) — an incremental accumulator is the planned speed optimisation. See
 [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and roadmap.
 
@@ -92,7 +93,7 @@ src/datagen.*      self-play data generation (fen;stm_score;wdl) for NNUE traini
 src/tt.*           transposition table (depth-preferred, bounds)
 src/search.*       ID + PVS + qsearch + ordering + pruning/reductions + time management
 src/uci.*          protocol + bench + perft + datagen + nnueeval
-src/main.cpp       entry
+src/main.c         entry
 trainer/           independent PyTorch NNUE trainer (features.py, train.py, verify.py)
 tools/sprt.sh              self-play / cross-engine SPRT harness (fastchess)
 tools/datagen_parallel.sh fan datagen across CPU cores

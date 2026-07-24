@@ -13,9 +13,9 @@ with clean seams for the data/compute program that climbs the last ~600 Elo. Thi
 **correct, strong, single-binary classical core** first (perft-proven, modern search, tapered HCE),
 then layers NNUE and parallel search on top.
 
-## Language: C++ (clean-sheet, independent)
+## Language: C (clean-sheet, independent; originally C++20 — see tag cpp-final)
 
-C++20, chosen for parity performance with the top engines and zero-overhead control over memory layout and
+C17 (ported from C++20), chosen for parity performance with the top engines and zero-overhead control over memory layout and
 concurrency — decisive for the (planned) lockless TT and Lazy SMP — over managed languages like Go, whose
 GC pauses are unacceptable on the search hot path. Zero-cost abstractions, a built-in fixed-depth `bench`
 node signature, and a binary-vs-binary SPRT harness. Portable magic bitboards keep the core arch-independent;
@@ -24,7 +24,7 @@ release builds are per-microarchitecture (`x86-64-v3` etc.).
 ## Architecture
 
 ```
-main.cpp     entry
+main.c       entry
 uci.{h,cpp}  protocol parse/format (position/go/setoption/info/bestmove) + time manager
 types.h      Color, Piece, Square, Move (uint16), CastleRights, bit tricks (<bit>)
 bitboard.{h,cpp} precomputed attacks; rook/bishop MAGIC bitboards (runtime-generated, seeded)
