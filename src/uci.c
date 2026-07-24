@@ -6,6 +6,7 @@
 #include "position.h"
 #include "search.h"
 #include "tt.h"
+#include "version.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -370,6 +371,9 @@ static void set_option(char **save_ptr)
 
 void uci_loop(void)
 {
+    // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
+    printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
+    fflush(stdout);
     position_init(&game); // the C++ global Position was default-constructed
     static char line[1 << 16];
     while (fgets(line, sizeof line, stdin) != NULL)
@@ -382,7 +386,7 @@ void uci_loop(void)
         }
         if (strcmp(token, "uci") == 0)
         {
-            printf("id name Zenith 0.1\n");
+            printf("id name Zenith %s\n", ZENITH_VERSION_STRING);
             printf("id author Jonny Reckless\n");
             printf("option name Hash type spin default 64 min 1 max 65536\n");
             printf("option name Threads type spin default 1 min 1 max 256\n");

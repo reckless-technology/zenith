@@ -5,7 +5,10 @@ CC        = clang
 STD       = -std=c17 -D_POSIX_C_SOURCE=200809L
 OPT       = -O3 -march=native -funroll-loops -flto -DNDEBUG
 WARN      = -Wall -Wextra -Wpedantic -Werror -Wshadow -Wno-unused-parameter
-CFLAGS    = $(STD) $(OPT) $(WARN)
+# Build number = git commit count (globally reproducible per commit; 0 outside a git checkout).
+BUILD_NUM = $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
+VERSION   = -DZENITH_BUILD_NUMBER=$(BUILD_NUM)
+CFLAGS    = $(STD) $(OPT) $(WARN) $(VERSION)
 LDLIBS    = -lm -pthread
 SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
@@ -20,7 +23,7 @@ $(BIN): $(SRCS) $(HDRS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
 debug: $(SRCS) $(HDRS)
-	$(CC) $(STD) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
+	$(CC) $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
 
 perft: $(BIN)
 	./$(BIN) perft
