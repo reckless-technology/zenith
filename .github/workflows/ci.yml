@@ -21,6 +21,8 @@ jobs:
         run: ./zenith perft
       - name: Legality oracle (is_legal_fast == is_legal over a perft walk)
         run: ./zenith legalcheck
+      - name: Polyglot book keys (9 official spec vectors)
+        run: ./zenith bookcheck
       - name: Bench (fixed-depth node signature — must match; guards search determinism)
         run: |
           signature=$(./zenith bench 13 | tail -1 | grep -oE '^[0-9]+')
