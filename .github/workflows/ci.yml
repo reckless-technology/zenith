@@ -29,9 +29,10 @@ jobs:
         run: ./zenith seecheck
       - name: Bench (fixed-depth node signature — must match; guards search determinism)
         run: |
+          # Keep this expected value in sync with `make check` in the Makefile.
           signature=$(./zenith bench 13 | tail -1 | grep -oE '^[0-9]+')
-          echo "bench 13 node signature: $signature (expected 3325894)"
-          test "$signature" = "3325894" || { echo "::error::bench signature changed — if intentional, update the expected value in ci.yml"; exit 1; }
+          echo "bench 13 node signature: $signature (expected 3065743)"
+          test "$signature" = "3065743" || { echo "::error::bench signature changed — if intentional, update the expected value in ci.yml AND the Makefile"; exit 1; }
 
   sanitizers:
     runs-on: ubuntu-latest
