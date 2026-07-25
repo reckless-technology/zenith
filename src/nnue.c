@@ -60,19 +60,19 @@ static inline int relative_king_square(const Color perspective, const int king_s
 }
 
 /** @brief Feature index within one 768 king-bucket block; the caller adds bucket * BASE_FEATURES. */
-static inline int base_feature_index(const Color perspective, const Color piece_color, const PieceType piece_type,
+static inline int base_feature_index(const Color perspective, const Color piece_color, const Piece piece,
                                      const int square)
 {
     const int relative_color  = (piece_color == perspective) ? 0 : 1;
     const int relative_square = (perspective == WHITE) ? square : (square ^ 56);
-    return relative_color * 384 + ((int)piece_type - 1) * 64 + relative_square; // net features are 0-based types
+    return relative_color * 384 + ((int)piece - 1) * 64 + relative_square; // net features are 0-based types
 }
 
 /** @brief Full king-bucketed feature index for @p perspective given its cached king bucket. */
 static inline int feature_index(const int king_bucket_index, const Color perspective, const Color piece_color,
-                                const PieceType piece_type, const int square)
+                                const Piece piece, const int square)
 {
-    return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece_type, square);
+    return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece, square);
 }
 
 /** @brief Add a feature-transformer weight column into an accumulator half (AVX2 or scalar). */
@@ -143,7 +143,7 @@ typedef struct RefreshCacheEntry
 {
     _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
     Bitboard by_color[2];                     ///< board occupancy per colour when @ref values was built
-    Bitboard by_type[PIECE_TYPE_NB];          ///< board occupancy per piece type when @ref values was built
+    Bitboard by_type[PIECE_NB];               ///< board occupancy per piece type when @ref values was built
     uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
 
@@ -153,7 +153,7 @@ static _Thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
 // Each perspective indexes into its own cached king bucket (accumulator->king_bucket[perspective]); a piece
 // add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
-void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int square)
+void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
     add_column(
         accumulator->values[WHITE],
@@ -163,7 +163,7 @@ void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const Pie
         network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int square)
+void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
     sub_column(
         accumulator->values[WHITE],
@@ -173,8 +173,7 @@ void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const 
         network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int from,
-                       const int to)
+void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int from, const int to)
 {
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
@@ -221,13 +220,13 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
             {
                 const int square = pop_lsb(&added);
                 add_column(cache->values, network.feature_transformer_weight[feature_index(
-                                              bucket, perspective, (Color)color, (PieceType)type, square)]);
+                                              bucket, perspective, (Color)color, (Piece)type, square)]);
             }
             while (removed)
             {
                 const int square = pop_lsb(&removed);
                 sub_column(cache->values, network.feature_transformer_weight[feature_index(
-                                              bucket, perspective, (Color)color, (PieceType)type, square)]);
+                                              bucket, perspective, (Color)color, (Piece)type, square)]);
             }
         }
     }
@@ -299,7 +298,7 @@ static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 int nnue_evaluate(const NnueAccumulator *accumulator, const Color stm)
 {
     const int16_t *const own      = accumulator->values[stm];
-    const int16_t *const opponent = accumulator->values[color_flip(stm)];
+    const int16_t *const opponent = accumulator->values[enemy_of(stm)];
 #if defined(__AVX2__)
     int64_t accumulated =
         screlu_dot(own, network.output_weight) + screlu_dot(opponent, network.output_weight + HIDDEN_SIZE);

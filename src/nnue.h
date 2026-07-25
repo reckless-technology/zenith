@@ -38,11 +38,11 @@ void nnue_refresh(NnueAccumulator *accumulator, const Position *position);
 /** @brief Recompute a single @p perspective of @p accumulator from @p position. */
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, Color perspective);
 /** @brief Add the feature for a @p color @p type piece appearing on @p square. */
-void nnue_add_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square);
+void nnue_add_feature(NnueAccumulator *accumulator, Color color, Piece type, int square);
 /** @brief Remove the feature for a @p color @p type piece leaving @p square. */
-void nnue_remove_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square);
+void nnue_remove_feature(NnueAccumulator *accumulator, Color color, Piece type, int square);
 /** @brief Update the feature for a @p color @p type piece moving @p from -> @p to. */
-void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type, int from, int to);
+void nnue_move_feature(NnueAccumulator *accumulator, Color color, Piece type, int from, int to);
 /**
  * @brief After a king move: if @p side's king-input bucket changed, refresh that perspective.
  *

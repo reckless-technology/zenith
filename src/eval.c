@@ -90,14 +90,14 @@ static uint64_t eval_cache_pack(const uint64_t key, const int value)
 
 void init_eval(void)
 {
-    for (int piece_type = 0; piece_type < 6; piece_type++)
+    for (int piece = 0; piece < 6; piece++)
     {
         for (int square = 0; square < 64; square++)
         {
-            mg_table[piece_type][square]     = mg_value[piece_type] + mg_pst[piece_type][square ^ 56]; // white
-            eg_table[piece_type][square]     = eg_value[piece_type] + eg_pst[piece_type][square ^ 56];
-            mg_table[piece_type + 6][square] = mg_value[piece_type] + mg_pst[piece_type][square]; // black
-            eg_table[piece_type + 6][square] = eg_value[piece_type] + eg_pst[piece_type][square];
+            mg_table[piece][square]     = mg_value[piece] + mg_pst[piece][square ^ 56]; // white
+            eg_table[piece][square]     = eg_value[piece] + eg_pst[piece][square ^ 56];
+            mg_table[piece + 6][square] = mg_value[piece] + mg_pst[piece][square]; // black
+            eg_table[piece + 6][square] = eg_value[piece] + eg_pst[piece][square];
         }
     }
     // The eval cache is a zero-initialised table allocated on first init.
@@ -162,14 +162,14 @@ int evaluate(const Position *pos)
     Bitboard       board_bits = occupancy;
     while (board_bits)
     {
-        const int       square     = pop_lsb(&board_bits);
-        const PieceType piece_type = (PieceType)pos->board[square];
-        const Color     color      = position_color_on(pos, square);
+        const int   square = pop_lsb(&board_bits);
+        const Piece piece  = (Piece)pos->board[square];
+        const Color color  = position_color_on(pos, square);
         // The PST tables are laid out as 12 rows: white types 0..5, then black types 6..11 (0-based types).
-        const int code = color * 6 + (int)piece_type - 1;
+        const int code = color * 6 + (int)piece - 1;
         middlegame[color] += mg_table[code][square];
         endgame[color] += eg_table[code][square];
-        phase += phase_inc[(int)piece_type - 1];
+        phase += phase_inc[(int)piece - 1];
     }
 
     // Cheap extra terms.

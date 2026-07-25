@@ -30,7 +30,7 @@ SearchParams g_params = {
 };
 
 static int       Reductions[MAX_PLY][64];
-static const int SeeValue[PIECE_TYPE_NB] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by PieceType
+static const int SeeValue[PIECE_NB] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
 
 /**
  * @brief Eval correction-history scale constants.
@@ -106,8 +106,8 @@ int static_exchange_eval(const Position *pos, const Move move)
     }
     occupied ^= sq_bb(from);
 
-    PieceType attacker = (PieceType)pos->board[from];
-    Color     side     = color_flip(pos->stm);
+    Piece attacker = (Piece)pos->board[from];
+    Color side     = enemy_of(pos->stm);
     // Attackers hitting `to` given the current occupancy; recomputed each ply so x-rays reveal.
     Bitboard attackers = attackers_to_both(pos, to, occupied) & occupied;
 
@@ -126,14 +126,14 @@ int static_exchange_eval(const Position *pos, const Move move)
             break;
         }
         // Least valuable attacker of `side`.
-        PieceType least_valuable_attacker = KING;
-        Bitboard  attacker_bit            = 0;
-        for (int piece_type = PAWN; piece_type <= KING; piece_type++)
+        Piece    least_valuable_attacker = KING;
+        Bitboard attacker_bit            = 0;
+        for (int piece = PAWN; piece <= KING; piece++)
         {
-            const Bitboard candidates = side_attackers & position_pieces(pos, side, (PieceType)piece_type);
+            const Bitboard candidates = side_attackers & position_pieces(pos, side, (Piece)piece);
             if (candidates)
             {
-                least_valuable_attacker = (PieceType)piece_type;
+                least_valuable_attacker = (Piece)piece;
                 attacker_bit            = candidates & (~candidates + 1);
                 break;
             }
@@ -141,7 +141,7 @@ int static_exchange_eval(const Position *pos, const Move move)
         attacker = least_valuable_attacker;
         occupied ^= attacker_bit;
         attackers = attackers_to_both(pos, to, occupied) & occupied;
-        side      = color_flip(side);
+        side      = enemy_of(side);
         if (attacker == KING && (attackers & pos->by_color[side]))
         {
             // Cannot recapture with the king into a still-defended square; stop before it.
@@ -336,7 +336,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
     }
 
     const Bitboard checkers =
-        position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
+        position_attackers_to(pos, position_king_sq(pos, pos->stm), enemy_of(pos->stm), position_occupied(pos));
     const bool is_in_check = checkers != 0;
     int        best        = -VALUE_INF;
     if (!is_in_check)
@@ -476,18 +476,18 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     // bitboard the legality test also needs is computed later, just before the move loop, so the frequent
     // TT / RFP / null-move cutoffs above it never pay for the pin scan.
     const Bitboard checkers =
-        position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
+        position_attackers_to(pos, position_king_sq(pos, pos->stm), enemy_of(pos->stm), position_occupied(pos));
     const bool is_in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
     int prev_piece_to = -1;
     if (!move_is_none(prev_move))
     {
-        const PieceType prev_type = (PieceType)pos->board[move_to(prev_move)];
+        const Piece prev_type = (Piece)pos->board[move_to(prev_move)];
         if (prev_type != NO_PIECE)
         {
             // History/countermove key: (color*6 + 0-based type) * 64 + to — the mover was the opponent.
-            prev_piece_to = (color_flip(pos->stm) * 6 + (int)prev_type - 1) * 64 + move_to(prev_move);
+            prev_piece_to = (enemy_of(pos->stm) * 6 + (int)prev_type - 1) * 64 + move_to(prev_move);
         }
     }
 

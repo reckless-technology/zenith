@@ -49,7 +49,7 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
 {
     list->count = 0;
 
-    const Color    side = pos->stm, opponent = color_flip(side);
+    const Color    side = pos->stm, opponent = enemy_of(side);
     const Bitboard occupancy = position_occupied(pos);
     const Bitboard own       = pos->by_color[side];
     const Bitboard enemy     = pos->by_color[opponent];

@@ -18,7 +18,7 @@ typedef enum
     COLOR_NB = 2 ///< number of colours
 } Color;
 
-static inline Color color_flip(Color c)
+static inline Color enemy_of(Color c)
 {
     return (Color)(c ^ 1);
 }
@@ -38,8 +38,8 @@ typedef enum
     ROOK,
     QUEEN,
     KING,
-    PIECE_TYPE_NB = 7 ///< array bound: NO_PIECE + the six real piece types
-} PieceType;
+    PIECE_NB = 7 ///< array bound: NO_PIECE + the six real piece types
+} Piece;
 
 /** @brief Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8. */
 enum
@@ -179,9 +179,9 @@ static inline bool move_is_quiet(Move move)
     return !move_is_capture(move) && !move_is_promo(move);
 }
 
-static inline PieceType move_promo_pt(Move move)
+static inline Piece move_promo_pt(Move move)
 {
-    return (PieceType)(KNIGHT + (move_flag(move) & 3));
+    return (Piece)(KNIGHT + (move_flag(move) & 3));
 }
 
 /**

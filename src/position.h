@@ -10,10 +10,10 @@
 
 /// @name Zobrist keys (filled by init_zobrist()).
 /// @{
-extern uint64_t ZobristPiece[COLOR_NB][PIECE_TYPE_NB][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
-extern uint64_t ZobristCastle[16];                         ///< per castling-rights mask
-extern uint64_t ZobristEp[64]; ///< per en-passant target square (non-zero only on ranks 3 and 6)
-extern uint64_t ZobristSide;   ///< XOR-ed in when Black is to move
+extern uint64_t ZobristPiece[COLOR_NB][PIECE_NB][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
+extern uint64_t ZobristCastle[16];                    ///< per castling-rights mask
+extern uint64_t ZobristEp[64];                        ///< per en-passant target square (non-zero only on ranks 3 and 6)
+extern uint64_t ZobristSide;                          ///< XOR-ed in when Black is to move
 /// @}
 
 /** @brief Fill the Zobrist key tables. Call once at startup (after init_bitboards). */
@@ -29,12 +29,12 @@ void init_zobrist(void);
 typedef struct Position
 {
     Bitboard by_color[COLOR_NB]; ///< occupancy per colour
-    /// Occupancy per piece type (both colours), indexed by PieceType. The NO_PIECE slot (index 0) holds the
+    /// Occupancy per piece type (both colours), indexed by Piece. The NO_PIECE slot (index 0) holds the
     /// occupied-squares bitboard — all piece bitboards OR-ed — maintained incrementally alongside the rest.
-    Bitboard by_type[PIECE_TYPE_NB];
+    Bitboard by_type[PIECE_NB];
     uint64_t key;      ///< incremental Zobrist key of the whole position
     uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
-    /// Mailbox of 1-byte PieceType codes (NO_PIECE=0 .. KING=6). Colour is not stored here — read it from
+    /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Colour is not stored here — read it from
     /// the by_color bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[64];
     // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
@@ -63,9 +63,9 @@ static inline void position_init(Position *pos)
     {
         pos->by_color[color] = 0;
     }
-    for (int piece_type = 0; piece_type < PIECE_TYPE_NB; piece_type++)
+    for (int piece = 0; piece < PIECE_NB; piece++)
     {
-        pos->by_type[piece_type] = 0;
+        pos->by_type[piece] = 0;
     }
     for (int square = 0; square < 64; square++)
     {
@@ -91,16 +91,16 @@ static inline Bitboard position_occupied(const Position *pos)
     return pos->by_type[NO_PIECE];
 }
 
-/** @brief Squares holding @p color pieces of @p piece_type. */
-static inline Bitboard position_pieces(const Position *pos, Color color, PieceType piece_type)
+/** @brief Squares holding @p color pieces of @p piece. */
+static inline Bitboard position_pieces(const Position *pos, Color color, Piece piece)
 {
-    return pos->by_color[color] & pos->by_type[piece_type];
+    return pos->by_color[color] & pos->by_type[piece];
 }
 
-/** @brief Squares holding @p piece_type pieces of either colour. */
-static inline Bitboard position_pieces_type(const Position *pos, PieceType piece_type)
+/** @brief Squares holding @p piece pieces of either colour. */
+static inline Bitboard position_pieces_type(const Position *pos, Piece piece)
 {
-    return pos->by_type[piece_type];
+    return pos->by_type[piece];
 }
 
 /** @brief Square of @p color's king (undefined if that side has no king). */
@@ -110,9 +110,9 @@ static inline int position_king_sq(const Position *pos, Color color)
 }
 
 /** @brief The piece type on @p square, or NO_PIECE if empty. */
-static inline PieceType position_piece_on(const Position *pos, int square)
+static inline Piece position_piece_on(const Position *pos, int square)
 {
-    return (PieceType)pos->board[square];
+    return (Piece)pos->board[square];
 }
 
 /** @brief The colour of the piece on @p square (undefined for empty squares — check occupancy first). */
@@ -139,7 +139,7 @@ static inline bool position_is_attacked_by(const Position *pos, int square, Colo
 /** @brief Whether the side to move is in check. */
 static inline bool position_is_in_check(const Position *pos)
 {
-    return position_is_attacked_by(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm));
+    return position_is_attacked_by(pos, position_king_sq(pos, pos->stm), enemy_of(pos->stm));
 }
 
 /// @}
