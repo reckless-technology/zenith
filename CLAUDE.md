@@ -14,6 +14,7 @@ tested configuration. Read [README.md](README.md) for the architecture and
 
 ```bash
 make            # -> ./zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
+make ARCH=x86-64-v2   # portable release build (override the default -march=native; see release workflow)
 make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
 make pext       # -> ./zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
 make clean

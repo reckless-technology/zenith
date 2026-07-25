@@ -1,0 +1,117 @@
+name: Release
+
+# Manually promote the current main commit to a formal GitHub Release.
+# Builds portable per-microarch binaries, verifies them with the correctness gates, publishes the release,
+# then bumps the minor version in src/version.h for the next development cycle.
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Extra release notes (optional; appended to the auto summary)"
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark as a pre-release"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write # create the release and push the version-bump commit
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: correct build number (commit count) + ability to push the bump
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Resolve version
+        id: ver
+        run: |
+          major=$(grep -oP '#define ZENITH_VERSION_MAJOR \K[0-9]+' src/version.h)
+          minor=$(grep -oP '#define ZENITH_VERSION_MINOR \K[0-9]+' src/version.h)
+          build=$(git rev-list --count HEAD)
+          tag="v${major}.${minor}.${build}"
+          echo "major=$major"   >> "$GITHUB_OUTPUT"
+          echo "minor=$minor"   >> "$GITHUB_OUTPUT"
+          echo "build=$build"   >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"       >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release $tag already exists"; exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Two portable variants: x86-64-v2 runs on essentially any modern x86-64 (magic bitboards);
+      # x86-64-v3 guarantees BMI2, so it ships the faster PEXT sliding-attack build.
+      - name: Build x86-64-v2 (baseline, magic)
+        run: |
+          make clean && make ARCH=x86-64-v2
+          mv zenith zenith-x86-64-v2
+
+      - name: Build x86-64-v3 (PEXT/BMI2)
+        run: |
+          make clean && make ARCH=x86-64-v3 pext
+          mv zenith-pext zenith-x86-64-v3-pext
+
+      # Verify the shipped binary with the arch-independent correctness gates (perft/legality/SEE/book are
+      # exact integer checks — no cross-arch float sensitivity). The bench-signature determinism guard runs
+      # on every push in ci.yml; a release is cut from an already-green main.
+      - name: Verify (correctness gates on the v2 binary)
+        run: |
+          cp zenith-x86-64-v2 zenith
+          ./zenith perft
+          ./zenith legalcheck
+          ./zenith seecheck
+          ./zenith bookcheck
+          ./zenith fuzzcheck
+
+      - name: Package
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          for variant in x86-64-v2 x86-64-v3-pext; do
+            install -D "zenith-$variant" "pkg/zenith"
+            cp README.md LICENSE pkg/
+            tar -C pkg -czf "zenith-${tag}-linux-${variant}.tar.gz" zenith README.md LICENSE
+            rm -rf pkg
+          done
+          sha256sum zenith-${tag}-linux-*.tar.gz > "zenith-${tag}-SHA256SUMS.txt"
+          ls -la zenith-${tag}-linux-*.tar.gz
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          {
+            echo "Zenith ${tag} — UCI chess engine (C17, king-bucketed NNUE)."
+            echo
+            echo "Prebuilt Linux x86-64 binaries:"
+            echo "- \`x86-64-v2\` — broad compatibility (magic bitboards), runs on essentially any modern x86-64."
+            echo "- \`x86-64-v3-pext\` — requires AVX2/BMI2 (Intel Haswell+ / AMD Zen3+); faster PEXT sliding attacks."
+            echo
+            echo "Verify downloads against \`SHA256SUMS.txt\`. Bit-identical search to the tagged source (bench signature guarded in CI)."
+            if [ -n "${{ github.event.inputs.notes }}" ]; then echo; echo "${{ github.event.inputs.notes }}"; fi
+          } > notes.md
+          gh release create "$tag" \
+            zenith-${tag}-linux-*.tar.gz "zenith-${tag}-SHA256SUMS.txt" \
+            --title "Zenith ${tag}" \
+            --notes-file notes.md \
+            ${{ github.event.inputs.prerelease == 'true' && '--prerelease' || '' }}
+
+      - name: Bump minor version for the next cycle
+        run: |
+          major=${{ steps.ver.outputs.major }}
+          next=$(( ${{ steps.ver.outputs.minor }} + 1 ))
+          sed -i -E "s/(#define ZENITH_VERSION_MINOR )[0-9]+/\1${next}/" src/version.h
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/version.h
+          git commit -m "chore: bump version to ${major}.${next} after ${{ steps.ver.outputs.tag }} release"
+          git push origin HEAD:main
