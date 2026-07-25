@@ -98,7 +98,13 @@ enum
     FULL_CASTLING_RIGHTS       = 15 ///< all four rights
 };
 
-/** @brief Move flags (CPW encoding): the flag nibble of a packed move (from 0..5 | to 6..11 | flag 12..15). */
+/**
+ * @brief Move flags (CPW encoding): the flag nibble of a packed move (from 0..5 | to 6..11 | flag 12..15).
+ *
+ * Bit 3 (>= 8) marks a promotion, bit 2 (+4) marks a capture, and the low two bits carry the promotion
+ * piece. Only the two promotion base flags are named: add_promotions builds the bishop/rook/queen variants
+ * (and their capture forms) as base + (piece - KNIGHT), and move_promo_pt decodes them as KNIGHT + (flag & 3).
+ */
 enum
 {
     FLAG_QUIET                    = 0,
@@ -107,12 +113,8 @@ enum
     FLAG_CASTLE_QUEENSIDE         = 3,
     FLAG_CAPTURE                  = 4,
     FLAG_EP                       = 5,
-    FLAG_PROMOTION_KNIGHT         = 8,
-    FLAG_PROMOTION_BISHOP         = 9,
-    FLAG_PROMOTION_ROOK           = 10,
-    FLAG_PROMOTION_QUEEN          = 11,
-    FLAG_PROMOTION_KNIGHT_CAPTURE = 12,
-    FLAG_PROMOTION_QUEEN_CAPTURE  = 15,
+    FLAG_PROMOTION_KNIGHT         = 8,  ///< promotion base; +1/+2/+3 -> bishop/rook/queen
+    FLAG_PROMOTION_KNIGHT_CAPTURE = 12, ///< promotion-capture base; +1/+2/+3 -> bishop/rook/queen
 };
 
 /**
