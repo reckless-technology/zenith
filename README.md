@@ -45,7 +45,7 @@ One translation unit per file, flat `src/`. Startup initialisation order (`main.
 `init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `tt_resize()`.
 
 ```
-src/types.h      Color, PieceType, Piece, Square, packed 16-bit Move + inline accessors, bit helpers
+src/types.h      Color, Piece (NO_PIECE=0..KING=6), Square, packed 16-bit Move + inline accessors, bit helpers
 src/platform.h   C11 threads.h / pthread thread shim + a monotonic clock
 src/bitboard.*   precomputed pawn/knight/king attacks, BetweenBB/LineBB, rook/bishop MAGIC bitboards
 src/position.*   bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
@@ -63,8 +63,9 @@ src/main.c       entry + CLI dispatch
 
 ### Board representation
 
-- **Bitboards** — `by_color[2]` and `by_type[6]` — plus a `board[64]` mailbox (1-byte piece codes) for
-  O(1) piece lookup, kept in sync by the put/remove/move primitives.
+- **Bitboards** — `by_color[2]` and `by_type[7]` (indexed by `Piece`; the `NO_PIECE` slot holds the
+  occupied-squares bitboard) — plus a `board[64]` piece-type mailbox (colour comes from `by_color`) for
+  O(1) piece lookup, all kept in sync by the put/remove/move primitives.
 - **Zobrist** hashing maintained incrementally, with a separate pawn-only key used by the eval correction
   history in search.
 - **Copy-make.** `Position` is a value type: the search copies the parent and applies `make_move` to the
