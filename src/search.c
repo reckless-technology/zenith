@@ -30,7 +30,7 @@ SearchParams g_params = {
 };
 
 static int       Reductions[MAX_PLY][64];
-static const int SeeValue[6] = {100, 320, 330, 500, 900, 10000};
+static const int SeeValue[PIECE_TYPE_NB] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by PieceType
 
 /**
  * @brief Eval correction-history scale constants.
@@ -94,7 +94,7 @@ static inline Bitboard attackers_to_both(const Position *pos, const int square, 
 int static_exchange_eval(const Position *pos, const Move move)
 {
     const int to = move_to(move), from = move_from(move);
-    const int captured = move_is_ep(move) ? SeeValue[PAWN] : SeeValue[type_of(pos->board[to])];
+    const int captured = move_is_ep(move) ? SeeValue[PAWN] : SeeValue[pos->board[to]];
     int       gain[32];
     int       swap_index = 0;
     gain[0]              = captured;
@@ -106,7 +106,7 @@ int static_exchange_eval(const Position *pos, const Move move)
     }
     occupied ^= sq_bb(from);
 
-    PieceType attacker = type_of(pos->board[from]);
+    PieceType attacker = (PieceType)pos->board[from];
     Color     side     = color_flip(pos->stm);
     // Attackers hitting `to` given the current occupancy; recomputed each ply so x-rays reveal.
     Bitboard attackers = attackers_to_both(pos, to, occupied) & occupied;
@@ -364,12 +364,12 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         int        score = 0;
         if (move_is_capture(move))
         {
-            score = 100 * SeeValue[move_is_ep(move) ? PAWN : type_of(pos->board[move_to(move)])] -
-                    SeeValue[type_of(pos->board[move_from(move)])];
+            score = 100 * SeeValue[move_is_ep(move) ? PAWN : pos->board[move_to(move)]] -
+                    SeeValue[pos->board[move_from(move)]];
         }
         if (move_is_promo(move))
         {
-            score += 900000 + move_promo_pt(move);
+            score += 900000 + move_promo_pt(move) - 1; // -1: keep the historic score values (promo_pt is 1-based +1)
         }
         scores[index] = score;
     }
@@ -483,10 +483,11 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     int prev_piece_to = -1;
     if (!move_is_none(prev_move))
     {
-        const Piece prev_piece = pos->board[move_to(prev_move)];
-        if (prev_piece != NO_PIECE)
+        const PieceType prev_type = (PieceType)pos->board[move_to(prev_move)];
+        if (prev_type != NO_PIECE)
         {
-            prev_piece_to = prev_piece * 64 + move_to(prev_move);
+            // History/countermove key: (color*6 + 0-based type) * 64 + to — the mover was the opponent.
+            prev_piece_to = (color_flip(pos->stm) * 6 + (int)prev_type - 1) * 64 + move_to(prev_move);
         }
     }
 
@@ -561,12 +562,12 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         }
         else if (move_is_capture(move))
         {
-            move_score = 1000000 + 100 * SeeValue[move_is_ep(move) ? PAWN : type_of(pos->board[move_to(move)])] -
-                         SeeValue[type_of(pos->board[move_from(move)])];
+            move_score = 1000000 + 100 * SeeValue[move_is_ep(move) ? PAWN : pos->board[move_to(move)]] -
+                         SeeValue[pos->board[move_from(move)]];
         }
         else if (move_is_promo(move))
         {
-            move_score = 900000 + move_promo_pt(move);
+            move_score = 900000 + move_promo_pt(move) - 1;
         }
         else if (move == searcher->killers[ply][0])
         {
@@ -582,7 +583,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         }
         else
         {
-            const int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
+            const int current_piece_to = (pos->stm * 6 + pos->board[move_from(move)] - 1) * 64 + move_to(move);
             move_score                 = searcher->history[pos->stm][move_from(move)][move_to(move)] +
                          (prev_piece_to >= 0 ? searcher->cont_hist[prev_piece_to * 768 + current_piece_to] : 0);
         }
@@ -743,8 +744,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                         {
                             searcher->counter_moves[prev_piece_to] = move;
                         }
-                        const int bonus            = min_int(depth * depth, g_params.history_max);
-                        const int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
+                        const int bonus = min_int(depth * depth, g_params.history_max);
+                        const int current_piece_to =
+                            (pos->stm * 6 + pos->board[move_from(move)] - 1) * 64 + move_to(move);
                         apply_gravity(&searcher->history[pos->stm][move_from(move)][move_to(move)], bonus);
                         if (prev_piece_to >= 0)
                         {
@@ -758,7 +760,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                             if (prev_piece_to >= 0)
                             {
                                 apply_gravity(
-                                    &searcher->cont_hist[prev_piece_to * 768 + pos->board[move_from(quiet_move)] * 64 +
+                                    &searcher->cont_hist[prev_piece_to * 768 +
+                                                         (pos->stm * 6 + pos->board[move_from(quiet_move)] - 1) * 64 +
                                                          move_to(quiet_move)],
                                     -bonus);
                             }

@@ -65,7 +65,7 @@ static inline int base_feature_index(const Color perspective, const Color piece_
 {
     const int relative_color  = (piece_color == perspective) ? 0 : 1;
     const int relative_square = (perspective == WHITE) ? square : (square ^ 56);
-    return relative_color * 384 + piece_type * 64 + relative_square;
+    return relative_color * 384 + ((int)piece_type - 1) * 64 + relative_square; // net features are 0-based types
 }
 
 /** @brief Full king-bucketed feature index for @p perspective given its cached king bucket. */
@@ -143,7 +143,7 @@ typedef struct RefreshCacheEntry
 {
     _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
     Bitboard by_color[2];                     ///< board occupancy per colour when @ref values was built
-    Bitboard by_type[6];                      ///< board occupancy per piece type when @ref values was built
+    Bitboard by_type[PIECE_TYPE_NB];          ///< board occupancy per piece type when @ref values was built
     uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
 
@@ -202,7 +202,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     {
         memcpy(cache->values, network.feature_transformer_bias, sizeof(cache->values));
         cache->by_color[0] = cache->by_color[1] = 0;
-        for (int type = 0; type < 6; type++)
+        for (int type = PAWN; type <= KING; type++)
         {
             cache->by_type[type] = 0;
         }
@@ -211,7 +211,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
 
     for (int color = WHITE; color <= BLACK; color++)
     {
-        for (int type = 0; type < 6; type++)
+        for (int type = PAWN; type <= KING; type++)
         {
             const Bitboard current = position->by_color[color] & position->by_type[type];
             const Bitboard cached  = cache->by_color[color] & cache->by_type[type];
@@ -233,7 +233,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     }
     cache->by_color[WHITE] = position->by_color[WHITE];
     cache->by_color[BLACK] = position->by_color[BLACK];
-    for (int type = 0; type < 6; type++)
+    for (int type = PAWN; type <= KING; type++)
     {
         cache->by_type[type] = position->by_type[type];
     }

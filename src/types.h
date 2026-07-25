@@ -23,39 +23,23 @@ static inline Color color_flip(Color c)
     return (Color)(c ^ 1);
 }
 
-/** @brief Piece type, colour-independent. */
+/**
+ * @brief The one piece type: colour-independent, with NO_PIECE = 0 marking an empty square.
+ *
+ * The mailbox stores these directly (colour lives in the by_color bitboards — see position_color_on), and
+ * Position.by_type is indexed by them, with the NO_PIECE slot holding the occupied-squares bitboard.
+ */
 typedef enum
 {
-    PAWN,
+    NO_PIECE = 0, ///< empty square / "no piece" sentinel (by_type[NO_PIECE] = occupied squares)
+    PAWN     = 1,
     KNIGHT,
     BISHOP,
     ROOK,
     QUEEN,
     KING,
-    PIECE_TYPE_NB = 6, ///< number of real piece types
-    NO_PIECE_TYPE = 6  ///< "no piece type" sentinel
+    PIECE_TYPE_NB = 7 ///< array bound: NO_PIECE + the six real piece types
 } PieceType;
-
-/** @brief Mailbox piece code = color*6 + type; NO_PIECE = 12 marks an empty square. */
-typedef enum
-{
-    NO_PIECE = 12
-} Piece;
-
-static inline Piece make_piece(Color color, PieceType piece_type)
-{
-    return (Piece)(color * 6 + piece_type);
-}
-
-static inline Color color_of(Piece piece)
-{
-    return (Color)(piece / 6);
-}
-
-static inline PieceType type_of(Piece piece)
-{
-    return (PieceType)(piece % 6);
-}
 
 /** @brief Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8. */
 enum
@@ -227,7 +211,7 @@ static inline char *move_to_uci(Move move, char *buf)
     buf[length++] = to_name[1];
     if (move_is_promo(move))
     {
-        buf[length++] = "  nbrq"[move_promo_pt(move) + 1]; // KNIGHT..QUEEN -> n,b,r,q
+        buf[length++] = "  nbrq"[move_promo_pt(move)]; // KNIGHT(2)..QUEEN(5) -> n,b,r,q
     }
     buf[length] = '\0';
     return buf;

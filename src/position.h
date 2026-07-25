@@ -10,10 +10,10 @@
 
 /// @name Zobrist keys (filled by init_zobrist()).
 /// @{
-extern uint64_t ZobristPiece[12][64]; ///< per (piece, square)
-extern uint64_t ZobristCastle[16];    ///< per castling-rights mask
-extern uint64_t ZobristEpFile[8];     ///< per en-passant file
-extern uint64_t ZobristSide;          ///< XOR-ed in when Black is to move
+extern uint64_t ZobristPiece[COLOR_NB][PIECE_TYPE_NB][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
+extern uint64_t ZobristCastle[16];                         ///< per castling-rights mask
+extern uint64_t ZobristEp[64]; ///< per en-passant target square (non-zero only on ranks 3 and 6)
+extern uint64_t ZobristSide;   ///< XOR-ed in when Black is to move
 /// @}
 
 /** @brief Fill the Zobrist key tables. Call once at startup (after init_bitboards). */
@@ -28,14 +28,14 @@ void init_zobrist(void);
  */
 typedef struct Position
 {
-    Bitboard by_color[COLOR_NB];     ///< occupancy per colour
-    Bitboard by_type[PIECE_TYPE_NB]; ///< occupancy per piece type (both colours)
-    uint64_t key;                    ///< incremental Zobrist key of the whole position
-    uint64_t pawn_key;               ///< Zobrist of pawns only, for the eval correction history (search)
-    /// Mailbox stored as 1-byte piece codes (color*6 + type, NO_PIECE=12) rather than the 4-byte `Piece`
-    /// enum: 64 vs 256 bytes shrinks Position by 192 bytes, and copy-make copies the whole struct per node.
-    /// (Field order is grouped by alignment for tidiness; the accumulator's 32-byte alignment sets the
-    /// struct size, so ordering alone changes nothing — the mailbox width is the actual saving.)
+    Bitboard by_color[COLOR_NB]; ///< occupancy per colour
+    /// Occupancy per piece type (both colours), indexed by PieceType. The NO_PIECE slot (index 0) holds the
+    /// occupied-squares bitboard — all piece bitboards OR-ed — maintained incrementally alongside the rest.
+    Bitboard by_type[PIECE_TYPE_NB];
+    uint64_t key;      ///< incremental Zobrist key of the whole position
+    uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
+    /// Mailbox of 1-byte PieceType codes (NO_PIECE=0 .. KING=6). Colour is not stored here — read it from
+    /// the by_color bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[64];
     // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
     // narrow type would silently truncate); ep_sq (0..64), ply (0..MAX_PLY), stm and castling are small.
@@ -85,10 +85,10 @@ static inline void position_init(Position *pos)
 
 /// @name Queries
 /// @{
-/** @brief All occupied squares (both colours). */
+/** @brief All occupied squares (both colours) — the incrementally-maintained by_type[NO_PIECE] slot. */
 static inline Bitboard position_occupied(const Position *pos)
 {
-    return pos->by_color[WHITE] | pos->by_color[BLACK];
+    return pos->by_type[NO_PIECE];
 }
 
 /** @brief Squares holding @p color pieces of @p piece_type. */
@@ -109,10 +109,16 @@ static inline int position_king_sq(const Position *pos, Color color)
     return lsb(position_pieces(pos, color, KING));
 }
 
-/** @brief The piece on @p square, or NO_PIECE if empty. */
-static inline Piece position_piece_on(const Position *pos, int square)
+/** @brief The piece type on @p square, or NO_PIECE if empty. */
+static inline PieceType position_piece_on(const Position *pos, int square)
 {
-    return pos->board[square];
+    return (PieceType)pos->board[square];
+}
+
+/** @brief The colour of the piece on @p square (undefined for empty squares — check occupancy first). */
+static inline Color position_color_on(const Position *pos, int square)
+{
+    return (Color)((pos->by_color[BLACK] >> square) & 1);
 }
 
 /**

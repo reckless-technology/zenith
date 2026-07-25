@@ -162,12 +162,14 @@ int evaluate(const Position *pos)
     Bitboard       board_bits = occupancy;
     while (board_bits)
     {
-        const int   square = pop_lsb(&board_bits);
-        const Piece piece  = pos->board[square];
-        const Color color  = color_of(piece);
-        middlegame[color] += mg_table[piece][square];
-        endgame[color] += eg_table[piece][square];
-        phase += phase_inc[type_of(piece)];
+        const int       square     = pop_lsb(&board_bits);
+        const PieceType piece_type = (PieceType)pos->board[square];
+        const Color     color      = position_color_on(pos, square);
+        // The PST tables are laid out as 12 rows: white types 0..5, then black types 6..11 (0-based types).
+        const int code = color * 6 + (int)piece_type - 1;
+        middlegame[color] += mg_table[code][square];
+        endgame[color] += eg_table[code][square];
+        phase += phase_inc[(int)piece_type - 1];
     }
 
     // Cheap extra terms.

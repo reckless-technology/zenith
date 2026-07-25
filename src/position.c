@@ -12,9 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-uint64_t ZobristPiece[12][64];
+uint64_t ZobristPiece[COLOR_NB][PIECE_TYPE_NB][64];
 uint64_t ZobristCastle[16];
-uint64_t ZobristEpFile[8];
+uint64_t ZobristEp[64];
 uint64_t ZobristSide;
 
 static uint64_t zobrist_next(uint64_t *state)
@@ -27,21 +27,31 @@ static uint64_t zobrist_next(uint64_t *state)
 
 void init_zobrist(void)
 {
+    // The PRNG draw ORDER is part of the engine's identity: every (color, type, square) must receive the
+    // same key across layout changes, or all position keys — and with them TT behaviour and the bench node
+    // signature — silently shift. Values are drawn in the historical order: 12 (color,type) piece blocks of
+    // 64 squares, 16 castling masks, 8 en-passant files, then the side key.
     uint64_t state = 0x9E3779B97F4A7C15ULL;
-    for (int piece = 0; piece < 12; piece++)
+    for (int code = 0; code < 12; code++)
     {
+        const Color     color = (Color)(code / 6);
+        const PieceType type  = (PieceType)(code % 6 + 1); // codes are 0-based; PieceType is 1-based
         for (int square = 0; square < 64; square++)
         {
-            ZobristPiece[piece][square] = zobrist_next(&state);
+            ZobristPiece[color][type][square] = zobrist_next(&state);
         }
     }
     for (int castle_rights = 0; castle_rights < 16; castle_rights++)
     {
         ZobristCastle[castle_rights] = zobrist_next(&state);
     }
+    // One key per file, replicated onto that file's two possible en-passant target squares (rank 3 for a
+    // White double push, rank 6 for Black); every other square's entry stays zero.
     for (int file = 0; file < 8; file++)
     {
-        ZobristEpFile[file] = zobrist_next(&state);
+        const uint64_t key              = zobrist_next(&state);
+        ZobristEp[make_square(file, 2)] = key;
+        ZobristEp[make_square(file, 5)] = key;
     }
     ZobristSide = zobrist_next(&state);
 }
@@ -67,18 +77,18 @@ static const uint8_t CastleMask[64] = {
     CR_ALL,          CR_ALL, (uint8_t)~CR_BK, // rank 8
 };
 
-/** @brief Place a piece and update every representation: bitboards, mailbox, Zobrist keys, NNUE accumulator. */
+/** @brief Place a piece and update every representation: bitboards (incl. occupied), mailbox, Zobrist, NNUE. */
 static void put(Position *pos, const Color color, const PieceType piece_type, const int square)
 {
     const Bitboard square_bit = sq_bb(square);
     pos->by_color[color] |= square_bit;
     pos->by_type[piece_type] |= square_bit;
-    const Piece piece  = make_piece(color, piece_type);
-    pos->board[square] = piece;
-    pos->key ^= ZobristPiece[piece][square];
+    pos->by_type[NO_PIECE] |= square_bit; // occupied squares, maintained incrementally
+    pos->board[square] = (uint8_t)piece_type;
+    pos->key ^= ZobristPiece[color][piece_type][square];
     if (piece_type == PAWN)
     {
-        pos->pawn_key ^= ZobristPiece[piece][square];
+        pos->pawn_key ^= ZobristPiece[color][piece_type][square];
     }
     if (nnue_is_loaded())
     {
@@ -89,40 +99,44 @@ static void put(Position *pos, const Color color, const PieceType piece_type, co
 /** @brief Remove the piece on @p square and update every representation (inverse of put). */
 static void remove_piece(Position *pos, const int square)
 {
-    const Piece    piece      = pos->board[square];
-    const Bitboard square_bit = sq_bb(square);
-    pos->by_color[color_of(piece)] ^= square_bit;
-    pos->by_type[type_of(piece)] ^= square_bit;
-    pos->key ^= ZobristPiece[piece][square];
-    if (type_of(piece) == PAWN)
+    const PieceType piece_type = (PieceType)pos->board[square];
+    const Color     color      = position_color_on(pos, square);
+    const Bitboard  square_bit = sq_bb(square);
+    pos->by_color[color] ^= square_bit;
+    pos->by_type[piece_type] ^= square_bit;
+    pos->by_type[NO_PIECE] ^= square_bit;
+    pos->key ^= ZobristPiece[color][piece_type][square];
+    if (piece_type == PAWN)
     {
-        pos->pawn_key ^= ZobristPiece[piece][square];
+        pos->pawn_key ^= ZobristPiece[color][piece_type][square];
     }
     pos->board[square] = NO_PIECE;
     if (nnue_is_loaded())
     {
-        nnue_remove_feature(&pos->acc, color_of(piece), type_of(piece), square);
+        nnue_remove_feature(&pos->acc, color, piece_type, square);
     }
 }
 
 /** @brief Move the piece @p from -> @p to (no capture) and update every representation. */
 static void move_piece(Position *pos, const int from, const int to)
 {
-    const Piece    piece    = pos->board[from];
-    const Bitboard from_bit = sq_bb(from), to_bit = sq_bb(to);
-    const Bitboard from_to_bits = from_bit | to_bit;
-    pos->by_color[color_of(piece)] ^= from_to_bits;
-    pos->by_type[type_of(piece)] ^= from_to_bits;
-    pos->key ^= ZobristPiece[piece][from] ^ ZobristPiece[piece][to];
-    if (type_of(piece) == PAWN)
+    const PieceType piece_type = (PieceType)pos->board[from];
+    const Color     color      = position_color_on(pos, from);
+    const Bitboard  from_bit = sq_bb(from), to_bit = sq_bb(to);
+    const Bitboard  from_to_bits = from_bit | to_bit;
+    pos->by_color[color] ^= from_to_bits;
+    pos->by_type[piece_type] ^= from_to_bits;
+    pos->by_type[NO_PIECE] ^= from_to_bits;
+    pos->key ^= ZobristPiece[color][piece_type][from] ^ ZobristPiece[color][piece_type][to];
+    if (piece_type == PAWN)
     {
-        pos->pawn_key ^= ZobristPiece[piece][from] ^ ZobristPiece[piece][to];
+        pos->pawn_key ^= ZobristPiece[color][piece_type][from] ^ ZobristPiece[color][piece_type][to];
     }
-    pos->board[to]   = piece;
+    pos->board[to]   = (uint8_t)piece_type;
     pos->board[from] = NO_PIECE;
     if (nnue_is_loaded())
     {
-        nnue_move_feature(&pos->acc, color_of(piece), type_of(piece), from, to);
+        nnue_move_feature(&pos->acc, color, piece_type, from, to);
     }
 }
 
@@ -144,11 +158,11 @@ void position_make_move(Position *pos, const Move move)
 {
     const Color     side = pos->stm, opponent = color_flip(pos->stm);
     const int       from = move_from(move), to = move_to(move);
-    const PieceType piece_type = type_of(pos->board[from]);
+    const PieceType piece_type = (PieceType)pos->board[from];
 
     if (pos->ep_sq != NO_SQ)
     {
-        pos->key ^= ZobristEpFile[file_of(pos->ep_sq)];
+        pos->key ^= ZobristEp[pos->ep_sq];
         pos->ep_sq = NO_SQ;
     }
     pos->halfmove++;
@@ -195,7 +209,7 @@ void position_make_move(Position *pos, const Move move)
             if (pawn_attacks(side, ep_square) & position_pieces(pos, opponent, PAWN))
             {
                 pos->ep_sq = ep_square;
-                pos->key ^= ZobristEpFile[file_of(ep_square)];
+                pos->key ^= ZobristEp[ep_square];
             }
         }
     }
@@ -228,7 +242,7 @@ void position_make_null(Position *pos)
 {
     if (pos->ep_sq != NO_SQ)
     {
-        pos->key ^= ZobristEpFile[file_of(pos->ep_sq)];
+        pos->key ^= ZobristEp[pos->ep_sq];
         pos->ep_sq = NO_SQ;
     }
     pos->stm = color_flip(pos->stm);
@@ -317,7 +331,7 @@ bool position_gives_check_fast(const Position *pos, const Move move, const Bitbo
     // Direct check from the destination square (quiet move: `to` is empty, the mover leaves `from`).
     const Bitboard king_bit  = sq_bb(enemy_king_square);
     const Bitboard occupancy = (position_occupied(pos) ^ sq_bb(from)) | sq_bb(to);
-    switch (type_of(pos->board[from]))
+    switch ((PieceType)pos->board[from])
     {
     case PAWN:
         return (pawn_attacks(pos->stm, to) & king_bit) != 0;
@@ -584,7 +598,7 @@ bool position_set_fen(Position *pos, const char *fen)
     pos->key ^= ZobristCastle[pos->castling];
     if (pos->ep_sq != NO_SQ)
     {
-        pos->key ^= ZobristEpFile[file_of(pos->ep_sq)];
+        pos->key ^= ZobristEp[pos->ep_sq];
     }
     // A legal position has exactly one king per side. Reject anything else: a kingless side would make
     // position_king_sq() do lsb(0) (ctz of zero is UB) and then read the attack tables out of bounds during
@@ -608,8 +622,9 @@ char *position_fen(const Position *pos, char *buf)
         int empty_count = 0;
         for (int file = 0; file < 8; file++)
         {
-            const Piece piece = pos->board[make_square(file, rank)];
-            if (piece == NO_PIECE)
+            const int       square     = make_square(file, rank);
+            const PieceType piece_type = (PieceType)pos->board[square];
+            if (piece_type == NO_PIECE)
             {
                 empty_count++;
                 continue;
@@ -619,8 +634,9 @@ char *position_fen(const Position *pos, char *buf)
                 *out++      = (char)('0' + empty_count);
                 empty_count = 0;
             }
-            const char *const names = "PNBRQKpnbrqk";
-            *out++                  = names[piece];
+            const char *const names = " PNBRQK"; // indexed by PieceType (1..6); lowercased for Black
+            const char        name  = names[piece_type];
+            *out++ = position_color_on(pos, square) == BLACK ? (char)tolower((unsigned char)name) : name;
         }
         if (empty_count)
         {

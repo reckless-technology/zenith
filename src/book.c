@@ -219,13 +219,14 @@ uint64_t polyglot_key(const Position *pos)
 {
     uint64_t key = 0;
 
-    // Pieces: polyglot kind = 2*piece_type + (1 if white). Offsets: kind*64 + rank*8 + file.
+    // Pieces: polyglot kind = 2*(0-based piece type) + (1 if white). Offsets: kind*64 + rank*8 + file.
+    // PieceType is 1-based (PAWN=1), so subtract 1 to reach the spec's 0-based kinds.
     Bitboard occupied = position_occupied(pos);
     while (occupied)
     {
-        const int   square = pop_lsb(&occupied);
-        const Piece piece  = pos->board[square];
-        const int   kind   = 2 * type_of(piece) + (color_of(piece) == WHITE ? 1 : 0);
+        const int       square     = pop_lsb(&occupied);
+        const PieceType piece_type = (PieceType)pos->board[square];
+        const int       kind       = 2 * ((int)piece_type - 1) + (position_color_on(pos, square) == WHITE ? 1 : 0);
         key ^= POLYGLOT_RANDOM[64 * kind + square];
     }
 
@@ -359,7 +360,7 @@ static uint16_t polyglot_encode(const Position *pos, const Move move)
         const int rank = rank_of(from);
         to             = move_flag(move) == FLAG_KCASTLE ? make_square(7, rank) : make_square(0, rank);
     }
-    const int promo = move_is_promo(move) ? (int)move_promo_pt(move) : 0; // PieceType KNIGHT..QUEEN = 1..4 matches
+    const int promo = move_is_promo(move) ? (int)move_promo_pt(move) - 1 : 0; // KNIGHT(2)..QUEEN(5) -> 1..4
     (void)pos;
     return (uint16_t)(file_of(to) | (rank_of(to) << 3) | (file_of(from) << 6) | (rank_of(from) << 9) | (promo << 12));
 }
