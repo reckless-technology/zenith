@@ -31,6 +31,7 @@ make baseline          # snapshot ./zenith -> ./zenith-base
 tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
+make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
 ```
 
 A versioned pre-commit hook (`.githooks/pre-commit`, enabled via `make hooks`) rejects commits whose staged

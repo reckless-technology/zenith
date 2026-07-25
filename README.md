@@ -156,10 +156,12 @@ larger than memory. `datagen` can also generate the engine's own self-play data
 
 Standard **Polyglot** `.bin` books are supported (`src/book.c`; the Polyglot Zobrist key computation is
 validated against the official spec vectors by `./zenith bookcheck`). No book ships in the repo — supply
-your own:
+your own, or fetch a free one with `make get-book` (downloads `performance.bin` from the GPL-3.0
+python-chess repo into the gitignored `books/`):
 
 ```
-setoption name BookFile value path/to/your-book.bin
+make get-book                              # -> books/performance.bin (optional convenience)
+setoption name BookFile value books/performance.bin
 setoption name OwnBook value true          # default false — testing always runs bookless
 ```
 

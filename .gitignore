@@ -23,3 +23,6 @@ __pycache__/
 
 # Generated API documentation
 doc/html/
+
+# Opening books are downloaded on demand (make get-book), never committed
+/books/

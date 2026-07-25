@@ -14,7 +14,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book
 
 all: $(BIN)
 
@@ -68,3 +68,25 @@ hooks:
 doc:
 	doxygen Doxyfile
 	@echo "docs -> doc/html/index.html"
+
+# Download a free Polyglot opening book (no book is committed; books/ is gitignored). This is
+# performance.bin (~93k positions) as shipped in the GPL-3.0 python-chess repo, license-compatible with
+# Zenith's own GPL-3.0-or-later; original source is the free WBEC-Ridderkerk collection. Idempotent: a
+# correct existing copy is left untouched. Then: setoption name BookFile value $(BOOK) / OwnBook true.
+BOOK     = books/performance.bin
+BOOK_URL = https://raw.githubusercontent.com/niklasf/python-chess/master/data/polyglot/performance.bin
+get-book:
+	@if [ -f "$(BOOK)" ] && [ $$(( $$(wc -c < "$(BOOK)") % 16 )) -eq 0 ] && [ -s "$(BOOK)" ]; then \
+	  echo "book already present: $(BOOK) ($$(wc -c < "$(BOOK)") bytes)"; \
+	else \
+	  mkdir -p "$(dir $(BOOK))"; \
+	  echo "downloading $(BOOK) <- $(BOOK_URL)"; \
+	  if command -v curl >/dev/null 2>&1; then curl -fSL --retry 3 -o "$(BOOK).tmp" "$(BOOK_URL)"; \
+	  elif command -v wget >/dev/null 2>&1; then wget -O "$(BOOK).tmp" "$(BOOK_URL)"; \
+	  else echo "need curl or wget to download the book" >&2; exit 1; fi; \
+	  sz=$$(wc -c < "$(BOOK).tmp"); \
+	  if [ "$$sz" -gt 0 ] && [ $$(( sz % 16 )) -eq 0 ]; then mv "$(BOOK).tmp" "$(BOOK)"; \
+	  else rm -f "$(BOOK).tmp"; echo "downloaded file is not a valid Polyglot book ($$sz bytes, not a multiple of 16)" >&2; exit 1; fi; \
+	  echo "book -> $(BOOK) ($$sz bytes, $$(( sz / 16 )) entries)"; \
+	fi
+	@echo 'enable it in UCI:  setoption name BookFile value $(BOOK)  /  setoption name OwnBook value true'
