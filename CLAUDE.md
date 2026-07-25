@@ -58,13 +58,13 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 `init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `TT.resize()`.
 
 - **types.h** — `Color` (with `enemy_of`) and `Piece` — the one piece type, `NO_PIECE=0`, `PAWN=1` … `KING=6`
-  (the mailbox stores it directly; colour comes from the by_color bitboards via `position_color_on`). Packed
+  (the mailbox stores it directly; color comes from the `colors` bitboards via `position_color_on`). Packed
   16-bit `Move` (from|to|flag, CPW flag encoding), value scale (`VALUE_MATE=32000`, `MAX_PLY=128`), and all
   the `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/per-direction `shift`/file+rank masks).
 - **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
   bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable; PEXT is a drop-in later.
-- **position.\*** — board = `by_color[2]` + `by_type[NUM_PIECES=7]` bitboards (indexed by `Piece`; the
-  `by_type[NO_PIECE]` slot holds the incrementally-maintained occupied-squares bitboard, so
+- **position.\*** — board = `colors[2]` + `pieces[NUM_PIECES=7]` bitboards (indexed by `Piece`; the
+  `pieces[NO_PIECE]` slot holds the incrementally-maintained occupied-squares bitboard, so
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental
   **Zobrist** `key` (`ZobristPiece[color][piece][sq]`, `ZobristEp[sq]`) + pawn-only `pawn_key`; the NNUE
   accumulator is embedded and updated

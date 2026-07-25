@@ -59,22 +59,14 @@ void init_zobrist(void)
 // CastleMask[sq]: rights to KEEP when a piece leaves or arrives on sq (AND-ed into castling).
 // Everything defaults to FULL_CASTLING_RIGHTS; the six rook/king home squares clear their rights.
 static const uint8_t CastleMask[64] = {
-    (uint8_t)~MAY_WHITE_CASTLE_QUEENSIDE,
+    (uint8_t)~MAY_WHITE_CASTLE_QUEENSIDE, // a1
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    (uint8_t) ~(MAY_WHITE_CASTLE_KINGSIDE | MAY_WHITE_CASTLE_QUEENSIDE),
+    (uint8_t) ~(MAY_WHITE_CASTLE_KINGSIDE | MAY_WHITE_CASTLE_QUEENSIDE), // e1
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    (uint8_t)~MAY_WHITE_CASTLE_KINGSIDE, // rank 1
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 2
+    (uint8_t)~MAY_WHITE_CASTLE_KINGSIDE, // h1
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
@@ -82,7 +74,6 @@ static const uint8_t CastleMask[64] = {
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 3
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
@@ -90,7 +81,6 @@ static const uint8_t CastleMask[64] = {
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 4
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
@@ -98,7 +88,6 @@ static const uint8_t CastleMask[64] = {
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 5
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
@@ -106,7 +95,6 @@ static const uint8_t CastleMask[64] = {
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 6
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
@@ -114,24 +102,36 @@ static const uint8_t CastleMask[64] = {
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    FULL_CASTLING_RIGHTS, // rank 7
-    (uint8_t)~MAY_BLACK_CASTLE_QUEENSIDE,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    (uint8_t) ~(MAY_BLACK_CASTLE_KINGSIDE | MAY_BLACK_CASTLE_QUEENSIDE),
     FULL_CASTLING_RIGHTS,
     FULL_CASTLING_RIGHTS,
-    (uint8_t)~MAY_BLACK_CASTLE_KINGSIDE, // rank 8
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t)~MAY_BLACK_CASTLE_QUEENSIDE, // a8
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t) ~(MAY_BLACK_CASTLE_KINGSIDE | MAY_BLACK_CASTLE_QUEENSIDE), // e8
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t)~MAY_BLACK_CASTLE_KINGSIDE, // h8
 };
 
 /** @brief Place a piece and update every representation: bitboards (incl. occupied), mailbox, Zobrist, NNUE. */
 static void put(Position *pos, const Color color, const Piece piece, const int square)
 {
     const Bitboard square_bit = sq_bb(square);
-    pos->by_color[color] |= square_bit;
-    pos->by_type[piece] |= square_bit;
-    pos->by_type[NO_PIECE] |= square_bit; // occupied squares, maintained incrementally
+    pos->colors[color] |= square_bit;
+    pos->pieces[piece] |= square_bit;
+    pos->pieces[NO_PIECE] |= square_bit; // occupied squares, maintained incrementally
     pos->board[square] = (uint8_t)piece;
     pos->key ^= ZobristPiece[color][piece][square];
     if (piece == PAWN)
@@ -140,7 +140,7 @@ static void put(Position *pos, const Color color, const Piece piece, const int s
     }
     if (nnue_is_loaded())
     {
-        nnue_add_feature(&pos->acc, color, piece, square);
+        nnue_add_feature(&pos->accumulator, color, piece, square);
     }
 }
 
@@ -150,9 +150,9 @@ static void remove_piece(Position *pos, const int square)
     const Piece    piece      = (Piece)pos->board[square];
     const Color    color      = position_color_on(pos, square);
     const Bitboard square_bit = sq_bb(square);
-    pos->by_color[color] ^= square_bit;
-    pos->by_type[piece] ^= square_bit;
-    pos->by_type[NO_PIECE] ^= square_bit;
+    pos->colors[color] ^= square_bit;
+    pos->pieces[piece] ^= square_bit;
+    pos->pieces[NO_PIECE] ^= square_bit;
     pos->key ^= ZobristPiece[color][piece][square];
     if (piece == PAWN)
     {
@@ -161,7 +161,7 @@ static void remove_piece(Position *pos, const int square)
     pos->board[square] = NO_PIECE;
     if (nnue_is_loaded())
     {
-        nnue_remove_feature(&pos->acc, color, piece, square);
+        nnue_remove_feature(&pos->accumulator, color, piece, square);
     }
 }
 
@@ -172,9 +172,9 @@ static void move_piece(Position *pos, const int from, const int to)
     const Color    color    = position_color_on(pos, from);
     const Bitboard from_bit = sq_bb(from), to_bit = sq_bb(to);
     const Bitboard from_to_bits = from_bit | to_bit;
-    pos->by_color[color] ^= from_to_bits;
-    pos->by_type[piece] ^= from_to_bits;
-    pos->by_type[NO_PIECE] ^= from_to_bits;
+    pos->colors[color] ^= from_to_bits;
+    pos->pieces[piece] ^= from_to_bits;
+    pos->pieces[NO_PIECE] ^= from_to_bits;
     pos->key ^= ZobristPiece[color][piece][from] ^ ZobristPiece[color][piece][to];
     if (piece == PAWN)
     {
@@ -184,7 +184,7 @@ static void move_piece(Position *pos, const int from, const int to)
     pos->board[from] = NO_PIECE;
     if (nnue_is_loaded())
     {
-        nnue_move_feature(&pos->acc, color, piece, from, to);
+        nnue_move_feature(&pos->accumulator, color, piece, from, to);
     }
 }
 
@@ -204,14 +204,14 @@ Bitboard position_attackers_to(const Position *pos, const int square, const Colo
 /** @brief Apply @p move to @p pos in place (copy-make: the caller copied @p pos first — there is no unmake). */
 void position_make_move(Position *pos, const Move move)
 {
-    const Color side = pos->stm, opponent = enemy_of(pos->stm);
+    const Color side = pos->color_to_move, opponent = enemy_of(pos->color_to_move);
     const int   from = move_from(move), to = move_to(move);
     const Piece piece = (Piece)pos->board[from];
 
-    if (pos->ep_sq != NO_SQUARE)
+    if (pos->ep_square != NO_SQUARE)
     {
-        pos->key ^= ZobristEp[pos->ep_sq];
-        pos->ep_sq = NO_SQUARE;
+        pos->key ^= ZobristEp[pos->ep_square];
+        pos->ep_square = NO_SQUARE;
     }
     pos->halfmove++;
 
@@ -256,7 +256,7 @@ void position_make_move(Position *pos, const Move move)
             const int ep_square = (from + to) / 2;
             if (pawn_attacks(side, ep_square) & position_pieces(pos, opponent, PAWN))
             {
-                pos->ep_sq = ep_square;
+                pos->ep_square = ep_square;
                 pos->key ^= ZobristEp[ep_square];
             }
         }
@@ -267,33 +267,33 @@ void position_make_move(Position *pos, const Move move)
     // perspectives incrementally with the pre-move buckets; refresh_perspective discards the stale own half.
     if (piece == KING && nnue_is_loaded())
     {
-        nnue_update_king_bucket(&pos->acc, pos, side);
+        nnue_update_king_bucket(&pos->accumulator, pos, side);
     }
 
-    const uint8_t old_castling = pos->castling;
-    pos->castling &= CastleMask[from] & CastleMask[to];
-    if (pos->castling != old_castling)
+    const uint8_t old_castling = pos->castling_rights;
+    pos->castling_rights &= CastleMask[from] & CastleMask[to];
+    if (pos->castling_rights != old_castling)
     {
-        pos->key ^= ZobristCastle[old_castling] ^ ZobristCastle[pos->castling];
+        pos->key ^= ZobristCastle[old_castling] ^ ZobristCastle[pos->castling_rights];
     }
 
     if (side == BLACK)
     {
         pos->fullmove++;
     }
-    pos->stm = opponent;
+    pos->color_to_move = opponent;
     pos->key ^= ZobristSide;
     pos->ply++;
 }
 
 void position_make_null(Position *pos)
 {
-    if (pos->ep_sq != NO_SQUARE)
+    if (pos->ep_square != NO_SQUARE)
     {
-        pos->key ^= ZobristEp[pos->ep_sq];
-        pos->ep_sq = NO_SQUARE;
+        pos->key ^= ZobristEp[pos->ep_square];
+        pos->ep_square = NO_SQUARE;
     }
-    pos->stm = enemy_of(pos->stm);
+    pos->color_to_move = enemy_of(pos->color_to_move);
     pos->key ^= ZobristSide;
     pos->halfmove++;
     pos->ply++;
@@ -301,7 +301,7 @@ void position_make_null(Position *pos)
 
 bool position_is_legal(const Position *pos, const Move move)
 {
-    const Color side = pos->stm;
+    const Color side = pos->color_to_move;
     Position    copy = *pos;
     position_make_move(&copy, move);
     return !position_is_attacked_by(&copy, position_king_sq(&copy, side), enemy_of(side));
@@ -309,7 +309,7 @@ bool position_is_legal(const Position *pos, const Move move)
 
 Bitboard position_pinned_to_king(const Position *pos)
 {
-    const Color    side = pos->stm, opponent = enemy_of(side);
+    const Color    side = pos->color_to_move, opponent = enemy_of(side);
     const int      king_square   = position_king_sq(pos, side);
     const Bitboard occupancy     = position_occupied(pos);
     Bitboard       pinned_pieces = 0;
@@ -323,7 +323,7 @@ Bitboard position_pinned_to_king(const Position *pos)
         const int      sniper_square = pop_lsb(&snipers);
         const Bitboard between       = between_bb(king_square, sniper_square) & occupancy;
         // Exactly one piece between the sniper and our king, and it is ours => that piece is pinned.
-        if (between && !(between & (between - 1)) && (between & pos->by_color[side]))
+        if (between && !(between & (between - 1)) && (between & pos->colors[side]))
         {
             pinned_pieces |= between;
         }
@@ -333,7 +333,7 @@ Bitboard position_pinned_to_king(const Position *pos)
 
 Bitboard position_discovered_check_candidates(const Position *pos)
 {
-    const Color    side = pos->stm, opponent = enemy_of(side);
+    const Color    side = pos->color_to_move, opponent = enemy_of(side);
     const int      enemy_king_square = position_king_sq(pos, opponent);
     const Bitboard occupancy         = position_occupied(pos);
     Bitboard       candidates        = 0;
@@ -347,7 +347,7 @@ Bitboard position_discovered_check_candidates(const Position *pos)
     {
         const int      sniper_square = pop_lsb(&snipers);
         const Bitboard between       = between_bb(enemy_king_square, sniper_square) & occupancy;
-        if (between && !(between & (between - 1)) && (between & pos->by_color[side]))
+        if (between && !(between & (between - 1)) && (between & pos->colors[side]))
         {
             candidates |= between;
         }
@@ -382,7 +382,7 @@ bool position_gives_check_fast(const Position *pos, const Move move, const Bitbo
     switch ((Piece)pos->board[from])
     {
     case PAWN:
-        return (pawn_attacks(pos->stm, to) & king_bit) != 0;
+        return (pawn_attacks(pos->color_to_move, to) & king_bit) != 0;
     case KNIGHT:
         return (knight_attacks(to) & king_bit) != 0;
     case BISHOP:
@@ -399,7 +399,7 @@ bool position_gives_check_fast(const Position *pos, const Move move, const Bitbo
 /** @brief Copy-free legality test for a pseudo-legal @p move, given the node's @p checkers and @p pinned. */
 bool position_is_legal_fast(const Position *pos, const Move move, const Bitboard checkers, const Bitboard pinned)
 {
-    const Color side = pos->stm, opponent = enemy_of(side);
+    const Color side = pos->color_to_move, opponent = enemy_of(side);
     const int   from = move_from(move), to = move_to(move);
     const int   king_square = position_king_sq(pos, side);
 
@@ -476,24 +476,24 @@ bool position_set_fen(Position *pos, const char *fen)
 {
     for (int color = 0; color < NUM_COLORS; color++)
     {
-        pos->by_color[color] = 0;
+        pos->colors[color] = 0;
     }
     for (int piece = 0; piece < NUM_PIECES; piece++)
     {
-        pos->by_type[piece] = 0;
+        pos->pieces[piece] = 0;
     }
     for (int square = 0; square < 64; square++)
     {
         pos->board[square] = NO_PIECE;
     }
-    pos->key      = 0;
-    pos->pawn_key = 0;
-    pos->castling = 0;
-    pos->ep_sq    = NO_SQUARE;
-    pos->halfmove = 0;
-    pos->fullmove = 1;
-    pos->ply      = 0;
-    pos->stm      = WHITE;
+    pos->key             = 0;
+    pos->pawn_key        = 0;
+    pos->castling_rights = 0;
+    pos->ep_square       = NO_SQUARE;
+    pos->halfmove        = 0;
+    pos->fullmove        = 1;
+    pos->ply             = 0;
+    pos->color_to_move   = WHITE;
 
     // Tokenize a local copy on whitespace; missing trailing fields read as "".
     char fen_copy[512];
@@ -600,22 +600,22 @@ bool position_set_fen(Position *pos, const char *fen)
         }
     }
 
-    pos->stm = strcmp(side, "b") == 0 ? BLACK : WHITE;
+    pos->color_to_move = strcmp(side, "b") == 0 ? BLACK : WHITE;
     for (const char *cursor = castle_str; *cursor; cursor++)
     {
         switch (*cursor)
         {
         case 'K':
-            pos->castling |= MAY_WHITE_CASTLE_KINGSIDE;
+            pos->castling_rights |= MAY_WHITE_CASTLE_KINGSIDE;
             break;
         case 'Q':
-            pos->castling |= MAY_WHITE_CASTLE_QUEENSIDE;
+            pos->castling_rights |= MAY_WHITE_CASTLE_QUEENSIDE;
             break;
         case 'k':
-            pos->castling |= MAY_BLACK_CASTLE_KINGSIDE;
+            pos->castling_rights |= MAY_BLACK_CASTLE_KINGSIDE;
             break;
         case 'q':
-            pos->castling |= MAY_BLACK_CASTLE_QUEENSIDE;
+            pos->castling_rights |= MAY_BLACK_CASTLE_QUEENSIDE;
             break;
         default:
             break;
@@ -630,23 +630,23 @@ bool position_set_fen(Position *pos, const char *fen)
         if (ep_file >= 0 && ep_file < 8 && ep_rank >= 0 && ep_rank < 8)
         {
             const int ep_square = make_square(ep_file, ep_rank);
-            if (pawn_attacks(enemy_of(pos->stm), ep_square) & position_pieces(pos, pos->stm, PAWN))
+            if (pawn_attacks(enemy_of(pos->color_to_move), ep_square) & position_pieces(pos, pos->color_to_move, PAWN))
             {
-                pos->ep_sq = ep_square;
+                pos->ep_square = ep_square;
             }
         }
     }
     pos->halfmove = halfmove_clock;
     pos->fullmove = fullmove_number;
 
-    if (pos->stm == BLACK)
+    if (pos->color_to_move == BLACK)
     {
         pos->key ^= ZobristSide;
     }
-    pos->key ^= ZobristCastle[pos->castling];
-    if (pos->ep_sq != NO_SQUARE)
+    pos->key ^= ZobristCastle[pos->castling_rights];
+    if (pos->ep_square != NO_SQUARE)
     {
-        pos->key ^= ZobristEp[pos->ep_sq];
+        pos->key ^= ZobristEp[pos->ep_square];
     }
     // A legal position has exactly one king per side. Reject anything else: a kingless side would make
     // position_king_sq() do lsb(0) (ctz of zero is UB) and then read the attack tables out of bounds during
@@ -657,7 +657,7 @@ bool position_set_fen(Position *pos, const char *fen)
     // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
     if (nnue_is_loaded())
     {
-        nnue_refresh(&pos->acc, pos);
+        nnue_refresh(&pos->accumulator, pos);
     }
     return is_valid;
 }
@@ -696,34 +696,34 @@ char *position_fen(const Position *pos, char *buf)
         }
     }
     *out++ = ' ';
-    *out++ = pos->stm == WHITE ? 'w' : 'b';
+    *out++ = pos->color_to_move == WHITE ? 'w' : 'b';
     *out++ = ' ';
-    if (pos->castling == 0)
+    if (pos->castling_rights == 0)
     {
         *out++ = '-';
     }
     else
     {
-        if (pos->castling & MAY_WHITE_CASTLE_KINGSIDE)
+        if (pos->castling_rights & MAY_WHITE_CASTLE_KINGSIDE)
         {
             *out++ = 'K';
         }
-        if (pos->castling & MAY_WHITE_CASTLE_QUEENSIDE)
+        if (pos->castling_rights & MAY_WHITE_CASTLE_QUEENSIDE)
         {
             *out++ = 'Q';
         }
-        if (pos->castling & MAY_BLACK_CASTLE_KINGSIDE)
+        if (pos->castling_rights & MAY_BLACK_CASTLE_KINGSIDE)
         {
             *out++ = 'k';
         }
-        if (pos->castling & MAY_BLACK_CASTLE_QUEENSIDE)
+        if (pos->castling_rights & MAY_BLACK_CASTLE_QUEENSIDE)
         {
             *out++ = 'q';
         }
     }
     *out++ = ' ';
     char square_name[3];
-    sq_name(pos->ep_sq, square_name);
+    sq_name(pos->ep_square, square_name);
     out += sprintf(out, "%s %d %d", square_name, pos->halfmove, pos->fullmove);
     (void)out;
     return buf;

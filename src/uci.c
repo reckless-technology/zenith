@@ -857,11 +857,11 @@ static void legal_check_walk(const Position *pos, const int depth)
 {
     MoveList pseudo;
     generate_pseudo(pos, &pseudo, false);
-    const Bitboard checkers =
-        position_attackers_to(pos, position_king_sq(pos, pos->stm), enemy_of(pos->stm), position_occupied(pos));
+    const Bitboard checkers          = position_attackers_to(pos, position_king_sq(pos, pos->color_to_move),
+                                                             enemy_of(pos->color_to_move), position_occupied(pos));
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
-    const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->stm));
+    const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->color_to_move));
     for (int index = 0; index < pseudo.count; index++)
     {
         const Move move = pseudo.moves[index];

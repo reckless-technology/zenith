@@ -63,8 +63,8 @@ src/main.c       entry + CLI dispatch
 
 ### Board representation
 
-- **Bitboards** — `by_color[2]` and `by_type[7]` (indexed by `Piece`; the `NO_PIECE` slot holds the
-  occupied-squares bitboard) — plus a `board[64]` piece-type mailbox (colour comes from `by_color`) for
+- **Bitboards** — `colors[2]` and `pieces[7]` (indexed by `Piece`; the `NO_PIECE` slot holds the
+  occupied-squares bitboard) — plus a `board[64]` piece-type mailbox (color comes from `colors`) for
   O(1) piece lookup, all kept in sync by the put/remove/move primitives.
 - **Zobrist** hashing maintained incrementally, with a separate pawn-only key used by the eval correction
   history in search.

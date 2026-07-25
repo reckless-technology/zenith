@@ -231,32 +231,32 @@ uint64_t polyglot_key(const Position *pos)
     }
 
     // Castling rights (offsets 768..771: white short, white long, black short, black long).
-    if (pos->castling & MAY_WHITE_CASTLE_KINGSIDE)
+    if (pos->castling_rights & MAY_WHITE_CASTLE_KINGSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 0];
     }
-    if (pos->castling & MAY_WHITE_CASTLE_QUEENSIDE)
+    if (pos->castling_rights & MAY_WHITE_CASTLE_QUEENSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 1];
     }
-    if (pos->castling & MAY_BLACK_CASTLE_KINGSIDE)
+    if (pos->castling_rights & MAY_BLACK_CASTLE_KINGSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 2];
     }
-    if (pos->castling & MAY_BLACK_CASTLE_QUEENSIDE)
+    if (pos->castling_rights & MAY_BLACK_CASTLE_QUEENSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 3];
     }
 
     // En passant file (772..779) — only when a pawn of the side to move can actually capture, which is
-    // exactly the invariant Position maintains for ep_sq (matches the Polyglot rule).
-    if (pos->ep_sq != NO_SQUARE)
+    // exactly the invariant Position maintains for ep_square (matches the Polyglot rule).
+    if (pos->ep_square != NO_SQUARE)
     {
-        key ^= POLYGLOT_RANDOM[772 + file_of(pos->ep_sq)];
+        key ^= POLYGLOT_RANDOM[772 + file_of(pos->ep_square)];
     }
 
     // Side to move (780) — included when white is to move.
-    if (pos->stm == WHITE)
+    if (pos->color_to_move == WHITE)
     {
         key ^= POLYGLOT_RANDOM[780];
     }

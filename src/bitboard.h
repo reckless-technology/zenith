@@ -7,7 +7,7 @@
 #pragma once
 #include "types.h"
 
-extern Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [colour][square]
+extern Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [color][square]
 extern Bitboard KnightAttacks[64];           ///< knight attacks by square
 extern Bitboard KingAttacks[64];             ///< king attacks by square
 extern Bitboard BetweenBB[64][64];           ///< squares strictly between two aligned squares (exclusive), else 0

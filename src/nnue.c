@@ -142,7 +142,7 @@ static uint32_t g_net_generation = 0;
 typedef struct RefreshCacheEntry
 {
     _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
-    Bitboard by_color[2];                     ///< board occupancy per colour when @ref values was built
+    Bitboard by_color[2];                     ///< board occupancy per color when @ref values was built
     Bitboard by_type[NUM_PIECES];             ///< board occupancy per piece type when @ref values was built
     uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
@@ -212,7 +212,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     {
         for (int type = PAWN; type <= KING; type++)
         {
-            const Bitboard current = position->by_color[color] & position->by_type[type];
+            const Bitboard current = position->colors[color] & position->pieces[type];
             const Bitboard cached  = cache->by_color[color] & cache->by_type[type];
             Bitboard       added   = current & ~cached;
             Bitboard       removed = cached & ~current;
@@ -230,11 +230,11 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
             }
         }
     }
-    cache->by_color[WHITE] = position->by_color[WHITE];
-    cache->by_color[BLACK] = position->by_color[BLACK];
+    cache->by_color[WHITE] = position->colors[WHITE];
+    cache->by_color[BLACK] = position->colors[BLACK];
     for (int type = PAWN; type <= KING; type++)
     {
-        cache->by_type[type] = position->by_type[type];
+        cache->by_type[type] = position->pieces[type];
     }
     memcpy(accumulator->values[perspective], cache->values, sizeof(cache->values));
 }
@@ -321,7 +321,7 @@ int nnue_evaluate_position(const Position *position)
 {
     NnueAccumulator accumulator;
     nnue_refresh(&accumulator, position);
-    return nnue_evaluate(&accumulator, position->stm);
+    return nnue_evaluate(&accumulator, position->color_to_move);
 }
 
 // ---- loading -----------------------------------------------------------------------------------------
@@ -412,7 +412,7 @@ static void self_check_walk(const Position *position, const int depth)
     {
         for (int i = 0; i < NNUE_HIDDEN; i++)
         {
-            const int diff = abs(position->acc.values[perspective][i] - fresh.values[perspective][i]);
+            const int diff = abs(position->accumulator.values[perspective][i] - fresh.values[perspective][i]);
             if (diff)
             {
                 g_check_mismatches++;

@@ -49,10 +49,10 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
 {
     list->count = 0;
 
-    const Color    side = pos->stm, opponent = enemy_of(side);
+    const Color    side = pos->color_to_move, opponent = enemy_of(side);
     const Bitboard occupancy = position_occupied(pos);
-    const Bitboard own       = pos->by_color[side];
-    const Bitboard enemy     = pos->by_color[opponent];
+    const Bitboard own       = pos->colors[side];
+    const Bitboard enemy     = pos->colors[opponent];
     const Bitboard empty     = ~occupancy;
 
     // --- Pawns (per-pawn for clarity; correctness before speed) ---
@@ -79,9 +79,9 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
             }
         }
         // En passant.
-        if (pos->ep_sq != NO_SQUARE && (pawn_attacks(side, square) & sq_bb(pos->ep_sq)))
+        if (pos->ep_square != NO_SQUARE && (pawn_attacks(side, square) & sq_bb(pos->ep_square)))
         {
-            movelist_add(list, move_make(square, pos->ep_sq, FLAG_EP));
+            movelist_add(list, move_make(square, pos->ep_square, FLAG_EP));
         }
 
         // Quiet pushes (skipped when generating noisy-only, except quiet promotions which are noisy).
@@ -145,12 +145,12 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
         const uint8_t queenside_flag = side == WHITE ? MAY_WHITE_CASTLE_QUEENSIDE : MAY_BLACK_CASTLE_QUEENSIDE;
         const int     e_square = make_square(4, rank), f_square = make_square(5, rank), g_square = make_square(6, rank);
         const int     d_square = make_square(3, rank), c_square = make_square(2, rank), b_square = make_square(1, rank);
-        if ((pos->castling & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
+        if ((pos->castling_rights & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
             !position_is_attacked_by(pos, f_square, opponent) && !position_is_attacked_by(pos, g_square, opponent))
         {
             movelist_add(list, move_make(e_square, g_square, FLAG_CASTLE_KINGSIDE));
         }
-        if ((pos->castling & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
+        if ((pos->castling_rights & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
             (empty & sq_bb(b_square)) && !position_is_attacked_by(pos, d_square, opponent) &&
             !position_is_attacked_by(pos, c_square, opponent))
         {

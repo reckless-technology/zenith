@@ -10,12 +10,12 @@
 
 typedef uint64_t Bitboard; ///< A 64-bit set of squares (bit i = square i, A1=0 … H8=63).
 
-/** @brief Side to move / piece colour. */
+/** @brief Side to move / piece color. */
 typedef enum
 {
     WHITE,
     BLACK,
-    NUM_COLORS = 2 ///< number of colours
+    NUM_COLORS = 2 ///< number of colors
 } Color;
 
 static inline Color enemy_of(Color c)
@@ -24,21 +24,21 @@ static inline Color enemy_of(Color c)
 }
 
 /**
- * @brief The one piece type: colour-independent, with NO_PIECE = 0 marking an empty square.
+ * @brief The one piece type: color-independent, with NO_PIECE = 0 marking an empty square.
  *
- * The mailbox stores these directly (colour lives in the by_color bitboards — see position_color_on), and
- * Position.by_type is indexed by them, with the NO_PIECE slot holding the occupied-squares bitboard.
+ * The mailbox stores these directly (color lives in the Position.colors bitboards — see position_color_on),
+ * and Position.pieces is indexed by them, with the NO_PIECE slot holding the occupied-squares bitboard.
  */
 typedef enum
 {
-    NO_PIECE = 0, ///< empty square / "no piece" sentinel (by_type[NO_PIECE] = occupied squares)
-    PAWN     = 1,
+    NO_PIECE, ///< empty square / "no piece" sentinel (Position.pieces[NO_PIECE] = occupied squares)
+    PAWN,
     KNIGHT,
     BISHOP,
     ROOK,
     QUEEN,
     KING,
-    NUM_PIECES = 7 ///< array bound: NO_PIECE + the six real piece types
+    NUM_PIECES ///< array bound: NO_PIECE + the six real piece types
 } Piece;
 
 /** @brief Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8. */
@@ -151,7 +151,7 @@ static inline bool move_is_none(Move move)
 
 static inline bool move_is_capture(Move move)
 {
-    return (move_flag(move) & 4) != 0;
+    return (move_flag(move) & FLAG_CAPTURE) != 0;
 }
 
 static inline bool move_is_ep(Move move)

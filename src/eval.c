@@ -148,7 +148,7 @@ int evaluate(const Position *pos)
     // incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
     if (nnue_is_loaded())
     {
-        value = nnue_evaluate(&pos->acc, pos->stm);
+        value = nnue_evaluate(&pos->accumulator, pos->color_to_move);
         if (slot)
         {
             atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
@@ -182,7 +182,7 @@ int evaluate(const Position *pos)
             endgame[color] += 40;
         }
         // Mobility (attacked squares not occupied by own pieces), small weights.
-        const Bitboard own_pieces = pos->by_color[color];
+        const Bitboard own_pieces = pos->colors[color];
         mobility(&middlegame[color], &endgame[color], position_pieces(pos, (Color)color, BISHOP), bishop_attacks,
                  occupancy, own_pieces, 4, 4);
         mobility(&middlegame[color], &endgame[color], position_pieces(pos, (Color)color, ROOK), rook_attacks, occupancy,
@@ -198,7 +198,7 @@ int evaluate(const Position *pos)
         phase = 24;
     }
     const int score              = (middlegame_score * phase + endgame_score * (24 - phase)) / 24; // White-relative
-    const int side_to_move_score = (pos->stm == WHITE ? score : -score);
+    const int side_to_move_score = (pos->color_to_move == WHITE ? score : -score);
     value                        = side_to_move_score + 10; // tempo: a small bonus for the side to move
     if (slot)
     {

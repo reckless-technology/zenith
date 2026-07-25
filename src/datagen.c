@@ -64,10 +64,10 @@ static bool datagen_is_draw(const Position *pos, const uint64_t *history, const 
     {
         return true;
     }
-    if (!(pos->by_type[PAWN] | pos->by_type[ROOK] | pos->by_type[QUEEN]))
+    if (!(pos->pieces[PAWN] | pos->pieces[ROOK] | pos->pieces[QUEEN]))
     {
-        const int white_minors = popcount(pos->by_color[WHITE] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
-        const int black_minors = popcount(pos->by_color[BLACK] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
+        const int white_minors = popcount(pos->colors[WHITE] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
+        const int black_minors = popcount(pos->colors[BLACK] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
         if (white_minors <= 1 && black_minors <= 1)
         {
             return true;
@@ -258,7 +258,8 @@ int run_datagen(const int argc, char **argv)
             generate_legal(&pos, &legal, false);
             if (legal.count == 0)
             {
-                game_result = position_is_in_check(&pos) ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
+                game_result =
+                    position_is_in_check(&pos) ? (pos.color_to_move == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
             if (datagen_is_draw(&pos, history, history_count))
@@ -284,11 +285,11 @@ int run_datagen(const int argc, char **argv)
                 Record *const record = &pending[pending_count++];
                 position_fen(&pos, record->fen);
                 record->score = score;
-                record->stm   = pos.stm;
+                record->stm   = pos.color_to_move;
             }
 
             // Win adjudication (white POV).
-            const int white_score = pos.stm == WHITE ? score : -score;
+            const int white_score = pos.color_to_move == WHITE ? score : -score;
             const int side        = white_score > WIN_ADJ_SCORE ? +1 : (white_score < -WIN_ADJ_SCORE ? -1 : 0);
             if (side != 0 && side == adjudication_side)
             {

@@ -8,12 +8,15 @@
 #include "accumulator.h"
 #include "types.h"
 
+#include <string.h>
+
 /// @name Zobrist keys (filled by init_zobrist()).
 /// @{
-extern uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
-extern uint64_t ZobristCastle[16];                        ///< per castling-rights mask
-extern uint64_t ZobristEp[64]; ///< per en-passant target square (non-zero only on ranks 3 and 6)
-extern uint64_t ZobristSide;   ///< XOR-ed in when Black is to move
+extern uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES]
+                            [NUM_SQUARES]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
+extern uint64_t ZobristCastle[16];         ///< per castling-rights mask
+extern uint64_t ZobristEp[NUM_SQUARES];    ///< per en-passant target square (non-zero only on ranks 3 and 6)
+extern uint64_t ZobristSide;               ///< XOR-ed in when Black is to move
 /// @}
 
 /** @brief Fill the Zobrist key tables. Call once at startup (after init_bitboards). */
@@ -28,27 +31,27 @@ void init_zobrist(void);
  */
 typedef struct Position
 {
-    Bitboard by_color[NUM_COLORS]; ///< occupancy per colour
-    /// Occupancy per piece type (both colours), indexed by Piece. The NO_PIECE slot (index 0) holds the
+    Bitboard colors[NUM_COLORS]; ///< occupancy per color
+    /// Occupancy per piece type (both colors), indexed by Piece. The NO_PIECE slot (index 0) holds the
     /// occupied-squares bitboard — all piece bitboards OR-ed — maintained incrementally alongside the rest.
-    Bitboard by_type[NUM_PIECES];
+    Bitboard pieces[NUM_PIECES];
     uint64_t key;      ///< incremental Zobrist key of the whole position
     uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
-    /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Colour is not stored here — read it from
-    /// the by_color bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
-    uint8_t board[64];
+    /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Color is not stored here — read it from
+    /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
+    uint8_t board[NUM_SQUARES];
     // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
-    // narrow type would silently truncate); ep_sq (0..64), ply (0..MAX_PLY), stm and castling are small.
-    int32_t halfmove; ///< 50-move clock (plies)
-    int32_t fullmove; ///< full-move number (FEN output only)
-    int16_t ep_sq;    ///< en-passant TARGET square, only set when a capture is actually possible
-    int16_t ply;      ///< plies from the search root (for mate scoring / repetition window)
-    uint8_t stm;      ///< side to move (Color; stored narrow — values are 0/1)
-    uint8_t castling; ///< castling-rights bitmask (CR_*)
+    // narrow type would silently truncate); ep_square (0..NUM_SQUARES), ply (0..MAX_PLY), stm and castling are small.
+    int32_t halfmove;        ///< 50-move clock (plies)
+    int32_t fullmove;        ///< full-move number (FEN output only)
+    int16_t ep_square;       ///< en-passant TARGET square, only set when a capture is actually possible
+    int16_t ply;             ///< plies from the search root (for mate scoring / repetition window)
+    uint8_t color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
+    uint8_t castling_rights; ///< castling-rights bitmask (CR_*)
 
     /// NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
     /// Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
-    NnueAccumulator acc;
+    NnueAccumulator accumulator;
 } Position;
 
 /**
@@ -59,48 +62,27 @@ typedef struct Position
  */
 static inline void position_init(Position *pos)
 {
-    for (int color = 0; color < NUM_COLORS; color++)
-    {
-        pos->by_color[color] = 0;
-    }
-    for (int piece = 0; piece < NUM_PIECES; piece++)
-    {
-        pos->by_type[piece] = 0;
-    }
-    for (int square = 0; square < 64; square++)
-    {
-        pos->board[square] = NO_PIECE;
-    }
-    pos->stm                = WHITE;
-    pos->castling           = 0;
-    pos->ep_sq              = NO_SQUARE;
-    pos->halfmove           = 0;
-    pos->fullmove           = 1;
-    pos->ply                = 0;
-    pos->key                = 0;
-    pos->pawn_key           = 0;
-    pos->acc.king_bucket[0] = 0;
-    pos->acc.king_bucket[1] = 0;
+    memset(pos, 0, sizeof(Position));
 }
 
 /// @name Queries
 /// @{
-/** @brief All occupied squares (both colours) — the incrementally-maintained by_type[NO_PIECE] slot. */
+/** @brief All occupied squares (both colors) — the incrementally-maintained pieces[NO_PIECE] slot. */
 static inline Bitboard position_occupied(const Position *pos)
 {
-    return pos->by_type[NO_PIECE];
+    return pos->pieces[NO_PIECE];
 }
 
 /** @brief Squares holding @p color pieces of @p piece. */
 static inline Bitboard position_pieces(const Position *pos, Color color, Piece piece)
 {
-    return pos->by_color[color] & pos->by_type[piece];
+    return pos->colors[color] & pos->pieces[piece];
 }
 
-/** @brief Squares holding @p piece pieces of either colour. */
+/** @brief Squares holding @p piece pieces of either color. */
 static inline Bitboard position_pieces_type(const Position *pos, Piece piece)
 {
-    return pos->by_type[piece];
+    return pos->pieces[piece];
 }
 
 /** @brief Square of @p color's king (undefined if that side has no king). */
@@ -115,14 +97,14 @@ static inline Piece position_piece_on(const Position *pos, int square)
     return (Piece)pos->board[square];
 }
 
-/** @brief The colour of the piece on @p square (undefined for empty squares — check occupancy first). */
+/** @brief The color of the piece on @p square (undefined for empty squares — check occupancy first). */
 static inline Color position_color_on(const Position *pos, int square)
 {
-    return (Color)((pos->by_color[BLACK] >> square) & 1);
+    return (Color)((pos->colors[BLACK] >> square) & 1);
 }
 
 /**
- * @brief Attackers of colour @p color hitting @p square.
+ * @brief Attackers of color @p color hitting @p square.
  * @param pos the position.
  * @param square the target square.
  * @param color the attacking side.
@@ -139,7 +121,7 @@ static inline bool position_is_attacked_by(const Position *pos, int square, Colo
 /** @brief Whether the side to move is in check. */
 static inline bool position_is_in_check(const Position *pos)
 {
-    return position_is_attacked_by(pos, position_king_sq(pos, pos->stm), enemy_of(pos->stm));
+    return position_is_attacked_by(pos, position_king_sq(pos, pos->color_to_move), enemy_of(pos->color_to_move));
 }
 
 /// @}
@@ -199,7 +181,7 @@ bool position_gives_check_fast(const Position *pos, Move move, Bitboard discover
 /** @brief Whether @p color has any non-pawn, non-king material (used to gate null-move pruning). */
 static inline bool position_has_non_pawn_material(const Position *pos, Color color)
 {
-    return (pos->by_color[color] & ~(pos->by_type[PAWN] | pos->by_type[KING])) != 0;
+    return (pos->colors[color] & ~(pos->pieces[PAWN] | pos->pieces[KING])) != 0;
 }
 
 /// @}
