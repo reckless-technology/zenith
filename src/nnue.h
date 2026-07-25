@@ -12,12 +12,12 @@
 #include "accumulator.h"
 #include "position.h"
 
-extern bool nnue_g_loaded; ///< whether a net has been loaded (see nnue_load)
+extern bool nnue_g_is_loaded; ///< whether a net has been loaded (see nnue_load)
 
 /** @brief Whether a net is currently loaded (guard incremental-update calls with this). */
 static inline bool nnue_is_loaded(void)
 {
-    return nnue_g_loaded;
+    return nnue_g_is_loaded;
 }
 
 /** @brief Load a net from @p path, committing only on a fully-successful read. @return false on failure. */

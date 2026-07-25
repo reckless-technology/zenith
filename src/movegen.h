@@ -36,14 +36,14 @@ static inline void movelist_add(MoveList *list, Move move)
 /**
  * @brief Generate fully legal moves from @p pos into @p list (which is reset).
  *
- * With noisy_only set, only captures + promotions are generated (for quiescence).
+ * With is_noisy_only set, only captures + promotions are generated (for quiescence).
  */
-void generate_legal(const Position *pos, MoveList *list, bool noisy_only);
+void generate_legal(const Position *pos, MoveList *list, bool is_noisy_only);
 
 /**
  * @brief Generate pseudo-legal moves from @p pos into @p list, which is reset (castling is emitted fully legal).
  *
  * The search makes each move once and skips those that leave the mover's king in check — avoiding
- * generate_legal's extra copy-make per move. With noisy_only set, only captures + promotions are generated.
+ * generate_legal's extra copy-make per move. With is_noisy_only set, only captures + promotions are generated.
  */
-void generate_pseudo(const Position *pos, MoveList *list, bool noisy_only);
+void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only);

@@ -242,7 +242,7 @@ bool position_is_legal(const Position *pos, Move move)
     Color    side = pos->stm;
     Position copy = *pos;
     position_make_move(&copy, move);
-    return !position_attacked_by(&copy, position_king_sq(&copy, side), color_flip(side));
+    return !position_is_attacked_by(&copy, position_king_sq(&copy, side), color_flip(side));
 }
 
 Bitboard position_pinned_to_king(const Position *pos)
@@ -466,16 +466,16 @@ bool position_set_fen(Position *pos, const char *fen)
     if (halfmove_str != NULL)
     {
         long parsed    = strtol(halfmove_str, &end_ptr, 10);
-        bool parsed_ok = end_ptr != halfmove_str;
-        halfmove_clock = parsed_ok ? (int)parsed : 0;
-        if (parsed_ok && *end_ptr == '\0' && fullmove_str != NULL)
+        bool is_parsed = end_ptr != halfmove_str;
+        halfmove_clock = is_parsed ? (int)parsed : 0;
+        if (is_parsed && *end_ptr == '\0' && fullmove_str != NULL)
         {
             long full       = strtol(fullmove_str, &end_ptr, 10);
             fullmove_number = end_ptr != fullmove_str ? (int)full : 0;
         }
         else
         {
-            fullmove_number = parsed_ok ? 0 : 1; // trailing junk / failed first read, as the stream behaves
+            fullmove_number = is_parsed ? 0 : 1; // trailing junk / failed first read, as the stream behaves
         }
     }
 
@@ -484,7 +484,7 @@ bool position_set_fen(Position *pos, const char *fen)
     // indexes Zobrist[..][square] + shifts 1<<square, so an unchecked square is a memory-safety hole reachable
     // from a single `position fen` line. Out-of-range placements are skipped rather than written.
     int  file = 0, rank = 7;
-    bool malformed = false;
+    bool is_malformed = false;
     for (const char *cursor = board_str; *cursor; cursor++)
     {
         char ch = *cursor;
@@ -522,7 +522,7 @@ bool position_set_fen(Position *pos, const char *fen)
                 piece_type = KING;
                 break;
             default:
-                malformed = true; // unknown piece letter
+                is_malformed = true; // unknown piece letter
                 continue;
             }
             if (file >= 0 && file < 8 && rank >= 0 && rank < 8)
@@ -531,7 +531,7 @@ bool position_set_fen(Position *pos, const char *fen)
             }
             else
             {
-                malformed = true; // placement outside the board — skip, don't write OOB
+                is_malformed = true; // placement outside the board — skip, don't write OOB
             }
             file++;
         }
@@ -588,15 +588,15 @@ bool position_set_fen(Position *pos, const char *fen)
     // A legal position has exactly one king per side. Reject anything else: a kingless side would make
     // position_king_sq() do lsb(0) (ctz of zero is UB) and then read the attack tables out of bounds during
     // search. Callers handling untrusted input (UCI `position fen`, datagen openings) must honour `false`.
-    bool valid = !malformed && popcount(position_pieces(pos, WHITE, KING)) == 1 &&
-                 popcount(position_pieces(pos, BLACK, KING)) == 1;
+    bool is_valid = !is_malformed && popcount(position_pieces(pos, WHITE, KING)) == 1 &&
+                    popcount(position_pieces(pos, BLACK, KING)) == 1;
 
     // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
     if (nnue_is_loaded())
     {
         nnue_refresh(&pos->acc, pos);
     }
-    return valid;
+    return is_valid;
 }
 
 char *position_fen(const Position *pos, char *buf)

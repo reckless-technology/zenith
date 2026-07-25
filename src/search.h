@@ -21,7 +21,7 @@ typedef struct SearchLimits
     int64_t movetime;         ///< fixed ms/move
     int     depth;            ///< fixed depth
     int64_t nodes;            ///< node cap
-    bool    infinite;         ///< search until "stop"
+    bool    is_infinite;      ///< search until "stop"
     bool    has_time_control; ///< a clock/movetime token was given (so a 0/negative clock ⇒ move now, not hang)
 } SearchLimits;
 
@@ -99,7 +99,7 @@ typedef struct Searcher
     uint64_t nodes;         ///< nodes searched this search
     int      seldepth;      ///< greatest ply reached (selective depth)
     int64_t  move_overhead; ///< ms subtracted from the clock to cover I/O latency
-    bool     silent;        ///< suppress UCI info lines (datagen / bench batches)
+    bool     is_silent;     ///< suppress UCI info lines (datagen / bench batches)
     int      root_score;    ///< score (cp, root stm POV) of the last completed iteration — for datagen labels
 
     /// Repetition/50-move context: keys of positions played before the root (from UCI), extended in-tree.
@@ -109,7 +109,7 @@ typedef struct Searcher
     // --- internals ---
     int64_t start_ms;                     ///< search start time (platform_now_ms)
     int64_t soft_ms, hard_ms, node_limit; ///< soft/hard time budgets and node cap
-    bool    use_time;                     ///< whether a time budget applies
+    bool    is_time_limited;              ///< whether a time budget applies
     bool    is_main;                      ///< the main (time-managing, printing) thread vs a Lazy-SMP helper
 
     Move killers[MAX_PLY][2];          ///< two killer moves per ply

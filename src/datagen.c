@@ -220,7 +220,7 @@ int run_datagen(int argc, char **argv)
     DatagenRng rng      = {seed ? seed : 0x9E3779B97F4A7C15ULL}; // xorshift must not start at 0
     Searcher  *searcher = malloc(sizeof(Searcher));
     searcher_init(searcher);
-    searcher->silent        = true;
+    searcher->is_silent     = true;
     searcher->move_overhead = 0;
 
     SearchLimits limits;
@@ -257,7 +257,7 @@ int run_datagen(int argc, char **argv)
             generate_legal(&pos, &legal, false);
             if (legal.count == 0)
             {
-                game_result = position_in_check(&pos) ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
+                game_result = position_is_in_check(&pos) ? (pos.stm == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
             if (datagen_is_draw(&pos, history, history_count))
@@ -278,7 +278,7 @@ int run_datagen(int argc, char **argv)
             int score = searcher->root_score; // cp, stm POV
 
             // Record quiet, not-yet-decided positions (one per ply).
-            if (!position_in_check(&pos) && move_is_quiet(move) && abs(score) < RECORD_SCORE_CAP)
+            if (!position_is_in_check(&pos) && move_is_quiet(move) && abs(score) < RECORD_SCORE_CAP)
             {
                 Record *record = &pending[pending_count++];
                 position_fen(&pos, record->fen);

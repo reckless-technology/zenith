@@ -81,17 +81,17 @@ void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move mo
     TTSlot  *slot         = &TT.table[key & TT.mask];
     uint64_t current_data = atomic_load_explicit(&slot->data, memory_order_relaxed);
     uint64_t current_key  = atomic_load_explicit(&slot->key, memory_order_relaxed);
-    bool     same_key     = (current_data != 0) && ((current_key ^ current_data) == key);
+    bool     is_same_key  = (current_data != 0) && ((current_key ^ current_data) == key);
     TTData   current      = u64_to_tt_data(current_data);
 
     // Preserve a TT move if the new store lacks one (a fail-low often has no best move).
-    if (same_key && move_is_none(move))
+    if (is_same_key && move_is_none(move))
     {
         move = (Move)current.move;
     }
     // Replace when: empty/torn, this position, from an older search, or a deeper/exact result.
     // depth comparisons are SIGNED — a qsearch-style entry (depth <= 0) must lose to any real depth.
-    if (current_data == 0 || current.bound == BOUND_NONE || same_key || current.gen != TT.generation ||
+    if (current_data == 0 || current.bound == BOUND_NONE || is_same_key || current.gen != TT.generation ||
         depth + (bound == BOUND_EXACT ? 2 : 0) >= (int)current.depth)
     {
         TTData entry = {0};

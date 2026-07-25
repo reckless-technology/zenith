@@ -29,19 +29,19 @@ static int          game_hist_count = 0;
 static Searcher    *pool            = NULL; // one Searcher per search thread (Lazy SMP), malloc'd
 static int          pool_size       = 0;
 static zen_thread_t search_thread; // coordinator thread: spawns helpers, runs the main search
-static bool         search_thread_running = false;
-static int          thread_count          = 1;
-static int64_t      move_overhead         = 20;
-static bool         own_book              = false; // default OFF: testing must stay bookless
+static bool         is_search_thread_running = false;
+static int          thread_count             = 1;
+static int64_t      move_overhead            = 20;
+static bool         is_own_book_enabled      = false; // default OFF: testing must stay bookless
 
 /** @brief Stop any in-flight search and join the coordinator thread (safe to call when idle). */
 static void join_search(void)
 {
-    if (search_thread_running)
+    if (is_search_thread_running)
     {
         g_stop = true;
         zen_thread_join(&search_thread);
-        search_thread_running = false;
+        is_search_thread_running = false;
     }
 }
 
@@ -67,11 +67,11 @@ static void set_position(char **save_ptr)
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
     Position    pos;
     position_init(&pos);
-    bool valid = false;
+    bool is_valid = false;
     if (token != NULL && strcmp(token, "startpos") == 0)
     {
-        valid = position_set_fen(&pos, START_FEN);
-        token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr); // maybe "moves"
+        is_valid = position_set_fen(&pos, START_FEN);
+        token    = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr); // maybe "moves"
     }
     else if (token != NULL && strcmp(token, "fen") == 0)
     {
@@ -89,11 +89,11 @@ static void set_position(char **save_ptr)
                 fen[fen_length]   = '\0';
             }
         }
-        valid = position_set_fen(&pos, fen);
+        is_valid = position_set_fen(&pos, fen);
     }
     // Ignore a malformed / illegal `position` command rather than searching an inconsistent board — keep the
     // previous game position (standard, forgiving UCI behaviour).
-    if (!valid)
+    if (!is_valid)
     {
         return;
     }
@@ -261,15 +261,15 @@ static void go(char **save_ptr)
     {
         if (strcmp(token, "infinite") == 0)
         {
-            limits.infinite = true;
+            limits.is_infinite = true;
             continue;
         }
         // Every other keyword takes one numeric argument; unknown tokens are skipped.
-        bool takes_value = strcmp(token, "wtime") == 0 || strcmp(token, "btime") == 0 || strcmp(token, "winc") == 0 ||
-                           strcmp(token, "binc") == 0 || strcmp(token, "movestogo") == 0 ||
-                           strcmp(token, "movetime") == 0 || strcmp(token, "depth") == 0 ||
-                           strcmp(token, "nodes") == 0 || strcmp(token, "perft") == 0;
-        if (!takes_value)
+        bool does_take_value =
+            strcmp(token, "wtime") == 0 || strcmp(token, "btime") == 0 || strcmp(token, "winc") == 0 ||
+            strcmp(token, "binc") == 0 || strcmp(token, "movestogo") == 0 || strcmp(token, "movetime") == 0 ||
+            strcmp(token, "depth") == 0 || strcmp(token, "nodes") == 0 || strcmp(token, "perft") == 0;
+        if (!does_take_value)
         {
             continue;
         }
@@ -329,7 +329,7 @@ static void go(char **save_ptr)
     }
     // Opening book (Polyglot): only for real game searches — never for analysis (infinite) or fixed
     // depth/node test searches, so bench signatures and SPRT harness runs are unaffected even if enabled.
-    if (own_book && book_is_loaded() && !limits.infinite && limits.depth == 0 && limits.nodes == 0)
+    if (is_own_book_enabled && book_is_loaded() && !limits.is_infinite && limits.depth == 0 && limits.nodes == 0)
     {
         Move book_move = book_probe(&game);
         if (!move_is_none(book_move))
@@ -355,7 +355,7 @@ static void go(char **save_ptr)
     args->hist_count = game_hist_count;
     if (zen_thread_create(&search_thread, go_thread_main, args) == 0)
     {
-        search_thread_running = true;
+        is_search_thread_running = true;
     }
     else
     {
@@ -421,7 +421,7 @@ static void set_option(char **save_ptr)
     }
     else if (strcmp(option_name, "ownbook") == 0)
     {
-        own_book = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        is_own_book_enabled = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
     }
     else if (strcmp(option_name, "bookfile") == 0)
     {
@@ -776,7 +776,7 @@ int run_perft_suite(void)
         {"K1k5/8/P7/8/8/8/8/8 w - - 0 1", 6, 2217ULL},                // promotion + stalemate traps
         {"8/k1P5/8/1K6/8/8/8/8 w - - 0 1", 7, 567584ULL},             // deep promotion race
     };
-    bool ok = true;
+    bool is_all_pass = true;
     for (size_t case_index = 0; case_index < sizeof(suite) / sizeof(suite[0]); case_index++)
     {
         const PerftCase *test_case = &suite[case_index];
@@ -785,7 +785,7 @@ int run_perft_suite(void)
         position_set_fen(&pos, test_case->fen);
         uint64_t node_count = perft(&pos, test_case->depth);
         bool     is_pass    = node_count == test_case->expected;
-        ok &= is_pass;
+        is_all_pass &= is_pass;
         printf("[%s] perft(%d)=%llu want %llu  %s\n", is_pass ? "PASS" : "FAIL", test_case->depth,
                (unsigned long long)node_count, (unsigned long long)test_case->expected, test_case->fen);
     }
@@ -839,14 +839,14 @@ int run_perft_suite(void)
         }
         else
         {
-            ok = false;
+            is_all_pass = false;
             printf("[FAIL] perft(%d)=%llu want %llu  %s\n", best_depth, (unsigned long long)node_count,
                    (unsigned long long)best_expected, fen);
         }
     }
     printf("Ethereal perft suite: %d/%d positions pass\n", passed, total);
-    printf("%s\n", ok ? "ALL PERFT PASS" : "PERFT FAILURES");
-    return ok ? 0 : 1;
+    printf("%s\n", is_all_pass ? "ALL PERFT PASS" : "PERFT FAILURES");
+    return is_all_pass ? 0 : 1;
 }
 
 // --- CLI: legalcheck — the copy-free is_legal_fast must agree with is_legal on every pseudo-legal move ---
@@ -882,15 +882,15 @@ static void legal_check_walk(Position *pos, int depth)
         {
             Position child = *pos;
             position_make_move(&child, move);
-            bool truth = position_in_check(&child);
-            bool fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
-            if (fast != truth)
+            bool is_check_truth = position_is_in_check(&child);
+            bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
+            if (is_check_fast != is_check_truth)
             {
                 if (g_legal_mismatches < 8)
                 {
                     char fen_buf[128];
-                    printf("  CHECK-MISMATCH fast=%d truth=%d move=%d->%d flag=%d  %s\n", fast, truth, move_from(move),
-                           move_to(move), move_flag(move), position_fen(pos, fen_buf));
+                    printf("  CHECK-MISMATCH fast=%d truth=%d move=%d->%d flag=%d  %s\n", is_check_fast, is_check_truth,
+                           move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
                 }
                 g_legal_mismatches++;
             }

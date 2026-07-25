@@ -229,7 +229,7 @@ static int64_t elapsed(const Searcher *searcher)
 }
 
 /** @brief Whether the search must stop now (g_stop set, or the main thread hit its node/time budget). */
-static bool time_up(Searcher *searcher)
+static bool is_time_up(Searcher *searcher)
 {
     if (atomic_load_explicit(&g_stop, memory_order_relaxed))
     {
@@ -237,7 +237,7 @@ static bool time_up(Searcher *searcher)
     }
     // Only the main thread owns the time/node budget; when it runs out it sets g_stop so helpers stop too.
     if (searcher->is_main && ((searcher->node_limit && searcher->nodes >= (uint64_t)searcher->node_limit) ||
-                              (searcher->use_time && elapsed(searcher) >= searcher->hard_ms)))
+                              (searcher->is_time_limited && elapsed(searcher) >= searcher->hard_ms)))
     {
         atomic_store_explicit(&g_stop, true, memory_order_relaxed);
         return true;
@@ -248,17 +248,17 @@ static bool time_up(Searcher *searcher)
 /** @brief Compute this search's soft/hard time budgets and node cap from @p lim and the root side's clock. */
 static void set_time(Searcher *searcher, const Position *root, const SearchLimits *lim)
 {
-    searcher->use_time = false;
+    searcher->is_time_limited = false;
     searcher->soft_ms = searcher->hard_ms = 0;
     searcher->node_limit                  = lim->nodes;
     if (lim->movetime > 0)
     {
-        searcher->use_time = true;
+        searcher->is_time_limited = true;
         searcher->hard_ms = searcher->soft_ms = max_i64(1, lim->movetime - searcher->move_overhead);
     }
     else if (lim->time[root->stm] > 0)
     {
-        searcher->use_time = true;
+        searcher->is_time_limited = true;
         int64_t remaining = lim->time[root->stm], increment = lim->inc[root->stm];
         int     moves_to_go = lim->movestogo > 0 ? lim->movestogo : 30;
         int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
@@ -270,7 +270,7 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
         // A clock/movetime token was given but the side-to-move time is non-positive (flag fall, or a GUI
         // that sent a zero/negative time). Move immediately on a minimal budget instead of searching
         // unbounded — the distinction from a bare `go` needs the explicit flag (wtime 0 reads as time 0).
-        searcher->use_time = true;
+        searcher->is_time_limited = true;
         searcher->soft_ms = searcher->hard_ms = 1;
     }
 }
@@ -321,9 +321,9 @@ static inline void apply_gravity(int *entry, int change)
 /** @brief Quiescence search: extend the leaf with captures/promotions (SEE-pruned) until the position is quiet. */
 static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int ply)
 {
-    if (time_up(searcher))
+    if (is_time_up(searcher))
     {
-        return 0; // time_up() already set g_stop for the main thread
+        return 0; // is_time_up() already set g_stop for the main thread
     }
     searcher->nodes++;
     if (ply > searcher->seldepth)
@@ -337,9 +337,9 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
 
     Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    bool in_check = checkers != 0;
-    int  best     = -VALUE_INF;
-    if (!in_check)
+    bool is_in_check = checkers != 0;
+    int  best        = -VALUE_INF;
+    if (!is_in_check)
     {
         best = evaluate(pos);
         if (best >= beta)
@@ -353,7 +353,7 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
     }
 
     MoveList moves;
-    generate_pseudo(pos, &moves, !in_check);        // in check: all evasions; else captures + promotions
+    generate_pseudo(pos, &moves, !is_in_check);     // in check: all evasions; else captures + promotions
     Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // MVV-LVA ordering.
@@ -400,7 +400,7 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
         }
         legal_count++;
 
-        if (!in_check && move_is_capture(move) && static_exchange_eval(pos, move) < 0)
+        if (!is_in_check && move_is_capture(move) && static_exchange_eval(pos, move) < 0)
         {
             continue; // skip losing captures
         }
@@ -425,7 +425,7 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
             }
         }
     }
-    if (in_check && legal_count == 0)
+    if (is_in_check && legal_count == 0)
     {
         return -VALUE_MATE + ply; // checkmate (all evasions were illegal)
     }
@@ -437,18 +437,18 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
  *
  * The `excluded` argument skips a move (for the singular-extension exclusion search), or is MOVE_NONE.
  */
-static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int beta, int ply, bool cutnode,
+static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int beta, int ply, bool is_cutnode,
                    Move prev_move, Move excluded)
 {
-    if (time_up(searcher))
+    if (is_time_up(searcher))
     {
-        return 0; // time_up() already set g_stop for the main thread
+        return 0; // is_time_up() already set g_stop for the main thread
     }
-    bool root             = ply == 0;
-    bool pv_node          = beta - alpha > 1;
+    bool is_root          = ply == 0;
+    bool is_pv_node       = beta - alpha > 1;
     searcher->pv_len[ply] = 0;
 
-    if (!root)
+    if (!is_root)
     {
         if (is_draw(searcher, pos))
         {
@@ -477,7 +477,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     // TT / RFP / null-move cutoffs above it never pay for the pin scan.
     Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    bool in_check = checkers != 0;
+    bool is_in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
     int prev_piece_to = -1;
@@ -490,11 +490,11 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         }
     }
 
-    TTData tt_entry = {0};
-    bool   tt_hit   = tt_probe(pos->key, &tt_entry);
-    int    tt_score = tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
-    Move   tt_move  = tt_hit ? (Move)tt_entry.move : MOVE_NONE;
-    if (move_is_none(excluded) && !pv_node && tt_hit && (int)tt_entry.depth >= depth &&
+    TTData tt_entry  = {0};
+    bool   is_tt_hit = tt_probe(pos->key, &tt_entry);
+    int    tt_score  = is_tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
+    Move   tt_move   = is_tt_hit ? (Move)tt_entry.move : MOVE_NONE;
+    if (move_is_none(excluded) && !is_pv_node && is_tt_hit && (int)tt_entry.depth >= depth &&
         (tt_entry.bound == BOUND_EXACT || (tt_entry.bound == BOUND_LOWER && tt_score >= beta) ||
          (tt_entry.bound == BOUND_UPPER && tt_score <= alpha)))
     {
@@ -503,36 +503,37 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
 
     // Internal iterative reduction: with no TT move to anchor ordering at higher depths, search shallower
     // first so the cheaper search populates the TT move for the re-search.
-    if (depth >= 4 && move_is_none(tt_move) && !in_check)
+    if (depth >= 4 && move_is_none(tt_move) && !is_in_check)
     {
         depth--;
     }
 
     // Raw static eval (stored in the TT); the corrected eval drives pruning/reductions. Keep them separate
     // so re-reading the TT eval never double-applies the correction.
-    int raw_eval = in_check ? VALUE_NONE : (tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval : evaluate(pos));
-    int eval     = raw_eval;
-    if (!in_check)
+    int raw_eval =
+        is_in_check ? VALUE_NONE : (is_tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval : evaluate(pos));
+    int eval = raw_eval;
+    if (!is_in_check)
     {
         eval += searcher->correction_history[pos->stm][pos->pawn_key & (CORRHIST_SIZE - 1)] / CORRHIST_GRAIN;
         eval = clamp_int(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
     }
 
     // Reverse futility pruning (static null move).
-    if (!pv_node && !in_check && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfp_margin * depth >= beta)
+    if (!is_pv_node && !is_in_check && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfp_margin * depth >= beta)
     {
         return eval;
     }
 
     // Null-move pruning.
-    if (!pv_node && !in_check && depth >= 3 && eval >= beta && position_has_non_pawn_material(pos, pos->stm))
+    if (!is_pv_node && !is_in_check && depth >= 3 && eval >= beta && position_has_non_pawn_material(pos, pos->stm))
     {
         int      reduction  = 3 + depth / 3 + min_int((eval - beta) / g_params.nmp_divisor, 3);
         Position null_child = *pos;
         position_make_null(&null_child);
         searcher_hist_push(searcher, pos->key);
-        int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !cutnode, MOVE_NONE,
-                             MOVE_NONE);
+        int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
+                             MOVE_NONE, MOVE_NONE);
         searcher_hist_pop(searcher);
         if (g_stop)
         {
@@ -624,25 +625,25 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         {
             continue;
         }
-        bool quiet = move_is_quiet(move);
+        bool is_quiet = move_is_quiet(move);
         move_count++;
 
         // Late-move pruning: at low depth, stop trying quiet moves once deep into the ordered list.
-        if (!pv_node && !in_check && quiet && depth <= 8 && move_count > g_params.lmp_base + depth * depth &&
+        if (!is_pv_node && !is_in_check && is_quiet && depth <= 8 && move_count > g_params.lmp_base + depth * depth &&
             !is_mate_score(best_score))
         {
             continue;
         }
 
         // Futility pruning: at low depth, skip quiet moves that a margin cannot lift to alpha.
-        if (!root && !pv_node && !in_check && quiet && depth <= 6 && move_count > 1 && !is_mate_score(best_score) &&
-            eval + g_params.futility_base + g_params.futility_margin * depth <= alpha)
+        if (!is_root && !is_pv_node && !is_in_check && is_quiet && depth <= 6 && move_count > 1 &&
+            !is_mate_score(best_score) && eval + g_params.futility_base + g_params.futility_margin * depth <= alpha)
         {
             continue;
         }
 
         // SEE pruning of clearly-losing captures at low depth.
-        if (!root && depth <= 6 && move_is_capture(move) && !is_mate_score(best_score) &&
+        if (!is_root && depth <= 6 && move_is_capture(move) && !is_mate_score(best_score) &&
             static_exchange_eval(pos, move) < -g_params.see_capture_margin * depth)
         {
             continue;
@@ -651,18 +652,18 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         // Move survived pruning — make it now (legality already established above).
         Position child = *pos;
         position_make_move(&child, move);
-        bool child_check = position_in_check(&child);
-        int  extension   = child_check ? 1 : 0;
+        bool is_child_in_check = position_is_in_check(&child);
+        int  extension         = is_child_in_check ? 1 : 0;
 
         // Singular extension: if the TT move is much better than every alternative — an exclusion search
         // (this position without the TT move) at reduced depth fails low below a margin — extend it.
-        if (!root && move == tt_move && move_is_none(excluded) && depth >= 8 && tt_hit &&
+        if (!is_root && move == tt_move && move_is_none(excluded) && depth >= 8 && is_tt_hit &&
             (int)tt_entry.depth >= depth - 3 && (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) &&
             !is_mate_score(tt_score))
         {
             int singular_beta  = tt_score - g_params.singular_margin * depth;
-            int singular_score = negamax(searcher, pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply, cutnode,
-                                         prev_move, tt_move);
+            int singular_score = negamax(searcher, pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply,
+                                         is_cutnode, prev_move, tt_move);
             if (singular_score < singular_beta)
             {
                 extension = 1;
@@ -680,14 +681,14 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         else
         {
             int reduction = 0;
-            if (depth >= 3 && move_count >= 4 && quiet && !in_check)
+            if (depth >= 3 && move_count >= 4 && is_quiet && !is_in_check)
             {
                 reduction = Reductions[min_int(depth, MAX_PLY - 1)][min_int(move_count, 63)];
-                if (pv_node)
+                if (is_pv_node)
                 {
                     reduction--;
                 }
-                if (cutnode)
+                if (is_cutnode)
                 {
                     reduction++;
                 }
@@ -697,7 +698,8 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
                 -negamax(searcher, &child, new_depth - reduction, -alpha - 1, -alpha, ply + 1, true, move, MOVE_NONE);
             if (score > alpha && reduction > 0)
             {
-                score = -negamax(searcher, &child, new_depth, -alpha - 1, -alpha, ply + 1, !cutnode, move, MOVE_NONE);
+                score =
+                    -negamax(searcher, &child, new_depth, -alpha - 1, -alpha, ply + 1, !is_cutnode, move, MOVE_NONE);
             }
             if (score > alpha && score < beta)
             {
@@ -710,7 +712,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
             return 0;
         }
 
-        if (quiet && quiet_count < 64)
+        if (is_quiet && quiet_count < 64)
         {
             quiets[quiet_count++] = move;
         }
@@ -722,7 +724,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
             if (score > alpha)
             {
                 alpha = score;
-                if (pv_node)
+                if (is_pv_node)
                 {
                     update_pv(searcher, ply, move);
                 }
@@ -730,7 +732,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
                 {
                     // Beta cutoff: reward the quiet cutoff move (main + continuation history, killer,
                     // countermove), punish the quiets that failed before it.
-                    if (quiet)
+                    if (is_quiet)
                     {
                         if (searcher->killers[ply][0] != move)
                         {
@@ -770,18 +772,18 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
 
     if (move_count == 0)
     {
-        return in_check ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
+        return is_in_check ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
     }
 
     Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
     if (move_is_none(excluded))
     {
-        tt_store(pos->key, best_score, in_check ? VALUE_NONE : raw_eval, depth, bound, best_move, ply);
+        tt_store(pos->key, best_score, is_in_check ? VALUE_NONE : raw_eval, depth, bound, best_move, ply);
 
         // Update the eval correction: blend in (search score - raw static eval), but only when the score is
         // a trustworthy signal — not in check, not a tactical (capture) best move, not a mate, and the bound
         // does not contradict the direction of the correction.
-        if (!in_check && !is_mate_score(best_score) && (move_is_none(best_move) || !move_is_capture(best_move)) &&
+        if (!is_in_check && !is_mate_score(best_score) && (move_is_none(best_move) || !move_is_capture(best_move)) &&
             !(bound == BOUND_LOWER && best_score <= raw_eval) && !(bound == BOUND_UPPER && best_score >= raw_eval))
         {
             int *entry  = &searcher->correction_history[pos->stm][pos->pawn_key & (CORRHIST_SIZE - 1)];
@@ -790,7 +792,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
             *entry      = clamp_int((*entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
         }
     }
-    if (root)
+    if (is_root)
     {
         searcher->root_best = best_move;
     }
@@ -866,7 +868,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, boo
         }
         best = searcher->root_best;
 
-        if (searcher->is_main && !searcher->silent)
+        if (searcher->is_main && !searcher->is_silent)
         {
             int64_t  elapsed_ms       = elapsed(searcher);
             uint64_t nodes_per_second = elapsed_ms ? searcher->nodes * 1000 / elapsed_ms : searcher->nodes;
@@ -899,11 +901,11 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, boo
         }
         // Only the main thread stops on the time budget; helpers keep deepening to fill the shared TT
         // until the main thread ends the search.
-        if (searcher->is_main && searcher->use_time && elapsed(searcher) >= searcher->soft_ms)
+        if (searcher->is_main && searcher->is_time_limited && elapsed(searcher) >= searcher->soft_ms)
         {
             break; // don't start a deeper iteration we can't finish
         }
-        if (searcher->is_main && is_mate_score(score) && lim->depth == 0 && !lim->infinite)
+        if (searcher->is_main && is_mate_score(score) && lim->depth == 0 && !lim->is_infinite)
         {
             break;
         }

@@ -14,7 +14,7 @@
 #include <immintrin.h>
 #endif
 
-bool nnue_g_loaded = false;
+bool nnue_g_is_loaded = false;
 
 /** @brief Architecture / quantisation contract — must match trainer/features.py exactly. */
 enum
@@ -332,8 +332,8 @@ bool nnue_load(const char *path)
         return false;
     }
     char magic[8];
-    bool ok = fread(magic, 1, 8, file) == 8;
-    if (!ok || memcmp(magic, NNUE_MAGIC, 8) != 0)
+    bool is_read_ok = fread(magic, 1, 8, file) == 8;
+    if (!is_read_ok || memcmp(magic, NNUE_MAGIC, 8) != 0)
     {
         fprintf(stderr, "nnue: bad magic in %s\n", path);
         fclose(file);
@@ -349,21 +349,23 @@ bool nnue_load(const char *path)
         fprintf(stderr, "nnue: out of memory loading %s\n", path);
         return false;
     }
-    ok = ok && fread(loaded->feature_transformer_weight, 1, sizeof(loaded->feature_transformer_weight), file) ==
-                   sizeof(loaded->feature_transformer_weight);
-    ok = ok && fread(loaded->feature_transformer_bias, 1, sizeof(loaded->feature_transformer_bias), file) ==
-                   sizeof(loaded->feature_transformer_bias);
-    ok = ok && fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) == sizeof(loaded->output_weight);
-    ok = ok && fread(&loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
+    is_read_ok = is_read_ok && fread(loaded->feature_transformer_weight, 1, sizeof(loaded->feature_transformer_weight),
+                                     file) == sizeof(loaded->feature_transformer_weight);
+    is_read_ok = is_read_ok && fread(loaded->feature_transformer_bias, 1, sizeof(loaded->feature_transformer_bias),
+                                     file) == sizeof(loaded->feature_transformer_bias);
+    is_read_ok = is_read_ok &&
+                 fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) == sizeof(loaded->output_weight);
+    is_read_ok =
+        is_read_ok && fread(&loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
     fclose(file);
-    if (!ok)
+    if (!is_read_ok)
     {
         free(loaded);
         fprintf(stderr, "nnue: truncated file %s\n", path); // previously-loaded net (if any) stays intact
         return false;
     }
-    network       = *loaded;
-    nnue_g_loaded = true;
+    network          = *loaded;
+    nnue_g_is_loaded = true;
     g_net_generation++; // invalidate every thread's refresh cache (weights/bias changed)
     free(loaded);
     return true;

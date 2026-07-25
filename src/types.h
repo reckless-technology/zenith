@@ -283,7 +283,7 @@ static inline int pop_lsb(Bitboard *bitboard)
     return square;
 }
 
-static inline bool more_than_one(Bitboard bitboard)
+static inline bool has_more_than_one(Bitboard bitboard)
 {
     return (bitboard & (bitboard - 1)) != 0;
 }

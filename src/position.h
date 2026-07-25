@@ -125,15 +125,15 @@ static inline Piece position_piece_on(const Position *pos, int square)
 Bitboard position_attackers_to(const Position *pos, int square, Color color, Bitboard occupancy);
 
 /** @brief Whether @p square is attacked by any @p color piece (on the current occupancy). */
-static inline bool position_attacked_by(const Position *pos, int square, Color color)
+static inline bool position_is_attacked_by(const Position *pos, int square, Color color)
 {
     return position_attackers_to(pos, square, color, position_occupied(pos)) != 0;
 }
 
 /** @brief Whether the side to move is in check. */
-static inline bool position_in_check(const Position *pos)
+static inline bool position_is_in_check(const Position *pos)
 {
-    return position_attacked_by(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm));
+    return position_is_attacked_by(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm));
 }
 
 /// @}

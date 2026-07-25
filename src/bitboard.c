@@ -92,7 +92,7 @@ static Bitboard BishopTable[0x1480]; // 5248
  * then search sparse random magics until one maps every subset to a collision-free index (an epoch counter
  * distinguishes "not yet written this attempt" from a real collision).
  */
-static void init_magics(bool rook, Bitboard *table, Magic magics[64], const int deltas[4])
+static void init_magics(bool is_rook, Bitboard *table, Magic magics[64], const int deltas[4])
 {
     Bitboard  occupancy[4096], reference[4096];
     int       epoch[4096]   = {0};
@@ -120,7 +120,7 @@ static void init_magics(bool rook, Bitboard *table, Magic magics[64], const int 
             subset = (subset - mask) & mask;
         } while (subset);
 
-        PRNG prng = {0x9E3779B97F4A7C15ULL ^ ((uint64_t)square * 0xBF58476D1CE4E5B9ULL) ^ (rook ? 1 : 2)};
+        PRNG prng = {0x9E3779B97F4A7C15ULL ^ ((uint64_t)square * 0xBF58476D1CE4E5B9ULL) ^ (is_rook ? 1 : 2)};
         for (int subset_index = 0; subset_index < subset_count;)
         {
             magics[square].magic = 0;
