@@ -405,19 +405,19 @@ Move book_probe(const Position *pos)
     }
 
     // Match book entries against the position's legal moves (guards against corrupt/aliased entries).
-    MoveList legal;
-    generate_legal(pos, &legal, false);
+    Move legal[MAX_MOVES];
+    generate_legal(pos, legal, false);
     Move     matched[64];
     uint32_t weights[64];
     int      matched_count = 0;
     uint64_t total_weight  = 0;
     for (size_t i = low; i < book_count && book_entries[i].key == key && matched_count < 64; i++)
     {
-        for (int m = 0; m < legal.count; m++)
+        for (int m = 0; legal[m] != MOVE_NONE; m++)
         {
-            if (polyglot_encode(pos, legal.moves[m]) == book_entries[i].move)
+            if (polyglot_encode(pos, legal[m]) == book_entries[i].move)
             {
-                matched[matched_count] = legal.moves[m];
+                matched[matched_count] = legal[m];
                 weights[matched_count] = book_entries[i].weight ? book_entries[i].weight : 1;
                 total_weight += weights[matched_count];
                 matched_count++;

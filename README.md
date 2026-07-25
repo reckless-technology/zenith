@@ -1,9 +1,10 @@
 # Zenith
 
-A from-scratch UCI chess engine in **C17** with its own independently-trained NNUE evaluation. Zenith
-pairs a modern alpha-beta search — iterative deepening, principal-variation search, a lockless
+A UCI chess engine in **C17** with its own independently-trained NNUE evaluation. Code was written
+by Claude Code under the close supervision and direction of Jonny Reckless.
+Zenith pairs a modern alpha-beta search — iterative deepening, principal-variation search, a lockless
 transposition table, the full pruning/reduction stack, and Lazy SMP — with a king-bucketed neural
-network evaluation trained by the repository's own pipeline. This document describes how it is built.
+network evaluation trained by the repository's own pipeline.
 
 ## Build
 
@@ -25,14 +26,14 @@ Every correctness property has an executable gate. `make check` runs them all (a
 failure aborts non-zero.
 
 ```bash
-make check           # build + run every gate below
-./zenith perft       # movegen vs known counts: canonical + ep/castling/promotion catchers + Ethereal 128
-./zenith bench 13    # deterministic fixed-depth node signature (guards search behaviour) + nps
-./zenith legalcheck  # the copy-free legality/check predicates == copy-make ground truth over a perft walk
-./zenith seecheck    # static exchange evaluation vs hand-verified capture positions
-./zenith fuzzcheck   # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
-./zenith nnuecheck <net.nnue>   # incremental accumulator == full refresh, bit-identical
-./zenith bookcheck   # Polyglot key computation vs the 9 official spec test vectors
+make check                    # build + run every gate below
+./zenith perft                # movegen vs known counts: canonical + ep/castling/promotion catchers + Ethereal 128
+./zenith bench 13             # deterministic fixed-depth node signature (guards search behaviour) + nps
+./zenith legalcheck           # the copy-free legality/check predicates == copy-make ground truth over a perft walk
+./zenith seecheck             # static exchange evaluation vs hand-verified capture positions
+./zenith fuzzcheck            # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
+./zenith nnuecheck <net.nnue> # incremental accumulator == full refresh, bit-identical
+./zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
 ```
 
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
@@ -45,22 +46,22 @@ change that *does* alter the signature is actually a strength gain — no streng
 One translation unit per file, flat `src/`. Startup initialisation order (`main.c`) matters:
 `init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `tt_resize()`.
 
-```
-src/types.h      Color, Piece (NO_PIECE=0..KING=6), Square, packed 16-bit Move + inline accessors, bit helpers
-src/platform.h   C11 threads.h / pthread thread shim + a monotonic clock
-src/bitboard.*   precomputed pawn/knight/king attacks, BetweenBB/LineBB, rook/bishop MAGIC bitboards
-src/position.*   bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
-src/movegen.*    pseudo-legal generation (+ a legal wrapper for perft/datagen/UCI)
-src/eval.*       evaluate(): NNUE when a net is loaded, else a tapered HCE; shared eval cache
-src/nnue.*       king-bucketed quantised NNUE: loader, feature indexing, AVX2 forward, finny refresh cache
-src/book.*       Polyglot opening book: key computation, probing, weighted move choice
-src/tt.*         lockless transposition table ({key^data, data} slots, bit-field payload)
-src/search.*     iterative deepening, PVS, quiescence, the pruning/reduction/extension stack, Lazy SMP
-src/datagen.*    self-play data generation + a bulletformat-to-text converter (for training)
-src/uci.*        the UCI protocol loop, time manager, and CLI self-test subcommands
-src/version.h    major.minor + build number (git commit count, stamped by the Makefile)
-src/main.c       entry + CLI dispatch
-```
+| File | Contains |
+|---|---|
+`src/types.h`      | Color, Piece (NO_PIECE=0..KING=6), Square, packed 16-bit Move + inline accessors, bit helpers
+`src/platform.h`   | C11 threads.h / pthread thread shim + a monotonic clock
+`src/bitboard.*`   | precomputed pawn/knight/king attacks, BetweenBB/LineBB, rook/bishop MAGIC bitboards
+`src/position.*`   | bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
+`src/movegen.*`    | pseudo-legal generation (+ a legal wrapper for perft/datagen/UCI)
+`src/eval.*`       | evaluate(): NNUE when a net is loaded, else a tapered HCE; shared eval cache
+`src/nnue.*`       | king-bucketed quantised NNUE: loader, feature indexing, AVX2 forward, finny refresh cache
+`src/book.*`       | Polyglot opening book: key computation, probing, weighted move choice
+`src/tt.*`         | lockless transposition table ({key^data, data} slots, bit-field payload)
+`src/search.*`     | iterative deepening, PVS, quiescence, the pruning/reduction/extension stack, Lazy SMP
+`src/datagen.*`    | self-play data generation + a bulletformat-to-text converter (for training)
+`src/uci.*`        | the UCI protocol loop, time manager, and CLI self-test subcommands
+`src/version.h`    | major.minor + build number (git commit count, stamped by the Makefile)
+`src/main.c`       | entry + CLI dispatch
 
 ### Board representation
 
@@ -81,7 +82,8 @@ src/main.c       entry + CLI dispatch
 
 ### Move generation
 
-`generate_pseudo` emits pseudo-legal moves into a fixed `MoveList`. Rather than legalise up front, the
+`generate_pseudo` emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]` buffer terminated by a
+`MOVE_NONE` sentinel. Rather than legalise up front, the
 search filters each move with a copy-free legality oracle — `is_legal_fast(move, checkers, pinned)`,
 built on precomputed pins and checkers — *before* it pays for `make_move`, so illegal and pruned moves
 never cost a copy. `generate_legal` (pseudo-legal + the same filter) backs perft, datagen, and UCI move

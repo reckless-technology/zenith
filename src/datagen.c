@@ -152,21 +152,20 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
     *history_count = 0;
     for (int ply_index = 0; ply_index < opening_plies; ply_index++)
     {
-        MoveList moves;
-        generate_legal(pos, &moves, false);
-        if (moves.count == 0)
+        Move      moves[MAX_MOVES];
+        const int count = generate_legal(pos, moves, false);
+        if (count == 0)
         {
             return false;
         }
-        const Move move             = moves.moves[rng_next(rng) % moves.count];
+        const Move move             = moves[rng_next(rng) % count];
         history[(*history_count)++] = pos->key;
         pos->ply                    = 0;
         position_make_move(pos, move);
     }
     // Reject openings that are already terminal.
-    MoveList moves;
-    generate_legal(pos, &moves, false);
-    return moves.count != 0;
+    Move moves[MAX_MOVES];
+    return generate_legal(pos, moves, false) != 0;
 }
 
 int run_datagen(const int argc, char **argv)
@@ -254,9 +253,8 @@ int run_datagen(const int argc, char **argv)
 
         for (int ply = 0; ply < MAX_GAME_PLIES; ply++)
         {
-            MoveList legal;
-            generate_legal(&pos, &legal, false);
-            if (legal.count == 0)
+            Move legal[MAX_MOVES];
+            if (generate_legal(&pos, legal, false) == 0)
             {
                 game_result =
                     position_is_in_check(&pos) ? (pos.color_to_move == WHITE ? -1 : +1) : 0; // mated stm loses

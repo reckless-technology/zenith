@@ -48,14 +48,14 @@ static void join_search(void)
 /** @brief Match UCI move @p text against @p pos's legal moves. @return the move, or MOVE_NONE if none matches. */
 static Move parse_move(const Position *pos, const char *text)
 {
-    MoveList moves;
-    generate_legal(pos, &moves, false);
-    for (int index = 0; index < moves.count; index++)
+    Move moves[MAX_MOVES];
+    generate_legal(pos, moves, false);
+    for (int index = 0; moves[index] != MOVE_NONE; index++)
     {
         char uci_buf[8];
-        if (strcmp(move_to_uci(moves.moves[index], uci_buf), text) == 0)
+        if (strcmp(move_to_uci(moves[index], uci_buf), text) == 0)
         {
-            return moves.moves[index];
+            return moves[index];
         }
     }
     return MOVE_NONE;
@@ -128,17 +128,17 @@ static uint64_t perft_recurse(const Position *node, const int remaining_depth)
     {
         return 1;
     }
-    MoveList child_moves;
-    generate_legal(node, &child_moves, false);
+    Move      child_moves[MAX_MOVES];
+    const int move_count = generate_legal(node, child_moves, false);
     if (remaining_depth == 1)
     {
-        return child_moves.count;
+        return (uint64_t)move_count;
     }
     uint64_t node_count = 0;
-    for (int index = 0; index < child_moves.count; index++)
+    for (int index = 0; child_moves[index] != MOVE_NONE; index++)
     {
         Position grandchild = *node;
-        position_make_move(&grandchild, child_moves.moves[index]);
+        position_make_move(&grandchild, child_moves[index]);
         node_count += perft_recurse(&grandchild, remaining_depth - 1);
     }
     return node_count;
@@ -147,13 +147,13 @@ static uint64_t perft_recurse(const Position *node, const int remaining_depth)
 /** @brief Perft with a per-root-move breakdown (the UCI `go perft` command); prints each move's node count. */
 static void perft_divide(const Position *pos, const int depth)
 {
-    MoveList moves;
-    generate_legal(pos, &moves, false);
+    Move moves[MAX_MOVES];
+    generate_legal(pos, moves, false);
     uint64_t      total      = 0;
     const int64_t start_time = platform_now_ms();
-    for (int index = 0; index < moves.count; index++)
+    for (int index = 0; moves[index] != MOVE_NONE; index++)
     {
-        const Move move  = moves.moves[index];
+        const Move move  = moves[index];
         Position   child = *pos;
         position_make_move(&child, move);
         const uint64_t node_count = depth == 1 ? 1 : perft_recurse(&child, depth - 1);
@@ -601,17 +601,17 @@ typedef struct PerftCase
 /** @brief Plain perft: number of legal-move leaves at depth @p depth — the movegen correctness invariant. */
 static uint64_t perft(const Position *pos, const int depth)
 {
-    MoveList moves;
-    generate_legal(pos, &moves, false);
+    Move      moves[MAX_MOVES];
+    const int move_count = generate_legal(pos, moves, false);
     if (depth <= 1)
     {
-        return moves.count;
+        return (uint64_t)move_count;
     }
     uint64_t node_count = 0;
-    for (int index = 0; index < moves.count; index++)
+    for (int index = 0; moves[index] != MOVE_NONE; index++)
     {
         Position child = *pos;
-        position_make_move(&child, moves.moves[index]);
+        position_make_move(&child, moves[index]);
         node_count += perft(&child, depth - 1);
     }
     return node_count;
@@ -855,16 +855,16 @@ static uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
 /** @brief Recurse to @p depth checking is_legal_fast / gives_check_fast against copy-make ground truth. */
 static void legal_check_walk(const Position *pos, const int depth)
 {
-    MoveList pseudo;
-    generate_pseudo(pos, &pseudo, false);
+    Move pseudo[MAX_MOVES];
+    generate_pseudo(pos, pseudo, false);
     const Bitboard checkers          = position_attackers_to(pos, position_king_sq(pos, pos->color_to_move),
                                                              enemy_of(pos->color_to_move), position_occupied(pos));
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
     const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->color_to_move));
-    for (int index = 0; index < pseudo.count; index++)
+    for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
-        const Move move = pseudo.moves[index];
+        const Move move = pseudo[index];
         if (position_is_legal_fast(pos, move, checkers, pinned) != position_is_legal(pos, move))
         {
             if (g_legal_mismatches < 8)
@@ -901,12 +901,12 @@ static void legal_check_walk(const Position *pos, const int depth)
     {
         return;
     }
-    MoveList legal;
-    generate_legal(pos, &legal, false);
-    for (int index = 0; index < legal.count; index++)
+    Move legal[MAX_MOVES];
+    generate_legal(pos, legal, false);
+    for (int index = 0; legal[index] != MOVE_NONE; index++)
     {
         Position child = *pos;
-        position_make_move(&child, legal.moves[index]);
+        position_make_move(&child, legal[index]);
         legal_check_walk(&child, depth - 1);
     }
 }
@@ -986,11 +986,11 @@ int run_fuzz_check(void)
             failures++;
             continue;
         }
-        // Exercise the downstream paths that OOB'd before hardening: movegen (MoveList cap), the legality
+        // Exercise the downstream paths that OOB'd before hardening: movegen (buffer cap), the legality
         // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
-        MoveList pseudo, legal;
-        generate_pseudo(&pos, &pseudo, false);
-        generate_legal(&pos, &legal, false);
+        Move pseudo[MAX_MOVES], legal[MAX_MOVES];
+        generate_pseudo(&pos, pseudo, false);
+        generate_legal(&pos, legal, false);
         (void)evaluate(&pos);
     }
     printf("fuzzcheck: %d input(s) failed -> %s\n", failures,

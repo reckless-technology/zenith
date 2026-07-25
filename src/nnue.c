@@ -428,12 +428,12 @@ static void self_check_walk(const Position *position, const int depth)
     {
         return;
     }
-    MoveList moves;
-    generate_legal(position, &moves, false);
-    for (int index = 0; index < moves.count; index++)
+    Move moves[MAX_MOVES];
+    generate_legal(position, moves, false);
+    for (int index = 0; moves[index] != MOVE_NONE; index++)
     {
         Position child = *position;
-        position_make_move(&child, moves.moves[index]);
+        position_make_move(&child, moves[index]);
         self_check_walk(&child, depth - 1);
     }
 }

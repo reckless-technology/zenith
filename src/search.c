@@ -352,15 +352,15 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         }
     }
 
-    MoveList moves;
-    generate_pseudo(pos, &moves, !is_in_check);           // in check: all evasions; else captures + promotions
+    Move           moves[MAX_MOVES];
+    const int      count  = generate_pseudo(pos, moves, !is_in_check); // in check: evasions; else captures + promotions
     const Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // MVV-LVA ordering.
-    int scores[256];
-    for (int index = 0; index < moves.count; index++)
+    int scores[MAX_MOVES];
+    for (int index = 0; index < count; index++)
     {
-        const Move move  = moves.moves[index];
+        const Move move  = moves[index];
         int        score = 0;
         if (move_is_capture(move))
         {
@@ -375,23 +375,23 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
     }
 
     int legal_count = 0;
-    for (int index = 0; index < moves.count; index++)
+    for (int index = 0; index < count; index++)
     {
         int best_index = index;
-        for (int other = index + 1; other < moves.count; other++)
+        for (int other = index + 1; other < count; other++)
         {
             if (scores[other] > scores[best_index])
             {
                 best_index = other;
             }
         }
-        const Move swap_move    = moves.moves[index];
-        moves.moves[index]      = moves.moves[best_index];
-        moves.moves[best_index] = swap_move;
-        const int swap_score    = scores[index];
-        scores[index]           = scores[best_index];
-        scores[best_index]      = swap_score;
-        const Move move         = moves.moves[index];
+        const Move swap_move = moves[index];
+        moves[index]         = moves[best_index];
+        moves[best_index]    = swap_move;
+        const int swap_score = scores[index];
+        scores[index]        = scores[best_index];
+        scores[best_index]   = swap_score;
+        const Move move      = moves[index];
 
         // Copy-free legality first, then SEE pruning, so only searched moves pay make_move.
         if (!position_is_legal_fast(pos, move, checkers, pinned))
@@ -547,15 +547,15 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         }
     }
 
-    MoveList moves;
-    generate_pseudo(pos, &moves, false);                  // legality is filtered in the loop via the single make_move
+    Move      moves[MAX_MOVES];
+    const int count = generate_pseudo(pos, moves, false); // legality is filtered in the loop via a single make_move
     const Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // Score moves: TT move, captures (MVV-LVA), killers, history.
-    int scores[256];
-    for (int index = 0; index < moves.count; index++)
+    int scores[MAX_MOVES];
+    for (int index = 0; index < count; index++)
     {
-        Move move = moves.moves[index];
+        Move move = moves[index];
         int  move_score;
         if (move == tt_move)
         {
@@ -599,23 +599,23 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     Move      quiets[64];
     int       quiet_count = 0;
 
-    for (int index = 0; index < moves.count; index++)
+    for (int index = 0; index < count; index++)
     {
         int best_index = index;
-        for (int other = index + 1; other < moves.count; other++)
+        for (int other = index + 1; other < count; other++)
         {
             if (scores[other] > scores[best_index])
             {
                 best_index = other;
             }
         }
-        const Move swap_move    = moves.moves[index];
-        moves.moves[index]      = moves.moves[best_index];
-        moves.moves[best_index] = swap_move;
-        const int swap_score    = scores[index];
-        scores[index]           = scores[best_index];
-        scores[best_index]      = swap_score;
-        const Move move         = moves.moves[index];
+        const Move swap_move = moves[index];
+        moves[index]         = moves[best_index];
+        moves[best_index]    = swap_move;
+        const int swap_score = scores[index];
+        scores[index]        = scores[best_index];
+        scores[best_index]   = swap_score;
+        const Move move      = moves[index];
         if (move == excluded)
         {
             continue; // singular exclusion search: skip the move being tested for singularity
