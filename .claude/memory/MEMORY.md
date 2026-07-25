@@ -13,3 +13,4 @@ One line per memory. Full content lives in the linked file.
 - [zenith-eval-experiments](zenith-eval-experiments.md) — experiment log: buckets, data scaling, pawnstar-idea adoption (techniques don't transfer; fix measured costs)
 - [search-speed-levers](search-speed-levers.md) — copy-make + 2KB accumulator is the dominant per-node cost; prune-before-make = +66 Elo
 - [spsa-tuning](spsa-tuning.md) — SPSA search-param tuner (tools/spsa.py); first pass +26.5 Elo; tune fast tc, validate at 8+0.08
+- [setwise-elegance-nonregression-gate](setwise-elegance-nonregression-gate.md) — elegance refactors ship on non-regression SPRT (ELO0=-5 ELO1=0), not the gain test
