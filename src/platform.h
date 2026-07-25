@@ -4,15 +4,15 @@
  * @file
  * @brief Thin portability shim: threads + a monotonic millisecond clock.
  *
- * On POSIX toolchains with C11 threads (glibc >= 2.28) we wrap <threads.h>; on Apple / toolchains without
- * C11 threads we fall back to pthreads.
+ * On POSIX toolchains with C11 threads (glibc >= 2.28) we wrap <threads.h>; on Apple and toolchains that
+ * ship no <threads.h> (e.g. mingw-w64 clang on Windows) we fall back to pthreads (winpthreads on Windows).
  */
 #pragma once
 #include <stdint.h>
 
 typedef int (*zen_thread_fn)(void *); ///< thread entry point (return value ignored)
 
-#if defined(__APPLE__) || defined(__STDC_NO_THREADS__)
+#if defined(__APPLE__) || defined(__STDC_NO_THREADS__) || !__has_include(<threads.h>)
 
 #include <pthread.h>
 #include <stdlib.h>

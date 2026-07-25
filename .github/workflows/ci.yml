@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: zenith,     asset: zenith-linux-x86-64-v2 }
-          - { label: macos,   os: macos-latest,   shell: bash,        arch: "",        bin: zenith,     asset: zenith-macos-arm64 }
-          - { label: windows, os: windows-latest, shell: "msys2 {0}", arch: x86-64-v2, bin: zenith.exe, asset: zenith-windows-x86-64-v2 }
+          - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: zenith,     binext: "",     platform: linux-x86-64 }
+          - { label: macos,   os: macos-latest,   shell: bash,        arch: "",        bin: zenith,     binext: "",     platform: macos-arm64 }
+          - { label: windows, os: windows-latest, shell: "msys2 {0}", arch: x86-64-v2, bin: zenith.exe, binext: ".exe", platform: windows-x86-64 }
     defaults:
       run:
         shell: ${{ matrix.shell }}
@@ -48,6 +48,14 @@ jobs:
             mingw-w64-clang-x86_64-lld
             make
             git
+
+      - name: Resolve build version (major.minor.commit-count -> e.g. 1.0.101)
+        id: ver
+        run: |
+          major=$(sed -n 's/^#define ZENITH_VERSION_MAJOR \([0-9]*\).*/\1/p' src/version.h)
+          minor=$(sed -n 's/^#define ZENITH_VERSION_MINOR \([0-9]*\).*/\1/p' src/version.h)
+          build=$(git rev-list --count HEAD)
+          echo "version=${major}.${minor}.${build}" >> "$GITHUB_OUTPUT"
 
       - name: Build (LTO, release)
         run: make ARCH=${{ matrix.arch }}
@@ -79,11 +87,14 @@ jobs:
         if: matrix.label != 'linux'
         run: ./${{ matrix.bin }} bench 13 | tail -1
 
+      - name: Name the binary with the build version
+        run: cp "${{ matrix.bin }}" "zenith-${{ steps.ver.outputs.version }}-${{ matrix.platform }}${{ matrix.binext }}"
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.bin }}
+          name: zenith-${{ steps.ver.outputs.version }}-${{ matrix.platform }}
+          path: zenith-${{ steps.ver.outputs.version }}-${{ matrix.platform }}${{ matrix.binext }}
           if-no-files-found: error
 
   # AddressSanitizer + UBSan build and memory-safety gates (Linux only — the sanitizer build is where OOB /
