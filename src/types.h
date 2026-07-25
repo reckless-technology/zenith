@@ -113,8 +113,8 @@ enum
     FLAG_CASTLE_QUEENSIDE         = 3,
     FLAG_CAPTURE                  = 4,
     FLAG_EP                       = 5,
-    FLAG_PROMOTION_KNIGHT         = 8,  ///< promotion base; +1/+2/+3 -> bishop/rook/queen
-    FLAG_PROMOTION_KNIGHT_CAPTURE = 12, ///< promotion-capture base; +1/+2/+3 -> bishop/rook/queen
+    FLAG_PROMOTION_KNIGHT         = 8, ///< promotion base; +1/+2/+3 -> bishop/rook/queen
+    FLAG_PROMOTION_KNIGHT_CAPTURE = FLAG_PROMOTION_KNIGHT | FLAG_CAPTURE, ///< +1/+2/+3 -> bishop/rook/queen
 };
 
 /**
