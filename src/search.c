@@ -30,7 +30,7 @@ SearchParams g_params = {
 };
 
 static int       Reductions[MAX_PLY][64];
-static const int SeeValue[PIECE_NB] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
+static const int SeeValue[NUM_PIECES] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
 
 /**
  * @brief Eval correction-history scale constants.

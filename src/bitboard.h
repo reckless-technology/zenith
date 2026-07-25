@@ -7,11 +7,11 @@
 #pragma once
 #include "types.h"
 
-extern Bitboard PawnAttacks[COLOR_NB][64]; ///< pawn attacks by [colour][square]
-extern Bitboard KnightAttacks[64];         ///< knight attacks by square
-extern Bitboard KingAttacks[64];           ///< king attacks by square
-extern Bitboard BetweenBB[64][64];         ///< squares strictly between two aligned squares (exclusive), else 0
-extern Bitboard LineBB[64][64];            ///< the whole rank/file/diagonal through two aligned squares, else 0
+extern Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [colour][square]
+extern Bitboard KnightAttacks[64];           ///< knight attacks by square
+extern Bitboard KingAttacks[64];             ///< king attacks by square
+extern Bitboard BetweenBB[64][64];           ///< squares strictly between two aligned squares (exclusive), else 0
+extern Bitboard LineBB[64][64];              ///< the whole rank/file/diagonal through two aligned squares, else 0
 
 /** @brief Bishop sliding attacks from @p square given @p occupancy (magic-bitboard lookup). */
 Bitboard bishop_attacks(int square, Bitboard occupancy);

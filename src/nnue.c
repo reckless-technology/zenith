@@ -143,7 +143,7 @@ typedef struct RefreshCacheEntry
 {
     _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
     Bitboard by_color[2];                     ///< board occupancy per colour when @ref values was built
-    Bitboard by_type[PIECE_NB];               ///< board occupancy per piece type when @ref values was built
+    Bitboard by_type[NUM_PIECES];             ///< board occupancy per piece type when @ref values was built
     uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
 

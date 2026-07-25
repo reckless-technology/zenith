@@ -10,10 +10,10 @@
 
 /// @name Zobrist keys (filled by init_zobrist()).
 /// @{
-extern uint64_t ZobristPiece[COLOR_NB][PIECE_NB][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
-extern uint64_t ZobristCastle[16];                    ///< per castling-rights mask
-extern uint64_t ZobristEp[64];                        ///< per en-passant target square (non-zero only on ranks 3 and 6)
-extern uint64_t ZobristSide;                          ///< XOR-ed in when Black is to move
+extern uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES][64]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
+extern uint64_t ZobristCastle[16];                        ///< per castling-rights mask
+extern uint64_t ZobristEp[64]; ///< per en-passant target square (non-zero only on ranks 3 and 6)
+extern uint64_t ZobristSide;   ///< XOR-ed in when Black is to move
 /// @}
 
 /** @brief Fill the Zobrist key tables. Call once at startup (after init_bitboards). */
@@ -28,10 +28,10 @@ void init_zobrist(void);
  */
 typedef struct Position
 {
-    Bitboard by_color[COLOR_NB]; ///< occupancy per colour
+    Bitboard by_color[NUM_COLORS]; ///< occupancy per colour
     /// Occupancy per piece type (both colours), indexed by Piece. The NO_PIECE slot (index 0) holds the
     /// occupied-squares bitboard — all piece bitboards OR-ed — maintained incrementally alongside the rest.
-    Bitboard by_type[PIECE_NB];
+    Bitboard by_type[NUM_PIECES];
     uint64_t key;      ///< incremental Zobrist key of the whole position
     uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
     /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Colour is not stored here — read it from
@@ -59,11 +59,11 @@ typedef struct Position
  */
 static inline void position_init(Position *pos)
 {
-    for (int color = 0; color < COLOR_NB; color++)
+    for (int color = 0; color < NUM_COLORS; color++)
     {
         pos->by_color[color] = 0;
     }
-    for (int piece = 0; piece < PIECE_NB; piece++)
+    for (int piece = 0; piece < NUM_PIECES; piece++)
     {
         pos->by_type[piece] = 0;
     }
@@ -73,7 +73,7 @@ static inline void position_init(Position *pos)
     }
     pos->stm                = WHITE;
     pos->castling           = 0;
-    pos->ep_sq              = NO_SQ;
+    pos->ep_sq              = NO_SQUARE;
     pos->halfmove           = 0;
     pos->fullmove           = 1;
     pos->ply                = 0;

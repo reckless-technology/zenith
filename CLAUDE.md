@@ -63,7 +63,7 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   the `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/per-direction `shift`/file+rank masks).
 - **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
   bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable; PEXT is a drop-in later.
-- **position.\*** — board = `by_color[2]` + `by_type[PIECE_NB=7]` bitboards (indexed by `Piece`; the
+- **position.\*** — board = `by_color[2]` + `by_type[NUM_PIECES=7]` bitboards (indexed by `Piece`; the
   `by_type[NO_PIECE]` slot holds the incrementally-maintained occupied-squares bitboard, so
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental
   **Zobrist** `key` (`ZobristPiece[color][piece][sq]`, `ZobristEp[sq]`) + pawn-only `pawn_key`; the NNUE

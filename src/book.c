@@ -231,26 +231,26 @@ uint64_t polyglot_key(const Position *pos)
     }
 
     // Castling rights (offsets 768..771: white short, white long, black short, black long).
-    if (pos->castling & CR_WK)
+    if (pos->castling & MAY_WHITE_CASTLE_KINGSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 0];
     }
-    if (pos->castling & CR_WQ)
+    if (pos->castling & MAY_WHITE_CASTLE_QUEENSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 1];
     }
-    if (pos->castling & CR_BK)
+    if (pos->castling & MAY_BLACK_CASTLE_KINGSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 2];
     }
-    if (pos->castling & CR_BQ)
+    if (pos->castling & MAY_BLACK_CASTLE_QUEENSIDE)
     {
         key ^= POLYGLOT_RANDOM[768 + 3];
     }
 
     // En passant file (772..779) — only when a pawn of the side to move can actually capture, which is
     // exactly the invariant Position maintains for ep_sq (matches the Polyglot rule).
-    if (pos->ep_sq != NO_SQ)
+    if (pos->ep_sq != NO_SQUARE)
     {
         key ^= POLYGLOT_RANDOM[772 + file_of(pos->ep_sq)];
     }
@@ -358,7 +358,7 @@ static uint16_t polyglot_encode(const Position *pos, const Move move)
     if (move_is_castle(move))
     {
         const int rank = rank_of(from);
-        to             = move_flag(move) == FLAG_KCASTLE ? make_square(7, rank) : make_square(0, rank);
+        to             = move_flag(move) == FLAG_CASTLE_KINGSIDE ? make_square(7, rank) : make_square(0, rank);
     }
     const int promo = move_is_promo(move) ? (int)move_promo_pt(move) - 1 : 0; // KNIGHT(2)..QUEEN(5) -> 1..4
     (void)pos;

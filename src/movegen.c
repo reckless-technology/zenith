@@ -10,7 +10,7 @@
 /** @brief Emit all four promotions for a pawn reaching the last rank (queen first for move ordering). */
 static void add_promotions(MoveList *list, const int from, const int to, const bool is_capture)
 {
-    const unsigned base = is_capture ? FLAG_PROMO_CAP_N : FLAG_PROMO_N;
+    const unsigned base = is_capture ? FLAG_PROMOTION_KNIGHT_CAPTURE : FLAG_PROMOTION_KNIGHT;
     // Queen first (best for move ordering), then knight/rook/bishop.
     movelist_add(list, move_make(from, to, base + (QUEEN - KNIGHT)));
     movelist_add(list, move_make(from, to, base + (KNIGHT - KNIGHT)));
@@ -79,7 +79,7 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
             }
         }
         // En passant.
-        if (pos->ep_sq != NO_SQ && (pawn_attacks(side, square) & sq_bb(pos->ep_sq)))
+        if (pos->ep_sq != NO_SQUARE && (pawn_attacks(side, square) & sq_bb(pos->ep_sq)))
         {
             movelist_add(list, move_make(square, pos->ep_sq, FLAG_EP));
         }
@@ -96,7 +96,7 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
                 movelist_add(list, move_make(square, one_step, FLAG_QUIET));
                 if (relative_rank(side, square) == 1 && (empty & sq_bb(one_step + forward)))
                 {
-                    movelist_add(list, move_make(square, one_step + forward, FLAG_DOUBLE));
+                    movelist_add(list, move_make(square, one_step + forward, FLAG_PAWN_DOUBLE_PUSH));
                 }
             }
         }
@@ -141,20 +141,20 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
     if (!is_noisy_only && !position_is_attacked_by(pos, king_square, opponent))
     {
         const int     rank           = side == WHITE ? 0 : 7;
-        const uint8_t kingside_flag  = side == WHITE ? CR_WK : CR_BK;
-        const uint8_t queenside_flag = side == WHITE ? CR_WQ : CR_BQ;
+        const uint8_t kingside_flag  = side == WHITE ? MAY_WHITE_CASTLE_KINGSIDE : MAY_BLACK_CASTLE_KINGSIDE;
+        const uint8_t queenside_flag = side == WHITE ? MAY_WHITE_CASTLE_QUEENSIDE : MAY_BLACK_CASTLE_QUEENSIDE;
         const int     e_square = make_square(4, rank), f_square = make_square(5, rank), g_square = make_square(6, rank);
         const int     d_square = make_square(3, rank), c_square = make_square(2, rank), b_square = make_square(1, rank);
         if ((pos->castling & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
             !position_is_attacked_by(pos, f_square, opponent) && !position_is_attacked_by(pos, g_square, opponent))
         {
-            movelist_add(list, move_make(e_square, g_square, FLAG_KCASTLE));
+            movelist_add(list, move_make(e_square, g_square, FLAG_CASTLE_KINGSIDE));
         }
         if ((pos->castling & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
             (empty & sq_bb(b_square)) && !position_is_attacked_by(pos, d_square, opponent) &&
             !position_is_attacked_by(pos, c_square, opponent))
         {
-            movelist_add(list, move_make(e_square, c_square, FLAG_QCASTLE));
+            movelist_add(list, move_make(e_square, c_square, FLAG_CASTLE_QUEENSIDE));
         }
     }
 }

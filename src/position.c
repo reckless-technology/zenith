@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-uint64_t ZobristPiece[COLOR_NB][PIECE_NB][64];
+uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES][64];
 uint64_t ZobristCastle[16];
 uint64_t ZobristEp[64];
 uint64_t ZobristSide;
@@ -57,24 +57,72 @@ void init_zobrist(void)
 }
 
 // CastleMask[sq]: rights to KEEP when a piece leaves or arrives on sq (AND-ed into castling).
-// Everything defaults to CR_ALL; the six rook/king home squares clear their rights (a1 e1 h1, a8 e8 h8).
+// Everything defaults to FULL_CASTLING_RIGHTS; the six rook/king home squares clear their rights.
 static const uint8_t CastleMask[64] = {
-    (uint8_t)~CR_WQ, CR_ALL, CR_ALL,          CR_ALL, (uint8_t) ~(CR_WK | CR_WQ),
-    CR_ALL,          CR_ALL, (uint8_t)~CR_WK, // rank 1
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 2
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 3
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 4
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 5
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 6
-    CR_ALL,          CR_ALL, CR_ALL,          CR_ALL, CR_ALL,
-    CR_ALL,          CR_ALL, CR_ALL, // rank 7
-    (uint8_t)~CR_BQ, CR_ALL, CR_ALL,          CR_ALL, (uint8_t) ~(CR_BK | CR_BQ),
-    CR_ALL,          CR_ALL, (uint8_t)~CR_BK, // rank 8
+    (uint8_t)~MAY_WHITE_CASTLE_QUEENSIDE,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t) ~(MAY_WHITE_CASTLE_KINGSIDE | MAY_WHITE_CASTLE_QUEENSIDE),
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t)~MAY_WHITE_CASTLE_KINGSIDE, // rank 1
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 2
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 3
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 4
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 5
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 6
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS, // rank 7
+    (uint8_t)~MAY_BLACK_CASTLE_QUEENSIDE,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t) ~(MAY_BLACK_CASTLE_KINGSIDE | MAY_BLACK_CASTLE_QUEENSIDE),
+    FULL_CASTLING_RIGHTS,
+    FULL_CASTLING_RIGHTS,
+    (uint8_t)~MAY_BLACK_CASTLE_KINGSIDE, // rank 8
 };
 
 /** @brief Place a piece and update every representation: bitboards (incl. occupied), mailbox, Zobrist, NNUE. */
@@ -160,10 +208,10 @@ void position_make_move(Position *pos, const Move move)
     const int   from = move_from(move), to = move_to(move);
     const Piece piece = (Piece)pos->board[from];
 
-    if (pos->ep_sq != NO_SQ)
+    if (pos->ep_sq != NO_SQUARE)
     {
         pos->key ^= ZobristEp[pos->ep_sq];
-        pos->ep_sq = NO_SQ;
+        pos->ep_sq = NO_SQUARE;
     }
     pos->halfmove++;
 
@@ -183,7 +231,7 @@ void position_make_move(Position *pos, const Move move)
     if (move_is_castle(move))
     {
         const int rank = rank_of(from);
-        if (move_flag(move) == FLAG_KCASTLE)
+        if (move_flag(move) == FLAG_CASTLE_KINGSIDE)
         {
             move_piece(pos, make_square(7, rank), make_square(5, rank));
         }
@@ -240,10 +288,10 @@ void position_make_move(Position *pos, const Move move)
 
 void position_make_null(Position *pos)
 {
-    if (pos->ep_sq != NO_SQ)
+    if (pos->ep_sq != NO_SQUARE)
     {
         pos->key ^= ZobristEp[pos->ep_sq];
-        pos->ep_sq = NO_SQ;
+        pos->ep_sq = NO_SQUARE;
     }
     pos->stm = enemy_of(pos->stm);
     pos->key ^= ZobristSide;
@@ -426,11 +474,11 @@ bool position_is_legal_fast(const Position *pos, const Move move, const Bitboard
 /** @brief Parse @p fen into @p pos, hardened against malformed input. @return false if malformed/kingless. */
 bool position_set_fen(Position *pos, const char *fen)
 {
-    for (int color = 0; color < COLOR_NB; color++)
+    for (int color = 0; color < NUM_COLORS; color++)
     {
         pos->by_color[color] = 0;
     }
-    for (int piece = 0; piece < PIECE_NB; piece++)
+    for (int piece = 0; piece < NUM_PIECES; piece++)
     {
         pos->by_type[piece] = 0;
     }
@@ -441,7 +489,7 @@ bool position_set_fen(Position *pos, const char *fen)
     pos->key      = 0;
     pos->pawn_key = 0;
     pos->castling = 0;
-    pos->ep_sq    = NO_SQ;
+    pos->ep_sq    = NO_SQUARE;
     pos->halfmove = 0;
     pos->fullmove = 1;
     pos->ply      = 0;
@@ -558,16 +606,16 @@ bool position_set_fen(Position *pos, const char *fen)
         switch (*cursor)
         {
         case 'K':
-            pos->castling |= CR_WK;
+            pos->castling |= MAY_WHITE_CASTLE_KINGSIDE;
             break;
         case 'Q':
-            pos->castling |= CR_WQ;
+            pos->castling |= MAY_WHITE_CASTLE_QUEENSIDE;
             break;
         case 'k':
-            pos->castling |= CR_BK;
+            pos->castling |= MAY_BLACK_CASTLE_KINGSIDE;
             break;
         case 'q':
-            pos->castling |= CR_BQ;
+            pos->castling |= MAY_BLACK_CASTLE_QUEENSIDE;
             break;
         default:
             break;
@@ -596,7 +644,7 @@ bool position_set_fen(Position *pos, const char *fen)
         pos->key ^= ZobristSide;
     }
     pos->key ^= ZobristCastle[pos->castling];
-    if (pos->ep_sq != NO_SQ)
+    if (pos->ep_sq != NO_SQUARE)
     {
         pos->key ^= ZobristEp[pos->ep_sq];
     }
@@ -656,19 +704,19 @@ char *position_fen(const Position *pos, char *buf)
     }
     else
     {
-        if (pos->castling & CR_WK)
+        if (pos->castling & MAY_WHITE_CASTLE_KINGSIDE)
         {
             *out++ = 'K';
         }
-        if (pos->castling & CR_WQ)
+        if (pos->castling & MAY_WHITE_CASTLE_QUEENSIDE)
         {
             *out++ = 'Q';
         }
-        if (pos->castling & CR_BK)
+        if (pos->castling & MAY_BLACK_CASTLE_KINGSIDE)
         {
             *out++ = 'k';
         }
-        if (pos->castling & CR_BQ)
+        if (pos->castling & MAY_BLACK_CASTLE_QUEENSIDE)
         {
             *out++ = 'q';
         }

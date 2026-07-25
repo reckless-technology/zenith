@@ -7,7 +7,7 @@
 #include "bitboard.h"
 #include <stdlib.h>
 
-Bitboard PawnAttacks[COLOR_NB][64];
+Bitboard PawnAttacks[NUM_COLORS][64];
 Bitboard KnightAttacks[64];
 Bitboard KingAttacks[64];
 Bitboard BetweenBB[64][64];

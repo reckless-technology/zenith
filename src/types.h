@@ -15,7 +15,7 @@ typedef enum
 {
     WHITE,
     BLACK,
-    COLOR_NB = 2 ///< number of colours
+    NUM_COLORS = 2 ///< number of colours
 } Color;
 
 static inline Color enemy_of(Color c)
@@ -38,14 +38,14 @@ typedef enum
     ROOK,
     QUEEN,
     KING,
-    PIECE_NB = 7 ///< array bound: NO_PIECE + the six real piece types
+    NUM_PIECES = 7 ///< array bound: NO_PIECE + the six real piece types
 } Piece;
 
 /** @brief Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8. */
 enum
 {
-    NO_SQ     = 64, ///< off-board / "no square" sentinel
-    SQUARE_NB = 64  ///< number of board squares
+    NO_SQUARE   = 64, ///< off-board / "no square" sentinel
+    NUM_SQUARES = 64  ///< number of board squares
 };
 
 static inline int rank_of(int square)
@@ -91,28 +91,28 @@ static inline char *sq_name(int square, char *buf)
 /** @brief Castling rights bitmask (OR of the four side/flank flags). */
 enum
 {
-    CR_WK  = 1, ///< white kingside
-    CR_WQ  = 2, ///< white queenside
-    CR_BK  = 4, ///< black kingside
-    CR_BQ  = 8, ///< black queenside
-    CR_ALL = 15 ///< all four rights
+    MAY_WHITE_CASTLE_KINGSIDE  = 1, ///< white kingside
+    MAY_WHITE_CASTLE_QUEENSIDE = 2, ///< white queenside
+    MAY_BLACK_CASTLE_KINGSIDE  = 4, ///< black kingside
+    MAY_BLACK_CASTLE_QUEENSIDE = 8, ///< black queenside
+    FULL_CASTLING_RIGHTS       = 15 ///< all four rights
 };
 
 /** @brief Move flags (CPW encoding): the flag nibble of a packed move (from 0..5 | to 6..11 | flag 12..15). */
 enum
 {
-    FLAG_QUIET       = 0,
-    FLAG_DOUBLE      = 1,
-    FLAG_KCASTLE     = 2,
-    FLAG_QCASTLE     = 3,
-    FLAG_CAPTURE     = 4,
-    FLAG_EP          = 5,
-    FLAG_PROMO_N     = 8,
-    FLAG_PROMO_B     = 9,
-    FLAG_PROMO_R     = 10,
-    FLAG_PROMO_Q     = 11,
-    FLAG_PROMO_CAP_N = 12,
-    FLAG_PROMO_CAP_Q = 15,
+    FLAG_QUIET                    = 0,
+    FLAG_PAWN_DOUBLE_PUSH         = 1,
+    FLAG_CASTLE_KINGSIDE          = 2,
+    FLAG_CASTLE_QUEENSIDE         = 3,
+    FLAG_CAPTURE                  = 4,
+    FLAG_EP                       = 5,
+    FLAG_PROMOTION_KNIGHT         = 8,
+    FLAG_PROMOTION_BISHOP         = 9,
+    FLAG_PROMOTION_ROOK           = 10,
+    FLAG_PROMOTION_QUEEN          = 11,
+    FLAG_PROMOTION_KNIGHT_CAPTURE = 12,
+    FLAG_PROMOTION_QUEEN_CAPTURE  = 15,
 };
 
 /**
@@ -161,17 +161,17 @@ static inline bool move_is_ep(Move move)
 
 static inline bool move_is_castle(Move move)
 {
-    return move_flag(move) == FLAG_KCASTLE || move_flag(move) == FLAG_QCASTLE;
+    return move_flag(move) == FLAG_CASTLE_KINGSIDE || move_flag(move) == FLAG_CASTLE_QUEENSIDE;
 }
 
 static inline bool move_is_double(Move move)
 {
-    return move_flag(move) == FLAG_DOUBLE;
+    return move_flag(move) == FLAG_PAWN_DOUBLE_PUSH;
 }
 
 static inline bool move_is_promo(Move move)
 {
-    return move_flag(move) >= FLAG_PROMO_N;
+    return move_flag(move) >= FLAG_PROMOTION_KNIGHT;
 }
 
 static inline bool move_is_quiet(Move move)
