@@ -142,8 +142,8 @@ static uint32_t g_net_generation = 0;
 typedef struct RefreshCacheEntry
 {
     _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
-    Bitboard by_color[2];                     ///< board occupancy per color when @ref values was built
-    Bitboard by_type[NUM_PIECES];             ///< board occupancy per piece type when @ref values was built
+    Bitboard colors[2];                       ///< board occupancy per color when @ref values was built
+    Bitboard pieces[NUM_PIECES];              ///< board occupancy per piece type when @ref values was built
     uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
 } RefreshCacheEntry;
 
@@ -200,10 +200,10 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     if (cache->net_generation != g_net_generation)
     {
         memcpy(cache->values, network.feature_transformer_bias, sizeof(cache->values));
-        cache->by_color[0] = cache->by_color[1] = 0;
+        cache->colors[0] = cache->colors[1] = 0;
         for (int type = PAWN; type <= KING; type++)
         {
-            cache->by_type[type] = 0;
+            cache->pieces[type] = 0;
         }
         cache->net_generation = g_net_generation;
     }
@@ -213,7 +213,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
         for (int type = PAWN; type <= KING; type++)
         {
             const Bitboard current = position->colors[color] & position->pieces[type];
-            const Bitboard cached  = cache->by_color[color] & cache->by_type[type];
+            const Bitboard cached  = cache->colors[color] & cache->pieces[type];
             Bitboard       added   = current & ~cached;
             Bitboard       removed = cached & ~current;
             while (added)
@@ -230,11 +230,11 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
             }
         }
     }
-    cache->by_color[WHITE] = position->colors[WHITE];
-    cache->by_color[BLACK] = position->colors[BLACK];
+    cache->colors[WHITE] = position->colors[WHITE];
+    cache->colors[BLACK] = position->colors[BLACK];
     for (int type = PAWN; type <= KING; type++)
     {
-        cache->by_type[type] = position->pieces[type];
+        cache->pieces[type] = position->pieces[type];
     }
     memcpy(accumulator->values[perspective], cache->values, sizeof(cache->values));
 }
