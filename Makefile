@@ -47,7 +47,7 @@ check: $(BIN)
 	@./$(BIN) perft >/dev/null 2>&1 || { echo "perft FAILED"; exit 1; }
 	@echo "== bench signature =="; \
 	  sig=`./$(BIN) bench 13 | tail -1 | grep -oE '^[0-9]+'`; \
-	  if [ "$$sig" = "3325894" ]; then echo "  $$sig PASS"; else echo "  $$sig FAIL (want 3325894)"; exit 1; fi
+	  if [ "$$sig" = "3065743" ]; then echo "  $$sig PASS"; else echo "  $$sig FAIL (want 3065743)"; exit 1; fi
 	@echo "== legalcheck ==";  ./$(BIN) legalcheck
 	@echo "== seecheck ==";    ./$(BIN) seecheck
 	@echo "== fuzzcheck ==";   ./$(BIN) fuzzcheck

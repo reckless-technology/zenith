@@ -55,50 +55,79 @@ void generate_pseudo(const Position *pos, MoveList *list, bool is_noisy_only)
     const Bitboard enemy     = pos->colors[opponent];
     const Bitboard empty     = ~occupancy;
 
-    // --- Pawns (per-pawn for clarity; correctness before speed) ---
-    Bitboard  pawns   = position_pieces(pos, side, PAWN);
-    const int forward = side == WHITE ? 8 : -8;
-    while (pawns)
+    // --- Pawns (setwise: one bitboard shift per move kind generates every pawn's move in parallel) ---
+    const Bitboard pawns      = position_pieces(pos, side, PAWN);
+    const Bitboard promo_rank = side == WHITE ? RANK_8 : RANK_1;
+    const int      forward    = side == WHITE ? 8 : -8;
+
+    // Captures: shift the whole pawn set toward each capture diagonal; the shift helpers mask file wraps.
+    const Bitboard east_targets = (side == WHITE ? shift_ne(pawns) : shift_se(pawns)) & enemy;
+    const Bitboard west_targets = (side == WHITE ? shift_nw(pawns) : shift_sw(pawns)) & enemy;
+    const int      east_delta = side == WHITE ? 9 : -7, west_delta = side == WHITE ? 7 : -9;
+
+    Bitboard east_promos = east_targets & promo_rank;
+    while (east_promos)
     {
-        const int  square        = pop_lsb(&pawns);
-        const int  one_step      = square + forward;
-        const bool is_promo_rank = relative_rank(side, one_step) == 7;
+        const int to = pop_lsb(&east_promos);
+        add_promotions(list, to - east_delta, to, true);
+    }
+    Bitboard east_captures = east_targets & ~promo_rank;
+    while (east_captures)
+    {
+        const int to = pop_lsb(&east_captures);
+        movelist_add(list, move_make(to - east_delta, to, FLAG_CAPTURE));
+    }
+    Bitboard west_promos = west_targets & promo_rank;
+    while (west_promos)
+    {
+        const int to = pop_lsb(&west_promos);
+        add_promotions(list, to - west_delta, to, true);
+    }
+    Bitboard west_captures = west_targets & ~promo_rank;
+    while (west_captures)
+    {
+        const int to = pop_lsb(&west_captures);
+        movelist_add(list, move_make(to - west_delta, to, FLAG_CAPTURE));
+    }
 
-        // Captures + promotions on capture.
-        Bitboard captures = pawn_attacks(side, square) & enemy;
-        while (captures)
+    // En passant: the pawns attacking the ep square are exactly the squares an enemy pawn there would attack.
+    if (pos->ep_square != NO_SQUARE)
+    {
+        Bitboard ep_attackers = pawn_attacks(opponent, pos->ep_square) & pawns;
+        while (ep_attackers)
         {
-            const int to = pop_lsb(&captures);
-            if (is_promo_rank)
-            {
-                add_promotions(list, square, to, true);
-            }
-            else
-            {
-                movelist_add(list, move_make(square, to, FLAG_CAPTURE));
-            }
+            const int from = pop_lsb(&ep_attackers);
+            movelist_add(list, move_make(from, pos->ep_square, FLAG_EP));
         }
-        // En passant.
-        if (pos->ep_square != NO_SQUARE && (pawn_attacks(side, square) & sq_bb(pos->ep_square)))
-        {
-            movelist_add(list, move_make(square, pos->ep_square, FLAG_EP));
-        }
+    }
 
-        // Quiet pushes (skipped when generating noisy-only, except quiet promotions which are noisy).
-        if (empty & sq_bb(one_step))
+    // Pushes: single, promotion, and double, each derived from one shifted set.
+    const Bitboard single_targets = (side == WHITE ? shift_north(pawns) : shift_south(pawns)) & empty;
+
+    // Promotion pushes are noisy — emitted even in noisy-only generation, like promotion captures.
+    Bitboard push_promos = single_targets & promo_rank;
+    while (push_promos)
+    {
+        const int to = pop_lsb(&push_promos);
+        add_promotions(list, to - forward, to, false);
+    }
+    if (!is_noisy_only)
+    {
+        Bitboard single_pushes = single_targets & ~promo_rank;
+        while (single_pushes)
         {
-            if (is_promo_rank)
-            {
-                add_promotions(list, square, one_step, false);
-            }
-            else if (!is_noisy_only)
-            {
-                movelist_add(list, move_make(square, one_step, FLAG_QUIET));
-                if (relative_rank(side, square) == 1 && (empty & sq_bb(one_step + forward)))
-                {
-                    movelist_add(list, move_make(square, one_step + forward, FLAG_PAWN_DOUBLE_PUSH));
-                }
-            }
+            const int to = pop_lsb(&single_pushes);
+            movelist_add(list, move_make(to - forward, to, FLAG_QUIET));
+        }
+        // Double pushes: shift the single-push set once more and keep only the double-push landing rank
+        // (rank 4 / rank 5) — that restricts them to pawns that started on the home rank with a clear path.
+        const Bitboard double_rank = side == WHITE ? RANK_4 : RANK_5;
+        Bitboard       double_pushes =
+            (side == WHITE ? shift_north(single_targets) : shift_south(single_targets)) & empty & double_rank;
+        while (double_pushes)
+        {
+            const int to = pop_lsb(&double_pushes);
+            movelist_add(list, move_make(to - 2 * forward, to, FLAG_PAWN_DOUBLE_PUSH));
         }
     }
 
