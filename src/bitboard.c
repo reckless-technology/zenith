@@ -71,7 +71,7 @@ static Bitboard sliding_attack(const int square, const Bitboard occupancy, const
 }
 
 static const int RookDirs[4]   = {NORTH, SOUTH, EAST, WEST};
-static const int BishopDirs[4] = {NE, NW, SE, SW};
+static const int BishopDirs[4] = {NORTHEAST, NORTHWEST, SOUTHEAST, SOUTHWEST};
 
 typedef struct Magic
 {
@@ -191,8 +191,8 @@ void init_bitboards(void)
     for (int square = 0; square < 64; square++)
     {
         const Bitboard square_bit  = sq_bb(square);
-        PawnAttacks[WHITE][square] = shift_ne(square_bit) | shift_nw(square_bit);
-        PawnAttacks[BLACK][square] = shift_se(square_bit) | shift_sw(square_bit);
+        PawnAttacks[WHITE][square] = shift_northeast(square_bit) | shift_northwest(square_bit);
+        PawnAttacks[BLACK][square] = shift_southeast(square_bit) | shift_southwest(square_bit);
 
         // Knight: all (±1,±2)/(±2,±1) offsets, rejecting wraps by file/rank distance.
         Bitboard  knight_attack = 0, king_attack = 0;

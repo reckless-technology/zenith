@@ -281,14 +281,14 @@ static inline bool has_more_than_one(Bitboard bitboard)
  */
 typedef enum
 {
-    NORTH = 8,
-    SOUTH = -8,
-    EAST  = 1,
-    WEST  = -1,
-    NE    = 9,
-    NW    = 7,
-    SE    = -7,
-    SW    = -9
+    NORTH     = 8,
+    SOUTH     = -8,
+    EAST      = 1,
+    WEST      = -1,
+    NORTHEAST = 9,
+    NORTHWEST = 7,
+    SOUTHEAST = -7,
+    SOUTHWEST = -9
 } Dir;
 
 static inline Bitboard shift_north(Bitboard bitboard)
@@ -311,22 +311,22 @@ static inline Bitboard shift_west(Bitboard bitboard)
     return (bitboard & ~FILE_A) >> 1;
 }
 
-static inline Bitboard shift_ne(Bitboard bitboard)
+static inline Bitboard shift_northeast(Bitboard bitboard)
 {
     return (bitboard & ~FILE_H) << 9;
 }
 
-static inline Bitboard shift_nw(Bitboard bitboard)
+static inline Bitboard shift_northwest(Bitboard bitboard)
 {
     return (bitboard & ~FILE_A) << 7;
 }
 
-static inline Bitboard shift_se(Bitboard bitboard)
+static inline Bitboard shift_southeast(Bitboard bitboard)
 {
     return (bitboard & ~FILE_H) >> 7;
 }
 
-static inline Bitboard shift_sw(Bitboard bitboard)
+static inline Bitboard shift_southwest(Bitboard bitboard)
 {
     return (bitboard & ~FILE_A) >> 9;
 }

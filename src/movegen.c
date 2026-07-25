@@ -73,8 +73,8 @@ int generate_pseudo(const Position *pos, Move *moves, bool is_noisy_only)
     const int      forward    = side == WHITE ? 8 : -8;
 
     // Captures: shift the whole pawn set toward each capture diagonal; the shift helpers mask file wraps.
-    const Bitboard east_targets = (side == WHITE ? shift_ne(pawns) : shift_se(pawns)) & enemy;
-    const Bitboard west_targets = (side == WHITE ? shift_nw(pawns) : shift_sw(pawns)) & enemy;
+    const Bitboard east_targets = (side == WHITE ? shift_northeast(pawns) : shift_southeast(pawns)) & enemy;
+    const Bitboard west_targets = (side == WHITE ? shift_northwest(pawns) : shift_southwest(pawns)) & enemy;
     const int      east_delta = side == WHITE ? 9 : -7, west_delta = side == WHITE ? 7 : -9;
 
     Bitboard east_promos = east_targets & promo_rank;
