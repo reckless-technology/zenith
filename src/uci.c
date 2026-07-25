@@ -1002,9 +1002,11 @@ int run_fuzz_check(void)
  * @brief SEE unit test: static_exchange_eval on hand-verified capture positions.
  *
  * Each case is a {position, capture move, expected SEE} triple worked out by hand against the engine's
- * piece values (P=100, R=500, Q=900) — free captures, singly-defended captures, an equal trade, a
- * queen-takes-defended-pawn blunder, an x-ray battery (a rear rook joins once the front one is removed),
- * and an en-passant capture. Genuine oracle values (correct chess), not a lock-in of current behaviour.
+ * piece values (P=100, N=320, B=330, R=500, Q=900). Coverage: free captures, singly-defended captures,
+ * equal trades, queen/rook/knight blunders into defended pieces, x-ray batteries on both a file (rear rook)
+ * and a diagonal (queen behind bishop), least-valuable-attacker ordering, a high-value defender declining a
+ * losing recapture, the king unable to recapture into a guarded square, and en-passant (plain and
+ * recaptured). Genuine oracle values (correct chess), not a lock-in of current behaviour.
  * @return 0 if every case matches, 1 otherwise.
  */
 int run_see_check(void)
@@ -1023,6 +1025,20 @@ int run_see_check(void)
         {"4k3/8/8/4q3/8/8/8/4RK2 w - - 0 1", "e1e5", 900},      // rook takes an undefended queen
         {"4k3/8/4p3/3p4/8/8/3R4/3RK3 w - - 0 1", "d2d5", -300}, // x-ray: RxP, pxR, RxP (200-500)
         {"4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1", "d5e6", 100},     // en-passant capture, undefended
+        {"4k3/8/8/3n4/4P3/8/8/4K3 w - - 0 1", "e4d5", 320},     // pawn takes an undefended knight
+        {"4k3/8/2p5/3b4/4P3/8/8/4K3 w - - 0 1", "e4d5", 230},   // pawn x bishop, pawn recaptures -> win B for P
+        {"4k3/2p5/3p4/8/4N3/8/8/4K3 w - - 0 1", "e4d6", -220},  // knight x pawn, pawn recaptures -> lose N for P
+        {"4k3/8/3p4/4n4/8/8/8/4R1K1 w - - 0 1", "e1e5", -180},  // rook x pawn-defended knight -> lose the exchange
+        {"4k3/8/3p4/4n4/8/8/4R3/4R1K1 w - - 0 1", "e2e5", -80}, // x-ray file: rook-behind-rook recaptures the pawn
+        {"4k3/8/5p2/4p3/8/8/1B6/Q5K1 w - - 0 1", "b2e5", -130}, // x-ray diagonal: queen behind bishop recaptures
+        {"4k3/2p5/3b4/8/4N3/8/8/6K1 w - - 0 1", "e4d6", 10},    // knight x bishop, pawn recaptures -> win B for N (+10)
+        {"4k3/5p2/8/3Pp3/8/8/8/4K3 w - e6 0 1", "d5e6", 0},     // en passant, then recaptured by a pawn -> even
+        {"3qk3/8/8/3b4/2P1P3/8/8/4K3 w - - 0 1", "e4d5", 330},  // pawn x bishop; black queen declines (c4 pawn deters)
+        {"8/8/2k5/3p4/4P3/8/8/3R2K1 w - - 0 1", "e4d5", 100},   // king cannot recapture into the rook's guard
+        {"4k3/8/4p3/3r4/8/8/6B1/6K1 w - - 0 1", "g2d5", 170},   // bishop x rook, pawn recaptures -> win the exchange
+        {"4k3/8/4p3/3n4/8/8/8/3QK3 w - - 0 1", "d1d5", -580},   // queen x pawn-defended knight -> blunder (320-900)
+        {"3rk3/8/2p5/3n4/5N2/8/8/3R2K1 w - - 0 1", "f4d5",
+         0}, // LVA: pawn (not rook) recaptures first, then RxP=RxR -> 0
     };
 
     const int case_count = (int)(sizeof cases / sizeof cases[0]);
