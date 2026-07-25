@@ -19,9 +19,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+static const char *const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-static const char *TOKEN_SEPARATORS = " \t\r\n";
+static const char *const TOKEN_SEPARATORS = " \t\r\n";
 
 static Position     game;
 static uint64_t     game_hist[SEARCH_HIST_CAP]; // keys of positions before `game`
@@ -80,7 +80,7 @@ static void set_position(char **save_ptr)
         fen[0]            = '\0';
         while ((token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr)) != NULL && strcmp(token, "moves") != 0)
         {
-            size_t token_length = strlen(token);
+            const size_t token_length = strlen(token);
             if (fen_length + token_length + 2 < sizeof fen)
             {
                 memcpy(fen + fen_length, token, token_length);
@@ -103,7 +103,7 @@ static void set_position(char **save_ptr)
         const char *move_text;
         while ((move_text = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr)) != NULL)
         {
-            Move move = parse_move(&pos, move_text);
+            const Move move = parse_move(&pos, move_text);
             if (move_is_none(move))
             {
                 break;
@@ -122,7 +122,7 @@ static void set_position(char **save_ptr)
 }
 
 /** @brief Recursive perft node count under @p node to @p remaining_depth (helper for perft_divide). */
-static uint64_t perft_recurse(const Position *node, int remaining_depth)
+static uint64_t perft_recurse(const Position *node, const int remaining_depth)
 {
     if (remaining_depth == 0)
     {
@@ -145,23 +145,23 @@ static uint64_t perft_recurse(const Position *node, int remaining_depth)
 }
 
 /** @brief Perft with a per-root-move breakdown (the UCI `go perft` command); prints each move's node count. */
-static void perft_divide(Position *pos, int depth)
+static void perft_divide(const Position *pos, const int depth)
 {
     MoveList moves;
     generate_legal(pos, &moves, false);
-    uint64_t total      = 0;
-    int64_t  start_time = platform_now_ms();
+    uint64_t      total      = 0;
+    const int64_t start_time = platform_now_ms();
     for (int index = 0; index < moves.count; index++)
     {
-        Move     move  = moves.moves[index];
-        Position child = *pos;
+        const Move move  = moves.moves[index];
+        Position   child = *pos;
         position_make_move(&child, move);
-        uint64_t node_count = depth == 1 ? 1 : perft_recurse(&child, depth - 1);
+        const uint64_t node_count = depth == 1 ? 1 : perft_recurse(&child, depth - 1);
         total += node_count;
         char uci_buf[8];
         printf("%s: %llu\n", move_to_uci(move, uci_buf), (unsigned long long)node_count);
     }
-    double seconds = (platform_now_ms() - start_time) / 1000.0;
+    const double seconds = (platform_now_ms() - start_time) / 1000.0;
     printf("\nnodes %llu  time %.2fs  %.1f Mnps\n", (unsigned long long)total, seconds, total / seconds / 1e6);
 }
 
@@ -184,7 +184,7 @@ typedef struct HelperArgs
 /** @brief Lazy-SMP helper thread entry: search silently, sharing the TT and stopping when the main thread does. */
 static int helper_thread_main(void *raw)
 {
-    HelperArgs *helper = raw;
+    const HelperArgs *const helper = raw;
     searcher_go(helper->searcher, helper->args->root, &helper->args->limits, false);
     return 0;
 }
@@ -192,11 +192,11 @@ static int helper_thread_main(void *raw)
 /** @brief Search coordinator thread: (re)size the pool, launch helpers, run the main search, print bestmove. */
 static int go_thread_main(void *raw)
 {
-    GoArgs *args           = raw;
-    int     active_threads = thread_count < 1 ? 1 : thread_count;
+    GoArgs *const args           = raw;
+    int           active_threads = thread_count < 1 ? 1 : thread_count;
     if (pool_size != active_threads)
     {
-        Searcher *resized = malloc(active_threads * sizeof(Searcher)); // (re)size the Lazy-SMP thread pool
+        Searcher *const resized = malloc(active_threads * sizeof(Searcher)); // (re)size the Lazy-SMP thread pool
         if (resized == NULL)
         {
             // Out of memory resizing the pool: keep the existing pool if usable, else give up this search.
@@ -236,8 +236,8 @@ static int go_thread_main(void *raw)
         helper_args[thread_index].args     = args;
         zen_thread_create(&helpers[thread_index], helper_thread_main, &helper_args[thread_index]);
     }
-    Move best = searcher_go(&pool[0], args->root, &args->limits, true); // main thread manages time + prints info
-    g_stop    = true;                                                   // make sure any still-deepening helper stops
+    const Move best = searcher_go(&pool[0], args->root, &args->limits, true); // main thread manages time + prints info
+    g_stop          = true; // make sure any still-deepening helper stops
     for (int thread_index = 1; thread_index < active_threads; thread_index++)
     {
         zen_thread_join(&helpers[thread_index]);
@@ -273,7 +273,7 @@ static void go(char **save_ptr)
         {
             continue;
         }
-        const char *value = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
+        const char *const value = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
         if (value == NULL)
         {
             break;
@@ -323,7 +323,7 @@ static void go(char **save_ptr)
     }
     if (perft_depth > 0)
     {
-        Position perft_position = game;
+        const Position perft_position = game;
         perft_divide(&perft_position, perft_depth);
         return;
     }
@@ -331,7 +331,7 @@ static void go(char **save_ptr)
     // depth/node test searches, so bench signatures and SPRT harness runs are unaffected even if enabled.
     if (is_own_book_enabled && book_is_loaded() && !limits.is_infinite && limits.depth == 0 && limits.nodes == 0)
     {
-        Move book_move = book_probe(&game);
+        const Move book_move = book_probe(&game);
         if (!move_is_none(book_move))
         {
             char uci_buf[8];
@@ -342,7 +342,7 @@ static void go(char **save_ptr)
         }
     }
 
-    GoArgs *args = malloc(sizeof(GoArgs));
+    GoArgs *const args = malloc(sizeof(GoArgs));
     if (args == NULL)
     {
         printf("bestmove 0000\n"); // out of memory: still answer the GUI rather than go silent
@@ -416,8 +416,8 @@ static void set_option(char **save_ptr)
     }
     else if (strcmp(option_name, "threads") == 0)
     {
-        int requested_threads = atoi(value);
-        thread_count          = requested_threads < 1 ? 1 : (requested_threads > 256 ? 256 : requested_threads);
+        const int requested_threads = atoi(value);
+        thread_count                = requested_threads < 1 ? 1 : (requested_threads > 256 ? 256 : requested_threads);
     }
     else if (strcmp(option_name, "ownbook") == 0)
     {
@@ -452,8 +452,8 @@ static void set_option(char **save_ptr)
     {
         // Tunable search parameters (SPSA): match by original-case name, integer value. A non-numeric value
         // simply skips the call.
-        char *end_ptr = NULL;
-        long  parsed  = strtol(value, &end_ptr, 10);
+        char      *end_ptr = NULL;
+        const long parsed  = strtol(value, &end_ptr, 10);
         if (end_ptr != value)
         {
             set_search_param(name, (int)parsed);
@@ -473,8 +473,8 @@ void uci_loop(void)
     static char line[1 << 16];
     while (fgets(line, sizeof line, stdin) != NULL)
     {
-        char       *save_ptr = NULL;
-        const char *token    = strtok_r(line, TOKEN_SEPARATORS, &save_ptr);
+        char             *save_ptr = NULL;
+        const char *const token    = strtok_r(line, TOKEN_SEPARATORS, &save_ptr);
         if (token == NULL)
         {
             continue;
@@ -567,9 +567,9 @@ void run_bench(int depth)
     {
         depth = 13;
     }
-    uint64_t  total      = 0;
-    int64_t   start_time = platform_now_ms();
-    Searcher *searcher   = malloc(sizeof(Searcher)); // ~2.4MB — heap, not stack
+    uint64_t        total      = 0;
+    const int64_t   start_time = platform_now_ms();
+    Searcher *const searcher   = malloc(sizeof(Searcher)); // ~2.4MB — heap, not stack
     for (size_t fen_index = 0; fen_index < sizeof(BenchFens) / sizeof(BenchFens[0]); fen_index++)
     {
         tt_clear();
@@ -585,7 +585,7 @@ void run_bench(int depth)
         searcher_go(searcher, pos, &limits, true);
         total += searcher->nodes;
     }
-    double seconds = (platform_now_ms() - start_time) / 1000.0;
+    const double seconds = (platform_now_ms() - start_time) / 1000.0;
     printf("%llu nodes %.0f nps\n", (unsigned long long)total, total / (seconds > 0 ? seconds : 1));
     free(searcher);
 }
@@ -599,7 +599,7 @@ typedef struct PerftCase
 } PerftCase;
 
 /** @brief Plain perft: number of legal-move leaves at depth @p depth — the movegen correctness invariant. */
-static uint64_t perft(Position *pos, int depth)
+static uint64_t perft(const Position *pos, const int depth)
 {
     MoveList moves;
     generate_legal(pos, &moves, false);
@@ -755,7 +755,7 @@ static const char *PerftEpd[] = {
 
 int run_perft_suite(void)
 {
-    PerftCase suite[] = {
+    const PerftCase suite[] = {
         // The canonical CPW positions 1-5.
         {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 6, 119060324ULL},
         {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 193690690ULL},
@@ -779,12 +779,12 @@ int run_perft_suite(void)
     bool is_all_pass = true;
     for (size_t case_index = 0; case_index < sizeof(suite) / sizeof(suite[0]); case_index++)
     {
-        const PerftCase *test_case = &suite[case_index];
-        Position         pos;
+        const PerftCase *const test_case = &suite[case_index];
+        Position               pos;
         position_init(&pos);
         position_set_fen(&pos, test_case->fen);
-        uint64_t node_count = perft(&pos, test_case->depth);
-        bool     is_pass    = node_count == test_case->expected;
+        const uint64_t node_count = perft(&pos, test_case->depth);
+        const bool     is_pass    = node_count == test_case->expected;
         is_all_pass &= is_pass;
         printf("[%s] perft(%d)=%llu want %llu  %s\n", is_pass ? "PASS" : "FAIL", test_case->depth,
                (unsigned long long)node_count, (unsigned long long)test_case->expected, test_case->fen);
@@ -796,19 +796,19 @@ int run_perft_suite(void)
     int            passed = 0, total = 0;
     for (size_t entry_index = 0; entry_index < sizeof(PerftEpd) / sizeof(PerftEpd[0]); entry_index++)
     {
-        const char *line      = PerftEpd[entry_index];
-        const char *semicolon = strchr(line, ';');
-        char        fen[128];
-        size_t      fen_length = (size_t)(semicolon - line);
+        const char *const line      = PerftEpd[entry_index];
+        const char *const semicolon = strchr(line, ';');
+        char              fen[128];
+        const size_t      fen_length = (size_t)(semicolon - line);
         memcpy(fen, line, fen_length);
         fen[fen_length]        = '\0';
         int      best_depth    = 0;
         uint64_t best_expected = 0;
         for (const char *cursor = semicolon; cursor != NULL;)
         {
-            const char *next = strchr(cursor + 1, ';');
-            char        token[64];
-            size_t      token_length = next ? (size_t)(next - cursor - 1) : strlen(cursor + 1);
+            const char *const next = strchr(cursor + 1, ';');
+            char              token[64];
+            size_t            token_length = next ? (size_t)(next - cursor - 1) : strlen(cursor + 1);
             if (token_length >= sizeof token)
             {
                 token_length = sizeof token - 1;
@@ -831,7 +831,7 @@ int run_perft_suite(void)
         Position position;
         position_init(&position);
         position_set_fen(&position, fen);
-        uint64_t node_count = perft(&position, best_depth);
+        const uint64_t node_count = perft(&position, best_depth);
         total++;
         if (node_count == best_expected)
         {
@@ -853,18 +853,18 @@ int run_perft_suite(void)
 static uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
 
 /** @brief Recurse to @p depth checking is_legal_fast / gives_check_fast against copy-make ground truth. */
-static void legal_check_walk(Position *pos, int depth)
+static void legal_check_walk(const Position *pos, const int depth)
 {
     MoveList pseudo;
     generate_pseudo(pos, &pseudo, false);
-    Bitboard checkers =
+    const Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    Bitboard pinned            = position_pinned_to_king(pos);
-    Bitboard discovered        = position_discovered_check_candidates(pos);
-    int      enemy_king_square = position_king_sq(pos, color_flip(pos->stm));
+    const Bitboard pinned            = position_pinned_to_king(pos);
+    const Bitboard discovered        = position_discovered_check_candidates(pos);
+    const int      enemy_king_square = position_king_sq(pos, color_flip(pos->stm));
     for (int index = 0; index < pseudo.count; index++)
     {
-        Move move = pseudo.moves[index];
+        const Move move = pseudo.moves[index];
         if (position_is_legal_fast(pos, move, checkers, pinned) != position_is_legal(pos, move))
         {
             if (g_legal_mismatches < 8)
@@ -882,8 +882,8 @@ static void legal_check_walk(Position *pos, int depth)
         {
             Position child = *pos;
             position_make_move(&child, move);
-            bool is_check_truth = position_is_in_check(&child);
-            bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
+            const bool is_check_truth = position_is_in_check(&child);
+            const bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
             if (is_check_fast != is_check_truth)
             {
                 if (g_legal_mismatches < 8)
@@ -915,7 +915,7 @@ int run_legal_check(void)
 {
     // Positions chosen to hammer pins, checks, king moves, castling and en passant (incl. the EP discovered-
     // check case that is_legal_fast defers to the slow path).
-    const char *fens[] = {
+    const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
@@ -945,7 +945,7 @@ int run_legal_check(void)
 int run_fuzz_check(void)
 {
     // Malformed FENs that MUST be rejected (return false) without any out-of-bounds access.
-    static const char *reject_fens[] = {
+    static const char *const reject_fens[] = {
         "pppppppppppppppppppp/8/8/8/8/8/8/8 w - - 0 1", // over-long rank
         "8/8/8/8/8/8/8/8/8/8/Q7 w - - 0 1",             // too many ranks
         "8/8/8/8/8/8/8/8 w - - 0 1",                    // no kings
@@ -959,7 +959,7 @@ int run_fuzz_check(void)
     // Legal (or leniently-accepted) positions that MUST be accepted and safely searched. The last two carry a
     // malformed ep field, which the parser safely ignores (position otherwise valid → no-ep). The queen swarm
     // has one king per side (so it is accepted) yet generates > 256 pseudo-legal moves — movegen must cap.
-    static const char *accept_fens[] = {
+    static const char *const accept_fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",  "8/5pk1/6p1/3K4/8/5PP1/8/8 w - - 0 1",
         "QQQ2QQ1/3Q4/1Q4QQ/Q3Q2Q/Q6Q/Q6Q/Q5Q1/KQQQQQQk w - - 0 1",
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq z9 0 1", // bad ep, safely ignored
@@ -1025,8 +1025,8 @@ int run_see_check(void)
         {"4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1", "d5e6", 100},     // en-passant capture, undefended
     };
 
-    int case_count = (int)(sizeof cases / sizeof cases[0]);
-    int failures   = 0;
+    const int case_count = (int)(sizeof cases / sizeof cases[0]);
+    int       failures   = 0;
     for (int i = 0; i < case_count; i++)
     {
         Position pos;
@@ -1037,14 +1037,14 @@ int run_see_check(void)
             failures++;
             continue;
         }
-        Move move = parse_move(&pos, cases[i].move);
+        const Move move = parse_move(&pos, cases[i].move);
         if (move_is_none(move))
         {
             printf("  ILLEGAL MOVE %s in %s\n", cases[i].move, cases[i].fen);
             failures++;
             continue;
         }
-        int see = static_exchange_eval(&pos, move);
+        const int see = static_exchange_eval(&pos, move);
         if (see != cases[i].expected)
         {
             printf("  MISMATCH %s %s: see=%d want=%d\n", cases[i].fen, cases[i].move, see, cases[i].expected);

@@ -46,30 +46,31 @@ static Network network;
  *
  * Must match king_bucket() in trainer/features.py.
  */
-static inline int king_bucket(int relative_king_square)
+static inline int king_bucket(const int relative_king_square)
 {
-    int file_pair = (relative_king_square & 7) / 2;  // 0..3
-    int half      = (relative_king_square >> 3) / 4; // 0..1
-    return half * 4 + file_pair;                     // 0..7
+    const int file_pair = (relative_king_square & 7) / 2;  // 0..3
+    const int half      = (relative_king_square >> 3) / 4; // 0..1
+    return half * 4 + file_pair;                           // 0..7
 }
 
 /** @brief Perspective-relative king square (Black mirrors vertically), for bucket selection. */
-static inline int relative_king_square(Color perspective, int king_square)
+static inline int relative_king_square(const Color perspective, const int king_square)
 {
     return (perspective == WHITE) ? king_square : (king_square ^ 56);
 }
 
 /** @brief Feature index within one 768 king-bucket block; the caller adds bucket * BASE_FEATURES. */
-static inline int base_feature_index(Color perspective, Color piece_color, PieceType piece_type, int square)
+static inline int base_feature_index(const Color perspective, const Color piece_color, const PieceType piece_type,
+                                     const int square)
 {
-    int relative_color  = (piece_color == perspective) ? 0 : 1;
-    int relative_square = (perspective == WHITE) ? square : (square ^ 56);
+    const int relative_color  = (piece_color == perspective) ? 0 : 1;
+    const int relative_square = (perspective == WHITE) ? square : (square ^ 56);
     return relative_color * 384 + piece_type * 64 + relative_square;
 }
 
 /** @brief Full king-bucketed feature index for @p perspective given its cached king bucket. */
-static inline int feature_index(int king_bucket_index, Color perspective, Color piece_color, PieceType piece_type,
-                                int square)
+static inline int feature_index(const int king_bucket_index, const Color perspective, const Color piece_color,
+                                const PieceType piece_type, const int square)
 {
     return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece_type, square);
 }
@@ -112,7 +113,7 @@ static inline void sub_column(int16_t *accumulator, const int16_t *column)
 
 #if !defined(__AVX2__)
 /** @brief Clamp an accumulator value to [0, QA] for the scalar SCReLU path. */
-static inline int32_t clamp_accumulator(int32_t value)
+static inline int32_t clamp_accumulator(const int32_t value)
 {
     if (value < 0)
     {
@@ -152,7 +153,7 @@ static _Thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
 // Each perspective indexes into its own cached king bucket (accumulator->king_bucket[perspective]); a piece
 // add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
-void nnue_add_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square)
+void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int square)
 {
     add_column(
         accumulator->values[WHITE],
@@ -162,7 +163,7 @@ void nnue_add_feature(NnueAccumulator *accumulator, Color color, PieceType type,
         network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_remove_feature(NnueAccumulator *accumulator, Color color, PieceType type, int square)
+void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int square)
 {
     sub_column(
         accumulator->values[WHITE],
@@ -172,11 +173,12 @@ void nnue_remove_feature(NnueAccumulator *accumulator, Color color, PieceType ty
         network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
-void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type, int from, int to)
+void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const PieceType type, const int from,
+                       const int to)
 {
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
-        int bucket = accumulator->king_bucket[perspective];
+        const int bucket = accumulator->king_bucket[perspective];
         sub_column(accumulator->values[perspective],
                    network.feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, from)]);
         add_column(accumulator->values[perspective],
@@ -190,12 +192,12 @@ void nnue_move_feature(NnueAccumulator *accumulator, Color color, PieceType type
  * Uses the thread-local refresh cache: start from the cached accumulator for this (perspective, bucket) and
  * apply only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
  */
-void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, Color perspective)
+void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, const Color perspective)
 {
-    int bucket = king_bucket(relative_king_square(perspective, position_king_sq(position, perspective)));
+    const int bucket = king_bucket(relative_king_square(perspective, position_king_sq(position, perspective)));
     accumulator->king_bucket[perspective] = bucket;
 
-    RefreshCacheEntry *cache = &g_refresh_cache[perspective][bucket];
+    RefreshCacheEntry *const cache = &g_refresh_cache[perspective][bucket];
     if (cache->net_generation != g_net_generation)
     {
         memcpy(cache->values, network.feature_transformer_bias, sizeof(cache->values));
@@ -211,19 +213,19 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     {
         for (int type = 0; type < 6; type++)
         {
-            Bitboard current = position->by_color[color] & position->by_type[type];
-            Bitboard cached  = cache->by_color[color] & cache->by_type[type];
-            Bitboard added   = current & ~cached;
-            Bitboard removed = cached & ~current;
+            const Bitboard current = position->by_color[color] & position->by_type[type];
+            const Bitboard cached  = cache->by_color[color] & cache->by_type[type];
+            Bitboard       added   = current & ~cached;
+            Bitboard       removed = cached & ~current;
             while (added)
             {
-                int square = pop_lsb(&added);
+                const int square = pop_lsb(&added);
                 add_column(cache->values, network.feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (PieceType)type, square)]);
             }
             while (removed)
             {
-                int square = pop_lsb(&removed);
+                const int square = pop_lsb(&removed);
                 sub_column(cache->values, network.feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (PieceType)type, square)]);
             }
@@ -238,9 +240,9 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
     memcpy(accumulator->values[perspective], cache->values, sizeof(cache->values));
 }
 
-void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *position, Color side)
+void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *position, const Color side)
 {
-    int new_bucket = king_bucket(relative_king_square(side, position_king_sq(position, side)));
+    const int new_bucket = king_bucket(relative_king_square(side, position_king_sq(position, side)));
     if (new_bucket != accumulator->king_bucket[side])
     {
         nnue_refresh_perspective(accumulator, position, side);
@@ -270,22 +272,22 @@ static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 
     for (int i = 0; i < HIDDEN_SIZE; i += 16)
     {
-        __m256i a = _mm256_loadu_si256((const __m256i *)(acc + i));    // 16 int16 accumulator values
-        __m256i w = _mm256_loadu_si256((const __m256i *)(weight + i)); // 16 int16 output weights
-        __m256i c = _mm256_min_epi16(_mm256_max_epi16(a, zero), qa);   // clamp to [0,255] (16 int16)
+        const __m256i a = _mm256_loadu_si256((const __m256i *)(acc + i));    // 16 int16 accumulator values
+        const __m256i w = _mm256_loadu_si256((const __m256i *)(weight + i)); // 16 int16 output weights
+        const __m256i c = _mm256_min_epi16(_mm256_max_epi16(a, zero), qa);   // clamp to [0,255] (16 int16)
 
         for (int half = 0; half < 2; half++)
         {
-            __m128i c128 = half ? _mm256_extracti128_si256(c, 1) : _mm256_castsi256_si128(c);
-            __m128i w128 = half ? _mm256_extracti128_si256(w, 1) : _mm256_castsi256_si128(w);
-            __m256i c32  = _mm256_cvtepi16_epi32(c128);  // 8 int32 clamped, [0,255]
-            __m256i w32  = _mm256_cvtepi16_epi32(w128);  // 8 int32 weights
-            __m256i p32  = _mm256_mullo_epi32(c32, w32); // clamped*weight, exact in int32
+            const __m128i c128 = half ? _mm256_extracti128_si256(c, 1) : _mm256_castsi256_si128(c);
+            const __m128i w128 = half ? _mm256_extracti128_si256(w, 1) : _mm256_castsi256_si128(w);
+            const __m256i c32  = _mm256_cvtepi16_epi32(c128);  // 8 int32 clamped, [0,255]
+            const __m256i w32  = _mm256_cvtepi16_epi32(w128);  // 8 int32 weights
+            const __m256i p32  = _mm256_mullo_epi32(c32, w32); // clamped*weight, exact in int32
             // term = clamped * (clamped*weight) as int64. mul_epi32 reads the low 32 bits of each 64-bit lane
             // as a SIGNED int32, so even lanes come from (c32,p32) directly and odd lanes after a 32-bit shift.
-            __m256i even = _mm256_mul_epi32(c32, p32);
-            __m256i odd  = _mm256_mul_epi32(_mm256_srli_epi64(c32, 32), _mm256_srli_epi64(p32, 32));
-            sum          = _mm256_add_epi64(sum, _mm256_add_epi64(even, odd));
+            const __m256i even = _mm256_mul_epi32(c32, p32);
+            const __m256i odd  = _mm256_mul_epi32(_mm256_srli_epi64(c32, 32), _mm256_srli_epi64(p32, 32));
+            sum                = _mm256_add_epi64(sum, _mm256_add_epi64(even, odd));
         }
     }
     int64_t lanes[4];
@@ -294,10 +296,10 @@ static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 }
 #endif
 
-int nnue_evaluate(const NnueAccumulator *accumulator, Color stm)
+int nnue_evaluate(const NnueAccumulator *accumulator, const Color stm)
 {
-    const int16_t *own      = accumulator->values[stm];
-    const int16_t *opponent = accumulator->values[color_flip(stm)];
+    const int16_t *const own      = accumulator->values[stm];
+    const int16_t *const opponent = accumulator->values[color_flip(stm)];
 #if defined(__AVX2__)
     int64_t accumulated =
         screlu_dot(own, network.output_weight) + screlu_dot(opponent, network.output_weight + HIDDEN_SIZE);
@@ -305,9 +307,9 @@ int nnue_evaluate(const NnueAccumulator *accumulator, Color stm)
     int64_t accumulated = 0;
     for (int i = 0; i < HIDDEN_SIZE; i++)
     {
-        int32_t own_clamped = clamp_accumulator(own[i]);
+        const int32_t own_clamped = clamp_accumulator(own[i]);
         accumulated += (int64_t)(own_clamped * network.output_weight[i]) * own_clamped;
-        int32_t opponent_clamped = clamp_accumulator(opponent[i]);
+        const int32_t opponent_clamped = clamp_accumulator(opponent[i]);
         accumulated += (int64_t)(opponent_clamped * network.output_weight[HIDDEN_SIZE + i]) * opponent_clamped;
     }
 #endif
@@ -326,7 +328,7 @@ int nnue_evaluate_position(const Position *position)
 // ---- loading -----------------------------------------------------------------------------------------
 bool nnue_load(const char *path)
 {
-    FILE *file = fopen(path, "rb");
+    FILE *const file = fopen(path, "rb");
     if (!file)
     {
         return false;
@@ -342,7 +344,7 @@ bool nnue_load(const char *path)
     // Read into a heap temporary and only commit to the live `network` on a fully-successful read. Reading
     // straight into the global would leave a previously-good net half-overwritten (and still flagged loaded)
     // if the file is truncated — the engine would then evaluate with garbage weights.
-    Network *loaded = malloc(sizeof(Network));
+    Network *const loaded = malloc(sizeof(Network));
     if (loaded == NULL)
     {
         fclose(file);
@@ -403,7 +405,7 @@ static uint64_t g_check_nodes = 0, g_check_mismatches = 0;
 static int      g_check_maxdiff = 0;
 
 /** @brief Recurse to @p depth comparing the incrementally-maintained accumulator against a full refresh. */
-static void self_check_walk(Position *position, int depth)
+static void self_check_walk(const Position *position, const int depth)
 {
     NnueAccumulator fresh;
     nnue_refresh(&fresh, position);
@@ -411,7 +413,7 @@ static void self_check_walk(Position *position, int depth)
     {
         for (int i = 0; i < NNUE_HIDDEN; i++)
         {
-            int diff = abs(position->acc.values[perspective][i] - fresh.values[perspective][i]);
+            const int diff = abs(position->acc.values[perspective][i] - fresh.values[perspective][i]);
             if (diff)
             {
                 g_check_mismatches++;
@@ -444,7 +446,7 @@ int nnue_run_self_check(const char *net_path)
         fprintf(stderr, "nnue: failed to load %s\n", net_path);
         return 1;
     }
-    const char *fens[] = {
+    const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",

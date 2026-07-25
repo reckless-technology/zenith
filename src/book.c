@@ -223,9 +223,9 @@ uint64_t polyglot_key(const Position *pos)
     Bitboard occupied = position_occupied(pos);
     while (occupied)
     {
-        int   square = pop_lsb(&occupied);
-        Piece piece  = pos->board[square];
-        int   kind   = 2 * type_of(piece) + (color_of(piece) == WHITE ? 1 : 0);
+        const int   square = pop_lsb(&occupied);
+        const Piece piece  = pos->board[square];
+        const int   kind   = 2 * type_of(piece) + (color_of(piece) == WHITE ? 1 : 0);
         key ^= POLYGLOT_RANDOM[64 * kind + square];
     }
 
@@ -292,13 +292,13 @@ static uint16_t read_be16(const unsigned char *bytes)
 
 bool book_load(const char *path)
 {
-    FILE *file = fopen(path, "rb");
+    FILE *const file = fopen(path, "rb");
     if (file == NULL)
     {
         return false;
     }
     fseek(file, 0, SEEK_END);
-    long size = ftell(file);
+    const long size = ftell(file);
     fseek(file, 0, SEEK_SET);
     // Reject non-multiples of the 16-byte entry size, and bound the entry count so `count * sizeof(BookEntry)`
     // cannot overflow the allocation size for a hostile (huge) book file.
@@ -307,7 +307,7 @@ bool book_load(const char *path)
         fclose(file);
         return false;
     }
-    unsigned char *raw = malloc((size_t)size);
+    unsigned char *const raw = malloc((size_t)size);
     if (raw == NULL || fread(raw, 1, (size_t)size, file) != (size_t)size)
     {
         free(raw);
@@ -317,8 +317,8 @@ bool book_load(const char *path)
     fclose(file);
 
     // Decode the big-endian entries into native order once, so probing is a plain binary search.
-    size_t     count   = (size_t)size / 16;
-    BookEntry *entries = malloc(count * sizeof(BookEntry));
+    const size_t     count   = (size_t)size / 16;
+    BookEntry *const entries = malloc(count * sizeof(BookEntry));
     if (entries == NULL)
     {
         free(raw);
@@ -326,11 +326,11 @@ bool book_load(const char *path)
     }
     for (size_t i = 0; i < count; i++)
     {
-        const unsigned char *record = raw + 16 * i;
-        entries[i].key              = read_be64(record);
-        entries[i].move             = read_be16(record + 8);
-        entries[i].weight           = read_be16(record + 10);
-        entries[i].learn            = 0; // unused
+        const unsigned char *const record = raw + 16 * i;
+        entries[i].key                    = read_be64(record);
+        entries[i].move                   = read_be16(record + 8);
+        entries[i].weight                 = read_be16(record + 10);
+        entries[i].learn                  = 0; // unused
     }
     free(raw);
 
@@ -351,15 +351,15 @@ bool book_is_loaded(void)
  *
  * (promo: 0 none, 1 knight, 2 bishop, 3 rook, 4 queen.) Castling is encoded king-takes-rook (e1h1 etc.).
  */
-static uint16_t polyglot_encode(const Position *pos, Move move)
+static uint16_t polyglot_encode(const Position *pos, const Move move)
 {
     int from = move_from(move), to = move_to(move);
     if (move_is_castle(move))
     {
-        int rank = rank_of(from);
-        to       = move_flag(move) == FLAG_KCASTLE ? make_square(7, rank) : make_square(0, rank);
+        const int rank = rank_of(from);
+        to             = move_flag(move) == FLAG_KCASTLE ? make_square(7, rank) : make_square(0, rank);
     }
-    int promo = move_is_promo(move) ? (int)move_promo_pt(move) : 0; // PieceType KNIGHT..QUEEN = 1..4 matches
+    const int promo = move_is_promo(move) ? (int)move_promo_pt(move) : 0; // PieceType KNIGHT..QUEEN = 1..4 matches
     (void)pos;
     return (uint16_t)(file_of(to) | (rank_of(to) << 3) | (file_of(from) << 6) | (rank_of(from) << 9) | (promo << 12));
 }
@@ -386,13 +386,13 @@ Move book_probe(const Position *pos)
     {
         return MOVE_NONE;
     }
-    uint64_t key = polyglot_key(pos);
+    const uint64_t key = polyglot_key(pos);
 
     // Binary search for the first entry with this key (entries are sorted by key).
     size_t low = 0, high = book_count;
     while (low < high)
     {
-        size_t mid = low + (high - low) / 2;
+        const size_t mid = low + (high - low) / 2;
         if (book_entries[mid].key < key)
         {
             low = mid + 1;
@@ -467,7 +467,7 @@ int run_book_check(void)
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, vectors[i].fen);
-        uint64_t key = polyglot_key(&pos);
+        const uint64_t key = polyglot_key(&pos);
         if (key != vectors[i].key)
         {
             printf("  MISMATCH key=%016llx want=%016llx  %s\n", (unsigned long long)key,

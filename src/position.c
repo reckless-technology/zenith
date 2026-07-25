@@ -68,12 +68,12 @@ static const uint8_t CastleMask[64] = {
 };
 
 /** @brief Place a piece and update every representation: bitboards, mailbox, Zobrist keys, NNUE accumulator. */
-static void put(Position *pos, Color color, PieceType piece_type, int square)
+static void put(Position *pos, const Color color, const PieceType piece_type, const int square)
 {
-    Bitboard square_bit = sq_bb(square);
+    const Bitboard square_bit = sq_bb(square);
     pos->by_color[color] |= square_bit;
     pos->by_type[piece_type] |= square_bit;
-    Piece piece        = make_piece(color, piece_type);
+    const Piece piece  = make_piece(color, piece_type);
     pos->board[square] = piece;
     pos->key ^= ZobristPiece[piece][square];
     if (piece_type == PAWN)
@@ -87,10 +87,10 @@ static void put(Position *pos, Color color, PieceType piece_type, int square)
 }
 
 /** @brief Remove the piece on @p square and update every representation (inverse of put). */
-static void remove_piece(Position *pos, int square)
+static void remove_piece(Position *pos, const int square)
 {
-    Piece    piece      = pos->board[square];
-    Bitboard square_bit = sq_bb(square);
+    const Piece    piece      = pos->board[square];
+    const Bitboard square_bit = sq_bb(square);
     pos->by_color[color_of(piece)] ^= square_bit;
     pos->by_type[type_of(piece)] ^= square_bit;
     pos->key ^= ZobristPiece[piece][square];
@@ -106,11 +106,11 @@ static void remove_piece(Position *pos, int square)
 }
 
 /** @brief Move the piece @p from -> @p to (no capture) and update every representation. */
-static void move_piece(Position *pos, int from, int to)
+static void move_piece(Position *pos, const int from, const int to)
 {
-    Piece    piece    = pos->board[from];
-    Bitboard from_bit = sq_bb(from), to_bit = sq_bb(to);
-    Bitboard from_to_bits = from_bit | to_bit;
+    const Piece    piece    = pos->board[from];
+    const Bitboard from_bit = sq_bb(from), to_bit = sq_bb(to);
+    const Bitboard from_to_bits = from_bit | to_bit;
     pos->by_color[color_of(piece)] ^= from_to_bits;
     pos->by_type[type_of(piece)] ^= from_to_bits;
     pos->key ^= ZobristPiece[piece][from] ^ ZobristPiece[piece][to];
@@ -126,7 +126,7 @@ static void move_piece(Position *pos, int from, int to)
     }
 }
 
-Bitboard position_attackers_to(const Position *pos, int square, Color color, Bitboard occupancy)
+Bitboard position_attackers_to(const Position *pos, const int square, const Color color, const Bitboard occupancy)
 {
     Bitboard attackers = 0;
     attackers |= pawn_attacks(color_flip(color), square) & position_pieces(pos, color, PAWN);
@@ -140,11 +140,11 @@ Bitboard position_attackers_to(const Position *pos, int square, Color color, Bit
 }
 
 /** @brief Apply @p move to @p pos in place (copy-make: the caller copied @p pos first — there is no unmake). */
-void position_make_move(Position *pos, Move move)
+void position_make_move(Position *pos, const Move move)
 {
-    Color     side = pos->stm, opponent = color_flip(pos->stm);
-    int       from = move_from(move), to = move_to(move);
-    PieceType piece_type = type_of(pos->board[from]);
+    const Color     side = pos->stm, opponent = color_flip(pos->stm);
+    const int       from = move_from(move), to = move_to(move);
+    const PieceType piece_type = type_of(pos->board[from]);
 
     if (pos->ep_sq != NO_SQ)
     {
@@ -168,7 +168,7 @@ void position_make_move(Position *pos, Move move)
 
     if (move_is_castle(move))
     {
-        int rank = rank_of(from);
+        const int rank = rank_of(from);
         if (move_flag(move) == FLAG_KCASTLE)
         {
             move_piece(pos, make_square(7, rank), make_square(5, rank));
@@ -191,7 +191,7 @@ void position_make_move(Position *pos, Move move)
         }
         else if (move_is_double(move))
         {
-            int ep_square = (from + to) / 2;
+            const int ep_square = (from + to) / 2;
             if (pawn_attacks(side, ep_square) & position_pieces(pos, opponent, PAWN))
             {
                 pos->ep_sq = ep_square;
@@ -208,7 +208,7 @@ void position_make_move(Position *pos, Move move)
         nnue_update_king_bucket(&pos->acc, pos, side);
     }
 
-    uint8_t old_castling = pos->castling;
+    const uint8_t old_castling = pos->castling;
     pos->castling &= CastleMask[from] & CastleMask[to];
     if (pos->castling != old_castling)
     {
@@ -237,20 +237,20 @@ void position_make_null(Position *pos)
     pos->ply++;
 }
 
-bool position_is_legal(const Position *pos, Move move)
+bool position_is_legal(const Position *pos, const Move move)
 {
-    Color    side = pos->stm;
-    Position copy = *pos;
+    const Color side = pos->stm;
+    Position    copy = *pos;
     position_make_move(&copy, move);
     return !position_is_attacked_by(&copy, position_king_sq(&copy, side), color_flip(side));
 }
 
 Bitboard position_pinned_to_king(const Position *pos)
 {
-    Color    side = pos->stm, opponent = color_flip(side);
-    int      king_square   = position_king_sq(pos, side);
-    Bitboard occupancy     = position_occupied(pos);
-    Bitboard pinned_pieces = 0;
+    const Color    side = pos->stm, opponent = color_flip(side);
+    const int      king_square   = position_king_sq(pos, side);
+    const Bitboard occupancy     = position_occupied(pos);
+    Bitboard       pinned_pieces = 0;
     // Enemy sliders that would hit our king on an empty board are candidate pinners.
     Bitboard snipers = (rook_attacks(king_square, 0) &
                         (position_pieces(pos, opponent, ROOK) | position_pieces(pos, opponent, QUEEN))) |
@@ -258,8 +258,8 @@ Bitboard position_pinned_to_king(const Position *pos)
                         (position_pieces(pos, opponent, BISHOP) | position_pieces(pos, opponent, QUEEN)));
     while (snipers)
     {
-        int      sniper_square = pop_lsb(&snipers);
-        Bitboard between       = between_bb(king_square, sniper_square) & occupancy;
+        const int      sniper_square = pop_lsb(&snipers);
+        const Bitboard between       = between_bb(king_square, sniper_square) & occupancy;
         // Exactly one piece between the sniper and our king, and it is ours => that piece is pinned.
         if (between && !(between & (between - 1)) && (between & pos->by_color[side]))
         {
@@ -271,10 +271,10 @@ Bitboard position_pinned_to_king(const Position *pos)
 
 Bitboard position_discovered_check_candidates(const Position *pos)
 {
-    Color    side = pos->stm, opponent = color_flip(side);
-    int      enemy_king_square = position_king_sq(pos, opponent);
-    Bitboard occupancy         = position_occupied(pos);
-    Bitboard candidates        = 0;
+    const Color    side = pos->stm, opponent = color_flip(side);
+    const int      enemy_king_square = position_king_sq(pos, opponent);
+    const Bitboard occupancy         = position_occupied(pos);
+    Bitboard       candidates        = 0;
     // Our sliders that would hit the enemy king on an empty board; a single OWN piece between such a slider
     // and the enemy king is a discovered-check candidate (moving it off the ray delivers check).
     Bitboard snipers =
@@ -283,8 +283,8 @@ Bitboard position_discovered_check_candidates(const Position *pos)
          (position_pieces(pos, side, BISHOP) | position_pieces(pos, side, QUEEN)));
     while (snipers)
     {
-        int      sniper_square = pop_lsb(&snipers);
-        Bitboard between       = between_bb(enemy_king_square, sniper_square) & occupancy;
+        const int      sniper_square = pop_lsb(&snipers);
+        const Bitboard between       = between_bb(enemy_king_square, sniper_square) & occupancy;
         if (between && !(between & (between - 1)) && (between & pos->by_color[side]))
         {
             candidates |= between;
@@ -294,9 +294,10 @@ Bitboard position_discovered_check_candidates(const Position *pos)
 }
 
 /** @brief Copy-free gives-check test for a QUIET @p move (direct or discovered check). */
-bool position_gives_check_fast(const Position *pos, Move move, Bitboard discovered, int enemy_king_square)
+bool position_gives_check_fast(const Position *pos, const Move move, const Bitboard discovered,
+                               const int enemy_king_square)
 {
-    int from = move_from(move), to = move_to(move);
+    const int from = move_from(move), to = move_to(move);
 
     // Contract: exact only for QUIET non-castle moves (the pruning guards' domain). Anything else reports a
     // conservative "maybe" (true ⇒ never pruned): castling can check with the rook, and captures/promotions —
@@ -314,8 +315,8 @@ bool position_gives_check_fast(const Position *pos, Move move, Bitboard discover
     }
 
     // Direct check from the destination square (quiet move: `to` is empty, the mover leaves `from`).
-    Bitboard king_bit  = sq_bb(enemy_king_square);
-    Bitboard occupancy = (position_occupied(pos) ^ sq_bb(from)) | sq_bb(to);
+    const Bitboard king_bit  = sq_bb(enemy_king_square);
+    const Bitboard occupancy = (position_occupied(pos) ^ sq_bb(from)) | sq_bb(to);
     switch (type_of(pos->board[from]))
     {
     case PAWN:
@@ -334,11 +335,11 @@ bool position_gives_check_fast(const Position *pos, Move move, Bitboard discover
 }
 
 /** @brief Copy-free legality test for a pseudo-legal @p move, given the node's @p checkers and @p pinned. */
-bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, Bitboard pinned)
+bool position_is_legal_fast(const Position *pos, const Move move, const Bitboard checkers, const Bitboard pinned)
 {
-    Color side = pos->stm, opponent = color_flip(side);
-    int   from = move_from(move), to = move_to(move);
-    int   king_square = position_king_sq(pos, side);
+    const Color side = pos->stm, opponent = color_flip(side);
+    const int   from = move_from(move), to = move_to(move);
+    const int   king_square = position_king_sq(pos, side);
 
     // Castling is generated fully legal by movegen (king not in/through check, path empty) — always legal.
     if (move_is_castle(move))
@@ -350,8 +351,8 @@ bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, B
     // diagonal, so test king safety directly on the post-capture occupancy (no copy-make).
     if (move_is_ep(move))
     {
-        int      captured_square = to + (side == WHITE ? -8 : 8);
-        Bitboard after_occupied  = (position_occupied(pos) ^ sq_bb(from) ^ sq_bb(captured_square)) | sq_bb(to);
+        const int      captured_square = to + (side == WHITE ? -8 : 8);
+        const Bitboard after_occupied  = (position_occupied(pos) ^ sq_bb(from) ^ sq_bb(captured_square)) | sq_bb(to);
         // King must be unattacked after the move: sliders on the post-move occupancy; the captured pawn is
         // dropped from the pawn-attacker set (it is gone), other non-sliders are unaffected by the move.
         if (rook_attacks(king_square, after_occupied) &
@@ -393,7 +394,7 @@ bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, B
         {
             return false; // double check, and this is not a king move
         }
-        int checker_square = lsb(checkers);
+        const int checker_square = lsb(checkers);
         if (!(sq_bb(to) & (checkers | between_bb(king_square, checker_square))))
         {
             return false;
@@ -435,14 +436,14 @@ bool position_set_fen(Position *pos, const char *fen)
     // Tokenize a local copy on whitespace; missing trailing fields read as "".
     char fen_copy[512];
     snprintf(fen_copy, sizeof fen_copy, "%s", fen);
-    char       *save_ptr     = NULL;
-    const char *separators   = " \t\r\n";
-    const char *board_str    = strtok_r(fen_copy, separators, &save_ptr);
-    const char *side         = strtok_r(NULL, separators, &save_ptr);
-    const char *castle_str   = strtok_r(NULL, separators, &save_ptr);
-    const char *ep_str       = strtok_r(NULL, separators, &save_ptr);
-    const char *halfmove_str = strtok_r(NULL, separators, &save_ptr);
-    const char *fullmove_str = strtok_r(NULL, separators, &save_ptr);
+    char             *save_ptr     = NULL;
+    const char *const separators   = " \t\r\n";
+    const char       *board_str    = strtok_r(fen_copy, separators, &save_ptr);
+    const char       *side         = strtok_r(NULL, separators, &save_ptr);
+    const char       *castle_str   = strtok_r(NULL, separators, &save_ptr);
+    const char       *ep_str       = strtok_r(NULL, separators, &save_ptr);
+    const char *const halfmove_str = strtok_r(NULL, separators, &save_ptr);
+    const char *const fullmove_str = strtok_r(NULL, separators, &save_ptr);
     if (board_str == NULL)
     {
         board_str = "";
@@ -465,12 +466,12 @@ bool position_set_fen(Position *pos, const char *fen)
     char *end_ptr = NULL;
     if (halfmove_str != NULL)
     {
-        long parsed    = strtol(halfmove_str, &end_ptr, 10);
-        bool is_parsed = end_ptr != halfmove_str;
-        halfmove_clock = is_parsed ? (int)parsed : 0;
+        const long parsed    = strtol(halfmove_str, &end_ptr, 10);
+        const bool is_parsed = end_ptr != halfmove_str;
+        halfmove_clock       = is_parsed ? (int)parsed : 0;
         if (is_parsed && *end_ptr == '\0' && fullmove_str != NULL)
         {
-            long full       = strtol(fullmove_str, &end_ptr, 10);
+            const long full = strtol(fullmove_str, &end_ptr, 10);
             fullmove_number = end_ptr != fullmove_str ? (int)full : 0;
         }
         else
@@ -487,7 +488,7 @@ bool position_set_fen(Position *pos, const char *fen)
     bool is_malformed = false;
     for (const char *cursor = board_str; *cursor; cursor++)
     {
-        char ch = *cursor;
+        const char ch = *cursor;
         if (ch == '/')
         {
             rank--;
@@ -499,8 +500,8 @@ bool position_set_fen(Position *pos, const char *fen)
         }
         else
         {
-            Color     color = isupper((unsigned char)ch) ? WHITE : BLACK;
-            PieceType piece_type;
+            const Color color = isupper((unsigned char)ch) ? WHITE : BLACK;
+            PieceType   piece_type;
             switch (tolower((unsigned char)ch))
             {
             case 'p':
@@ -560,13 +561,13 @@ bool position_set_fen(Position *pos, const char *fen)
     }
     if (strcmp(ep_str, "-") != 0 && strlen(ep_str) >= 2)
     {
-        int ep_file = ep_str[0] - 'a', ep_rank = ep_str[1] - '1';
+        const int ep_file = ep_str[0] - 'a', ep_rank = ep_str[1] - '1';
         // Validate the coordinates before make_square: an out-of-range ep field (e.g. "z9") would otherwise
         // index pawn_attacks[..][ep_square] out of bounds. Keep the ep square only when a pawn of the side to
         // move can actually capture there — matches make_move, so equal positions hash equally.
         if (ep_file >= 0 && ep_file < 8 && ep_rank >= 0 && ep_rank < 8)
         {
-            int ep_square = make_square(ep_file, ep_rank);
+            const int ep_square = make_square(ep_file, ep_rank);
             if (pawn_attacks(color_flip(pos->stm), ep_square) & position_pieces(pos, pos->stm, PAWN))
             {
                 pos->ep_sq = ep_square;
@@ -607,7 +608,7 @@ char *position_fen(const Position *pos, char *buf)
         int empty_count = 0;
         for (int file = 0; file < 8; file++)
         {
-            Piece piece = pos->board[make_square(file, rank)];
+            const Piece piece = pos->board[make_square(file, rank)];
             if (piece == NO_PIECE)
             {
                 empty_count++;
@@ -618,8 +619,8 @@ char *position_fen(const Position *pos, char *buf)
                 *out++      = (char)('0' + empty_count);
                 empty_count = 0;
             }
-            const char *names = "PNBRQKpnbrqk";
-            *out++            = names[piece];
+            const char *const names = "PNBRQKpnbrqk";
+            *out++                  = names[piece];
         }
         if (empty_count)
         {

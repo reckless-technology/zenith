@@ -33,17 +33,17 @@ static uint64_t prng_sparse(PRNG *prng)
 }
 
 /** @brief Ray-walk sliding attacks from @p square (used to build masks and to fill the magic tables). */
-static Bitboard sliding_attack(int square, Bitboard occupancy, const int deltas[4])
+static Bitboard sliding_attack(const int square, const Bitboard occupancy, const int deltas[4])
 {
     Bitboard attacks = 0;
     for (int direction = 0; direction < 4; direction++)
     {
-        int delta   = deltas[direction];
-        int current = square;
+        const int delta   = deltas[direction];
+        int       current = square;
         while (true)
         {
-            int previous_file = file_of(current);
-            int next_square   = current + delta;
+            const int previous_file = file_of(current);
+            const int next_square   = current + delta;
             if (next_square < 0 || next_square >= 64)
             {
                 break;
@@ -75,7 +75,7 @@ typedef struct Magic
     unsigned  shift;
 } Magic;
 
-static unsigned magic_index(const Magic *entry, Bitboard occupancy)
+static unsigned magic_index(const Magic *entry, const Bitboard occupancy)
 {
     return (unsigned)(((occupancy & entry->mask) * entry->magic) >> entry->shift);
 }
@@ -92,7 +92,7 @@ static Bitboard BishopTable[0x1480]; // 5248
  * then search sparse random magics until one maps every subset to a collision-free index (an epoch counter
  * distinguishes "not yet written this attempt" from a real collision).
  */
-static void init_magics(bool is_rook, Bitboard *table, Magic magics[64], const int deltas[4])
+static void init_magics(const bool is_rook, Bitboard *table, Magic magics[64], const int deltas[4])
 {
     Bitboard  occupancy[4096], reference[4096];
     int       epoch[4096]   = {0};
@@ -102,12 +102,12 @@ static void init_magics(bool is_rook, Bitboard *table, Magic magics[64], const i
     for (int square = 0; square < 64; square++)
     {
         // Relevant-occupancy mask = empty-board rays minus the edges not on the piece's own rank/file.
-        Bitboard edges         = ((RANK_1 | RANK_8) & ~rank_bb(square)) | ((FILE_A | FILE_H) & ~file_bb(square));
-        Bitboard mask          = sliding_attack(square, 0, deltas) & ~edges;
-        unsigned relevant_bits = popcount(mask);
-        magics[square].mask    = mask;
-        magics[square].shift   = 64 - relevant_bits;
-        magics[square].attacks = attack_base;
+        const Bitboard edges         = ((RANK_1 | RANK_8) & ~rank_bb(square)) | ((FILE_A | FILE_H) & ~file_bb(square));
+        const Bitboard mask          = sliding_attack(square, 0, deltas) & ~edges;
+        const unsigned relevant_bits = popcount(mask);
+        magics[square].mask          = mask;
+        magics[square].shift         = 64 - relevant_bits;
+        magics[square].attacks       = attack_base;
 
         // Enumerate every subset of mask (Carry-Rippler), recording its true attack set.
         Bitboard subset       = 0;
@@ -133,7 +133,7 @@ static void init_magics(bool is_rook, Bitboard *table, Magic magics[64], const i
             epoch_counter++;
             for (subset_index = 0; subset_index < subset_count; subset_index++)
             {
-                unsigned table_index = magic_index(&magics[square], occupancy[subset_index]);
+                const unsigned table_index = magic_index(&magics[square], occupancy[subset_index]);
                 if (epoch[table_index] < epoch_counter)
                 {
                     epoch[table_index]       = epoch_counter;
@@ -149,15 +149,15 @@ static void init_magics(bool is_rook, Bitboard *table, Magic magics[64], const i
     }
 }
 
-Bitboard bishop_attacks(int square, Bitboard occupancy)
+Bitboard bishop_attacks(const int square, const Bitboard occupancy)
 {
-    const Magic *entry = &BishopMagics[square];
+    const Magic *const entry = &BishopMagics[square];
     return entry->attacks[magic_index(entry, occupancy)];
 }
 
-Bitboard rook_attacks(int square, Bitboard occupancy)
+Bitboard rook_attacks(const int square, const Bitboard occupancy)
 {
-    const Magic *entry = &RookMagics[square];
+    const Magic *const entry = &RookMagics[square];
     return entry->attacks[magic_index(entry, occupancy)];
 }
 
@@ -165,13 +165,13 @@ void init_bitboards(void)
 {
     for (int square = 0; square < 64; square++)
     {
-        Bitboard square_bit        = sq_bb(square);
+        const Bitboard square_bit  = sq_bb(square);
         PawnAttacks[WHITE][square] = shift_ne(square_bit) | shift_nw(square_bit);
         PawnAttacks[BLACK][square] = shift_se(square_bit) | shift_sw(square_bit);
 
         // Knight: all (±1,±2)/(±2,±1) offsets, rejecting wraps by file/rank distance.
         Bitboard  knight_attack = 0, king_attack = 0;
-        int       file = file_of(square), rank = rank_of(square);
+        const int file = file_of(square), rank = rank_of(square);
         const int knight_file[8] = {1, 2, 2, 1, -1, -2, -2, -1};
         const int knight_rank[8] = {2, 1, -1, -2, -2, -1, 1, 2};
         const int king_file[8]   = {0, 1, 1, 1, 0, -1, -1, -1};

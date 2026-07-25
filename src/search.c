@@ -45,27 +45,27 @@ enum
     CORRHIST_MAX   = 64 * CORRHIST_GRAIN ///< clamp the correction to +/-64 cp
 };
 
-static int min_int(int a, int b)
+static int min_int(const int a, const int b)
 {
     return a < b ? a : b;
 }
 
-static int max_int(int a, int b)
+static int max_int(const int a, const int b)
 {
     return a > b ? a : b;
 }
 
-static int clamp_int(int value, int low, int high)
+static int clamp_int(const int value, const int low, const int high)
 {
     return value < low ? low : (value > high ? high : value);
 }
 
-static int64_t max_i64(int64_t a, int64_t b)
+static int64_t max_i64(const int64_t a, const int64_t b)
 {
     return a > b ? a : b;
 }
 
-static int64_t min_i64(int64_t a, int64_t b)
+static int64_t min_i64(const int64_t a, const int64_t b)
 {
     return a < b ? a : b;
 }
@@ -81,7 +81,7 @@ static int draw_value(void)
  * Equivalent to position_attackers_to(WHITE) | position_attackers_to(BLACK), but does each slider magic
  * lookup once instead of once per colour — the exchange loop below recomputes this every ply.
  */
-static inline Bitboard attackers_to_both(const Position *pos, int square, Bitboard occupancy)
+static inline Bitboard attackers_to_both(const Position *pos, const int square, const Bitboard occupancy)
 {
     return (pawn_attacks(BLACK, square) & position_pieces(pos, WHITE, PAWN)) |
            (pawn_attacks(WHITE, square) & position_pieces(pos, BLACK, PAWN)) |
@@ -91,13 +91,13 @@ static inline Bitboard attackers_to_both(const Position *pos, int square, Bitboa
 }
 
 /** @brief SEE of a capture: net material after the optimal capture sequence on the target square. */
-int static_exchange_eval(const Position *pos, Move move)
+int static_exchange_eval(const Position *pos, const Move move)
 {
-    int to = move_to(move), from = move_from(move);
-    int captured = move_is_ep(move) ? SeeValue[PAWN] : SeeValue[type_of(pos->board[to])];
-    int gain[32];
-    int swap_index = 0;
-    gain[0]        = captured;
+    const int to = move_to(move), from = move_from(move);
+    const int captured = move_is_ep(move) ? SeeValue[PAWN] : SeeValue[type_of(pos->board[to])];
+    int       gain[32];
+    int       swap_index = 0;
+    gain[0]              = captured;
 
     Bitboard occupied = position_occupied(pos);
     if (move_is_ep(move))
@@ -119,8 +119,8 @@ int static_exchange_eval(const Position *pos, Move move)
             break; // gain[32] guard: real positions never approach 32 recaptures, but a crafted illegal
                    // FEN with >32 attackers on one square could otherwise overflow the array.
         }
-        gain[swap_index]        = SeeValue[attacker] - gain[swap_index - 1];
-        Bitboard side_attackers = attackers & pos->by_color[side];
+        gain[swap_index]              = SeeValue[attacker] - gain[swap_index - 1];
+        const Bitboard side_attackers = attackers & pos->by_color[side];
         if (!side_attackers)
         {
             break;
@@ -130,7 +130,7 @@ int static_exchange_eval(const Position *pos, Move move)
         Bitboard  attacker_bit            = 0;
         for (int piece_type = PAWN; piece_type <= KING; piece_type++)
         {
-            Bitboard candidates = side_attackers & position_pieces(pos, side, (PieceType)piece_type);
+            const Bitboard candidates = side_attackers & position_pieces(pos, side, (PieceType)piece_type);
             if (candidates)
             {
                 least_valuable_attacker = (PieceType)piece_type;
@@ -157,8 +157,8 @@ int static_exchange_eval(const Position *pos, Move move)
 
 void init_search(void)
 {
-    double lmr_base    = g_params.lmr_base_x100 / 100.0;
-    double lmr_divisor = g_params.lmr_divisor_x100 / 100.0;
+    const double lmr_base    = g_params.lmr_base_x100 / 100.0;
+    const double lmr_divisor = g_params.lmr_divisor_x100 / 100.0;
     for (int depth = 1; depth < MAX_PLY; depth++)
     {
         for (int move_number = 1; move_number < 64; move_number++)
@@ -168,7 +168,7 @@ void init_search(void)
     }
 }
 
-bool set_search_param(const char *name, int value)
+bool set_search_param(const char *name, const int value)
 {
     if (strcmp(name, "RfpMargin") == 0)
     {
@@ -229,7 +229,7 @@ static int64_t elapsed(const Searcher *searcher)
 }
 
 /** @brief Whether the search must stop now (g_stop set, or the main thread hit its node/time budget). */
-static bool is_time_up(Searcher *searcher)
+static bool is_time_up(const Searcher *searcher)
 {
     if (atomic_load_explicit(&g_stop, memory_order_relaxed))
     {
@@ -259,11 +259,11 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
     else if (lim->time[root->stm] > 0)
     {
         searcher->is_time_limited = true;
-        int64_t remaining = lim->time[root->stm], increment = lim->inc[root->stm];
-        int     moves_to_go = lim->movestogo > 0 ? lim->movestogo : 30;
-        int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
-        searcher->soft_ms   = max_i64(1, budget - searcher->move_overhead);
-        searcher->hard_ms   = max_i64(1, min_i64(remaining - searcher->move_overhead, searcher->soft_ms * 4));
+        const int64_t remaining = lim->time[root->stm], increment = lim->inc[root->stm];
+        const int     moves_to_go = lim->movestogo > 0 ? lim->movestogo : 30;
+        const int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
+        searcher->soft_ms         = max_i64(1, budget - searcher->move_overhead);
+        searcher->hard_ms         = max_i64(1, min_i64(remaining - searcher->move_overhead, searcher->soft_ms * 4));
     }
     else if (lim->has_time_control)
     {
@@ -285,16 +285,16 @@ static bool is_draw(const Searcher *searcher, const Position *pos)
     // Insufficient material (K vs K, K+minor vs K/K+minor).
     if (!(pos->by_type[PAWN] | pos->by_type[ROOK] | pos->by_type[QUEEN]))
     {
-        int white_minors = popcount(pos->by_color[WHITE] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
-        int black_minors = popcount(pos->by_color[BLACK] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
+        const int white_minors = popcount(pos->by_color[WHITE] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
+        const int black_minors = popcount(pos->by_color[BLACK] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
         if (white_minors <= 1 && black_minors <= 1)
         {
             return true;
         }
     }
     // Repetition: scan the path back to the last irreversible move (step 2 keeps the side to move).
-    int end     = searcher->hist_count;
-    int stop_at = max_int(0, end - pos->halfmove);
+    const int end     = searcher->hist_count;
+    const int stop_at = max_int(0, end - pos->halfmove);
     for (int i = end - 2; i >= stop_at; i -= 2)
     {
         if (searcher->hist_keys[i] == pos->key)
@@ -305,7 +305,7 @@ static bool is_draw(const Searcher *searcher, const Position *pos)
     return false;
 }
 
-static void update_pv(Searcher *searcher, int ply, Move move)
+static void update_pv(Searcher *searcher, const int ply, const Move move)
 {
     searcher->pv_table[ply][0] = move;
     memcpy(&searcher->pv_table[ply][1], &searcher->pv_table[ply + 1][0], searcher->pv_len[ply + 1] * sizeof(Move));
@@ -313,13 +313,13 @@ static void update_pv(Searcher *searcher, int ply, Move move)
 }
 
 // History gravity: saturating blend toward the new bonus (larger entries move less).
-static inline void apply_gravity(int *entry, int change)
+static inline void apply_gravity(int *entry, const int change)
 {
     *entry += change - *entry * abs(change) / 16384;
 }
 
 /** @brief Quiescence search: extend the leaf with captures/promotions (SEE-pruned) until the position is quiet. */
-static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int ply)
+static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int beta, const int ply)
 {
     if (is_time_up(searcher))
     {
@@ -335,10 +335,10 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
         return evaluate(pos);
     }
 
-    Bitboard checkers =
+    const Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    bool is_in_check = checkers != 0;
-    int  best        = -VALUE_INF;
+    const bool is_in_check = checkers != 0;
+    int        best        = -VALUE_INF;
     if (!is_in_check)
     {
         best = evaluate(pos);
@@ -353,15 +353,15 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
     }
 
     MoveList moves;
-    generate_pseudo(pos, &moves, !is_in_check);     // in check: all evasions; else captures + promotions
-    Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
+    generate_pseudo(pos, &moves, !is_in_check);           // in check: all evasions; else captures + promotions
+    const Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // MVV-LVA ordering.
     int scores[256];
     for (int index = 0; index < moves.count; index++)
     {
-        Move move  = moves.moves[index];
-        int  score = 0;
+        const Move move  = moves.moves[index];
+        int        score = 0;
         if (move_is_capture(move))
         {
             score = 100 * SeeValue[move_is_ep(move) ? PAWN : type_of(pos->board[move_to(move)])] -
@@ -385,13 +385,13 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
                 best_index = other;
             }
         }
-        Move swap_move          = moves.moves[index];
+        const Move swap_move    = moves.moves[index];
         moves.moves[index]      = moves.moves[best_index];
         moves.moves[best_index] = swap_move;
-        int swap_score          = scores[index];
+        const int swap_score    = scores[index];
         scores[index]           = scores[best_index];
         scores[best_index]      = swap_score;
-        Move move               = moves.moves[index];
+        const Move move         = moves.moves[index];
 
         // Copy-free legality first, then SEE pruning, so only searched moves pay make_move.
         if (!position_is_legal_fast(pos, move, checkers, pinned))
@@ -407,7 +407,7 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
 
         Position child = *pos;
         position_make_move(&child, move);
-        int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
+        const int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
         if (g_stop)
         {
             return 0;
@@ -437,15 +437,15 @@ static int qsearch(Searcher *searcher, Position *pos, int alpha, int beta, int p
  *
  * The `excluded` argument skips a move (for the singular-extension exclusion search), or is MOVE_NONE.
  */
-static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int beta, int ply, bool is_cutnode,
-                   Move prev_move, Move excluded)
+static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha, int beta, const int ply,
+                   const bool is_cutnode, const Move prev_move, const Move excluded)
 {
     if (is_time_up(searcher))
     {
         return 0; // is_time_up() already set g_stop for the main thread
     }
-    bool is_root          = ply == 0;
-    bool is_pv_node       = beta - alpha > 1;
+    const bool is_root    = ply == 0;
+    const bool is_pv_node = beta - alpha > 1;
     searcher->pv_len[ply] = 0;
 
     if (!is_root)
@@ -475,25 +475,25 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     // Checkers once per node (drives IIR / reverse-futility / null-move / in-check logic below). The pinned
     // bitboard the legality test also needs is computed later, just before the move loop, so the frequent
     // TT / RFP / null-move cutoffs above it never pay for the pin scan.
-    Bitboard checkers =
+    const Bitboard checkers =
         position_attackers_to(pos, position_king_sq(pos, pos->stm), color_flip(pos->stm), position_occupied(pos));
-    bool is_in_check = checkers != 0;
+    const bool is_in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
     int prev_piece_to = -1;
     if (!move_is_none(prev_move))
     {
-        Piece prev_piece = pos->board[move_to(prev_move)];
+        const Piece prev_piece = pos->board[move_to(prev_move)];
         if (prev_piece != NO_PIECE)
         {
             prev_piece_to = prev_piece * 64 + move_to(prev_move);
         }
     }
 
-    TTData tt_entry  = {0};
-    bool   is_tt_hit = tt_probe(pos->key, &tt_entry);
-    int    tt_score  = is_tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
-    Move   tt_move   = is_tt_hit ? (Move)tt_entry.move : MOVE_NONE;
+    TTData     tt_entry  = {0};
+    const bool is_tt_hit = tt_probe(pos->key, &tt_entry);
+    const int  tt_score  = is_tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
+    const Move tt_move   = is_tt_hit ? (Move)tt_entry.move : MOVE_NONE;
     if (move_is_none(excluded) && !is_pv_node && is_tt_hit && (int)tt_entry.depth >= depth &&
         (tt_entry.bound == BOUND_EXACT || (tt_entry.bound == BOUND_LOWER && tt_score >= beta) ||
          (tt_entry.bound == BOUND_UPPER && tt_score <= alpha)))
@@ -510,7 +510,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
 
     // Raw static eval (stored in the TT); the corrected eval drives pruning/reductions. Keep them separate
     // so re-reading the TT eval never double-applies the correction.
-    int raw_eval =
+    const int raw_eval =
         is_in_check ? VALUE_NONE : (is_tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval : evaluate(pos));
     int eval = raw_eval;
     if (!is_in_check)
@@ -528,12 +528,12 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     // Null-move pruning.
     if (!is_pv_node && !is_in_check && depth >= 3 && eval >= beta && position_has_non_pawn_material(pos, pos->stm))
     {
-        int      reduction  = 3 + depth / 3 + min_int((eval - beta) / g_params.nmp_divisor, 3);
-        Position null_child = *pos;
+        const int reduction  = 3 + depth / 3 + min_int((eval - beta) / g_params.nmp_divisor, 3);
+        Position  null_child = *pos;
         position_make_null(&null_child);
         searcher_hist_push(searcher, pos->key);
-        int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
-                             MOVE_NONE, MOVE_NONE);
+        const int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
+                                   MOVE_NONE, MOVE_NONE);
         searcher_hist_pop(searcher);
         if (g_stop)
         {
@@ -546,8 +546,8 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     }
 
     MoveList moves;
-    generate_pseudo(pos, &moves, false);            // legality is filtered in the loop via the single make_move
-    Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
+    generate_pseudo(pos, &moves, false);                  // legality is filtered in the loop via the single make_move
+    const Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
 
     // Score moves: TT move, captures (MVV-LVA), killers, history.
     int scores[256];
@@ -582,19 +582,19 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         }
         else
         {
-            int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
-            move_score           = searcher->history[pos->stm][move_from(move)][move_to(move)] +
+            const int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
+            move_score                 = searcher->history[pos->stm][move_from(move)][move_to(move)] +
                          (prev_piece_to >= 0 ? searcher->cont_hist[prev_piece_to * 768 + current_piece_to] : 0);
         }
         scores[index] = move_score;
     }
 
-    int  best_score = -VALUE_INF;
-    Move best_move  = MOVE_NONE;
-    int  orig_alpha = alpha;
-    int  move_count = 0;
-    Move quiets[64];
-    int  quiet_count = 0;
+    int       best_score = -VALUE_INF;
+    Move      best_move  = MOVE_NONE;
+    const int orig_alpha = alpha;
+    int       move_count = 0;
+    Move      quiets[64];
+    int       quiet_count = 0;
 
     for (int index = 0; index < moves.count; index++)
     {
@@ -606,13 +606,13 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
                 best_index = other;
             }
         }
-        Move swap_move          = moves.moves[index];
+        const Move swap_move    = moves.moves[index];
         moves.moves[index]      = moves.moves[best_index];
         moves.moves[best_index] = swap_move;
-        int swap_score          = scores[index];
+        const int swap_score    = scores[index];
         scores[index]           = scores[best_index];
         scores[best_index]      = swap_score;
-        Move move               = moves.moves[index];
+        const Move move         = moves.moves[index];
         if (move == excluded)
         {
             continue; // singular exclusion search: skip the move being tested for singularity
@@ -625,7 +625,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         {
             continue;
         }
-        bool is_quiet = move_is_quiet(move);
+        const bool is_quiet = move_is_quiet(move);
         move_count++;
 
         // Late-move pruning: at low depth, stop trying quiet moves once deep into the ordered list.
@@ -652,8 +652,8 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         // Move survived pruning — make it now (legality already established above).
         Position child = *pos;
         position_make_move(&child, move);
-        bool is_child_in_check = position_is_in_check(&child);
-        int  extension         = is_child_in_check ? 1 : 0;
+        const bool is_child_in_check = position_is_in_check(&child);
+        int        extension         = is_child_in_check ? 1 : 0;
 
         // Singular extension: if the TT move is much better than every alternative — an exclusion search
         // (this position without the TT move) at reduced depth fails low below a margin — extend it.
@@ -661,16 +661,16 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
             (int)tt_entry.depth >= depth - 3 && (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) &&
             !is_mate_score(tt_score))
         {
-            int singular_beta  = tt_score - g_params.singular_margin * depth;
-            int singular_score = negamax(searcher, pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply,
-                                         is_cutnode, prev_move, tt_move);
+            const int singular_beta  = tt_score - g_params.singular_margin * depth;
+            const int singular_score = negamax(searcher, pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply,
+                                               is_cutnode, prev_move, tt_move);
             if (singular_score < singular_beta)
             {
                 extension = 1;
             }
         }
 
-        int new_depth = depth - 1 + extension;
+        const int new_depth = depth - 1 + extension;
 
         searcher_hist_push(searcher, pos->key);
         int score;
@@ -743,8 +743,8 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
                         {
                             searcher->counter_moves[prev_piece_to] = move;
                         }
-                        int bonus            = min_int(depth * depth, g_params.history_max);
-                        int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
+                        const int bonus            = min_int(depth * depth, g_params.history_max);
+                        const int current_piece_to = pos->board[move_from(move)] * 64 + move_to(move);
                         apply_gravity(&searcher->history[pos->stm][move_from(move)][move_to(move)], bonus);
                         if (prev_piece_to >= 0)
                         {
@@ -752,7 +752,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
                         }
                         for (int quiet_index = 0; quiet_index < quiet_count - 1; quiet_index++)
                         {
-                            Move quiet_move = quiets[quiet_index];
+                            const Move quiet_move = quiets[quiet_index];
                             apply_gravity(&searcher->history[pos->stm][move_from(quiet_move)][move_to(quiet_move)],
                                           -bonus);
                             if (prev_piece_to >= 0)
@@ -775,7 +775,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         return is_in_check ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
     }
 
-    Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
+    const Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
     if (move_is_none(excluded))
     {
         tt_store(pos->key, best_score, is_in_check ? VALUE_NONE : raw_eval, depth, bound, best_move, ply);
@@ -786,10 +786,10 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
         if (!is_in_check && !is_mate_score(best_score) && (move_is_none(best_move) || !move_is_capture(best_move)) &&
             !(bound == BOUND_LOWER && best_score <= raw_eval) && !(bound == BOUND_UPPER && best_score >= raw_eval))
         {
-            int *entry  = &searcher->correction_history[pos->stm][pos->pawn_key & (CORRHIST_SIZE - 1)];
-            int  target = clamp_int((best_score - raw_eval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
-            int  weight = min_int(depth + 1, 16);
-            *entry      = clamp_int((*entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
+            int *const entry  = &searcher->correction_history[pos->stm][pos->pawn_key & (CORRHIST_SIZE - 1)];
+            const int  target = clamp_int((best_score - raw_eval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
+            const int  weight = min_int(depth + 1, 16);
+            *entry = clamp_int((*entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
         }
     }
     if (is_root)
@@ -799,7 +799,7 @@ static int negamax(Searcher *searcher, Position *pos, int depth, int alpha, int 
     return best_score;
 }
 
-Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, bool is_main_thread)
+Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, const bool is_main_thread)
 {
     searcher->is_main = is_main_thread;
     if (searcher->is_main)
@@ -825,9 +825,9 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, boo
     }
 
     searcher->root_best = MOVE_NONE;
-    Move best           = MOVE_NONE;
-    int  max_depth      = lim->depth > 0 ? lim->depth : MAX_PLY - 2;
-    int  score          = 0;
+    Move      best      = MOVE_NONE;
+    const int max_depth = lim->depth > 0 ? lim->depth : MAX_PLY - 2;
+    int       score     = 0;
 
     for (int depth = 1; depth <= max_depth; depth++)
     {
@@ -840,7 +840,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, boo
         }
         while (true)
         {
-            int window_score = negamax(searcher, &root, depth, alpha, beta, 0, false, MOVE_NONE, MOVE_NONE);
+            const int window_score = negamax(searcher, &root, depth, alpha, beta, 0, false, MOVE_NONE, MOVE_NONE);
             if (g_stop)
             {
                 break;
@@ -870,13 +870,13 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, boo
 
         if (searcher->is_main && !searcher->is_silent)
         {
-            int64_t  elapsed_ms       = elapsed(searcher);
-            uint64_t nodes_per_second = elapsed_ms ? searcher->nodes * 1000 / elapsed_ms : searcher->nodes;
+            const int64_t  elapsed_ms       = elapsed(searcher);
+            const uint64_t nodes_per_second = elapsed_ms ? searcher->nodes * 1000 / elapsed_ms : searcher->nodes;
             // Score string.
             char score_str[32];
             if (is_mate_score(score))
             {
-                int mate = score > 0 ? (VALUE_MATE - score + 1) / 2 : -(VALUE_MATE + score) / 2;
+                const int mate = score > 0 ? (VALUE_MATE - score + 1) / 2 : -(VALUE_MATE + score) / 2;
                 snprintf(score_str, sizeof score_str, "mate %d", mate);
             }
             else

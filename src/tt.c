@@ -9,13 +9,13 @@
 
 TranspositionTable TT;
 
-static int clamp_int(int value, int low, int high)
+static int clamp_int(const int value, const int low, const int high)
 {
     return value < low ? low : (value > high ? high : value);
 }
 
 /** @brief Largest power of two <= @p x (x > 0), so the table size becomes an index mask. */
-static size_t bit_floor_size(size_t x)
+static size_t bit_floor_size(const size_t x)
 {
     return (size_t)1 << (63 - __builtin_clzll((uint64_t)x));
 }
@@ -32,8 +32,8 @@ void tt_resize(size_t megabytes)
     {
         megabytes = TT_MAX_MB;
     }
-    size_t bytes      = megabytes * 1024u * 1024u;
-    size_t slot_count = bytes / sizeof(TTSlot);
+    const size_t bytes      = megabytes * 1024u * 1024u;
+    size_t       slot_count = bytes / sizeof(TTSlot);
     if (slot_count < 1024)
     {
         slot_count = 1024;
@@ -63,11 +63,11 @@ void tt_clear(void)
     TT.generation = 0;
 }
 
-bool tt_probe(uint64_t key, TTData *out)
+bool tt_probe(const uint64_t key, TTData *out)
 {
-    const TTSlot *slot    = &TT.table[key & TT.mask];
-    uint64_t      data    = atomic_load_explicit(&slot->data, memory_order_relaxed);
-    uint64_t      xor_key = atomic_load_explicit(&slot->key, memory_order_relaxed);
+    const TTSlot *const slot    = &TT.table[key & TT.mask];
+    const uint64_t      data    = atomic_load_explicit(&slot->data, memory_order_relaxed);
+    const uint64_t      xor_key = atomic_load_explicit(&slot->key, memory_order_relaxed);
     if ((xor_key ^ data) != key || data == 0)
     {
         return false; // miss, empty, or torn read
@@ -76,13 +76,14 @@ bool tt_probe(uint64_t key, TTData *out)
     return out->bound != BOUND_NONE;
 }
 
-void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply)
+void tt_store(const uint64_t key, const int score, const int eval, const int depth, const Bound bound, Move move,
+              const int ply)
 {
-    TTSlot  *slot         = &TT.table[key & TT.mask];
-    uint64_t current_data = atomic_load_explicit(&slot->data, memory_order_relaxed);
-    uint64_t current_key  = atomic_load_explicit(&slot->key, memory_order_relaxed);
-    bool     is_same_key  = (current_data != 0) && ((current_key ^ current_data) == key);
-    TTData   current      = u64_to_tt_data(current_data);
+    TTSlot *const  slot         = &TT.table[key & TT.mask];
+    const uint64_t current_data = atomic_load_explicit(&slot->data, memory_order_relaxed);
+    const uint64_t current_key  = atomic_load_explicit(&slot->key, memory_order_relaxed);
+    const bool     is_same_key  = (current_data != 0) && ((current_key ^ current_data) == key);
+    const TTData   current      = u64_to_tt_data(current_data);
 
     // Preserve a TT move if the new store lacks one (a fail-low often has no best move).
     if (is_same_key && move_is_none(move))
@@ -102,7 +103,7 @@ void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move mo
         entry.bound  = bound;
         entry.gen    = TT.generation;
 
-        uint64_t data = tt_data_to_u64(entry);
+        const uint64_t data = tt_data_to_u64(entry);
         atomic_store_explicit(&slot->key, key ^ data, memory_order_relaxed);
         atomic_store_explicit(&slot->data, data, memory_order_relaxed);
     }
@@ -110,11 +111,11 @@ void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move mo
 
 int tt_hashfull(void)
 {
-    int used   = 0;
-    int sample = TT.slot_count < 1000 ? (int)TT.slot_count : 1000;
+    int       used   = 0;
+    const int sample = TT.slot_count < 1000 ? (int)TT.slot_count : 1000;
     for (int i = 0; i < sample; i++)
     {
-        uint64_t data = atomic_load_explicit(&TT.table[i].data, memory_order_relaxed);
+        const uint64_t data = atomic_load_explicit(&TT.table[i].data, memory_order_relaxed);
         if (data != 0 && u64_to_tt_data(data).gen == TT.generation)
         {
             used++;

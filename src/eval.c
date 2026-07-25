@@ -83,7 +83,7 @@ static int eg_table[12][64];
 #define EVAL_CACHE_ENTRIES (1ull << 20)
 static _Atomic uint64_t *eval_cache;
 
-static uint64_t eval_cache_pack(uint64_t key, int value)
+static uint64_t eval_cache_pack(const uint64_t key, const int value)
 {
     return (key & ~0xFFFFull) | (uint16_t)(int16_t)value;
 }
@@ -117,12 +117,13 @@ void eval_cache_clear(void)
 
 /** @brief Accumulate a mobility term: attacked squares not occupied by own pieces, small weights. */
 static void mobility(int *middlegame, int *endgame, Bitboard piece_bitboard, Bitboard (*attack_fn)(int, Bitboard),
-                     Bitboard occupancy, Bitboard own_pieces, int middlegame_weight, int endgame_weight)
+                     const Bitboard occupancy, const Bitboard own_pieces, const int middlegame_weight,
+                     const int endgame_weight)
 {
     while (piece_bitboard)
     {
-        int attacker_square = pop_lsb(&piece_bitboard);
-        int mobility_count  = popcount(attack_fn(attacker_square, occupancy) & ~own_pieces);
+        const int attacker_square = pop_lsb(&piece_bitboard);
+        const int mobility_count  = popcount(attack_fn(attacker_square, occupancy) & ~own_pieces);
         *middlegame += middlegame_weight * (mobility_count - 4);
         *endgame += endgame_weight * (mobility_count - 4);
     }
@@ -132,10 +133,10 @@ int evaluate(const Position *pos)
 {
     // eval_cache is NULL only if its allocation failed at init — degrade to an uncached eval rather than
     // dereferencing NULL. The branch is perfectly predicted (cache is non-NULL in every normal run).
-    _Atomic uint64_t *slot = eval_cache ? &eval_cache[pos->key & (EVAL_CACHE_ENTRIES - 1)] : NULL;
+    _Atomic uint64_t *const slot = eval_cache ? &eval_cache[pos->key & (EVAL_CACHE_ENTRIES - 1)] : NULL;
     if (slot)
     {
-        uint64_t entry = atomic_load_explicit(slot, memory_order_relaxed);
+        const uint64_t entry = atomic_load_explicit(slot, memory_order_relaxed);
         if (entry != 0 && ((entry ^ pos->key) & ~0xFFFFull) == 0)
         {
             return (int16_t)(uint16_t)entry; // hit: the low 16 bits hold the cached eval
@@ -157,13 +158,13 @@ int evaluate(const Position *pos)
 
     int middlegame[2] = {0, 0}, endgame[2] = {0, 0}, phase = 0;
 
-    Bitboard occupancy  = position_occupied(pos);
-    Bitboard board_bits = occupancy;
+    const Bitboard occupancy  = position_occupied(pos);
+    Bitboard       board_bits = occupancy;
     while (board_bits)
     {
-        int   square = pop_lsb(&board_bits);
-        Piece piece  = pos->board[square];
-        Color color  = color_of(piece);
+        const int   square = pop_lsb(&board_bits);
+        const Piece piece  = pos->board[square];
+        const Color color  = color_of(piece);
         middlegame[color] += mg_table[piece][square];
         endgame[color] += eg_table[piece][square];
         phase += phase_inc[type_of(piece)];
@@ -179,7 +180,7 @@ int evaluate(const Position *pos)
             endgame[color] += 40;
         }
         // Mobility (attacked squares not occupied by own pieces), small weights.
-        Bitboard own_pieces = pos->by_color[color];
+        const Bitboard own_pieces = pos->by_color[color];
         mobility(&middlegame[color], &endgame[color], position_pieces(pos, (Color)color, BISHOP), bishop_attacks,
                  occupancy, own_pieces, 4, 4);
         mobility(&middlegame[color], &endgame[color], position_pieces(pos, (Color)color, ROOK), rook_attacks, occupancy,
@@ -188,15 +189,15 @@ int evaluate(const Position *pos)
                  occupancy, own_pieces, 1, 2);
     }
 
-    int middlegame_score = middlegame[WHITE] - middlegame[BLACK];
-    int endgame_score    = endgame[WHITE] - endgame[BLACK];
+    const int middlegame_score = middlegame[WHITE] - middlegame[BLACK];
+    const int endgame_score    = endgame[WHITE] - endgame[BLACK];
     if (phase > 24)
     {
         phase = 24;
     }
-    int score              = (middlegame_score * phase + endgame_score * (24 - phase)) / 24; // White-relative
-    int side_to_move_score = (pos->stm == WHITE ? score : -score);
-    value                  = side_to_move_score + 10; // tempo: a small bonus for the side to move
+    const int score              = (middlegame_score * phase + endgame_score * (24 - phase)) / 24; // White-relative
+    const int side_to_move_score = (pos->stm == WHITE ? score : -score);
+    value                        = side_to_move_score + 10; // tempo: a small bonus for the side to move
     if (slot)
     {
         atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);

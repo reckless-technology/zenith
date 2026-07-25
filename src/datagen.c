@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+static const char *const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 /** @brief Datagen adjudication / filtering knobs. */
 enum
@@ -58,7 +58,7 @@ static uint64_t rng_next(DatagenRng *rng)
  *
  * Repetition scans the in-game @p history (keys of positions *before* @p pos).
  */
-static bool datagen_is_draw(const Position *pos, const uint64_t *history, int history_count)
+static bool datagen_is_draw(const Position *pos, const uint64_t *history, const int history_count)
 {
     if (pos->halfmove >= 100)
     {
@@ -66,8 +66,8 @@ static bool datagen_is_draw(const Position *pos, const uint64_t *history, int hi
     }
     if (!(pos->by_type[PAWN] | pos->by_type[ROOK] | pos->by_type[QUEEN]))
     {
-        int white_minors = popcount(pos->by_color[WHITE] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
-        int black_minors = popcount(pos->by_color[BLACK] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
+        const int white_minors = popcount(pos->by_color[WHITE] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
+        const int black_minors = popcount(pos->by_color[BLACK] & (pos->by_type[KNIGHT] | pos->by_type[BISHOP]));
         if (white_minors <= 1 && black_minors <= 1)
         {
             return true;
@@ -101,7 +101,7 @@ static char **load_opening_book(const char *path, size_t *count)
     {
         return NULL;
     }
-    FILE *file = fopen(path, "r");
+    FILE *const file = fopen(path, "r");
     if (!file)
     {
         return NULL;
@@ -116,15 +116,15 @@ static char **load_opening_book(const char *path, size_t *count)
         {
             if (*count == capacity)
             {
-                capacity       = capacity ? capacity * 2 : 1024;
-                char **resized = realloc(book, capacity * sizeof(char *));
+                capacity             = capacity ? capacity * 2 : 1024;
+                char **const resized = realloc(book, capacity * sizeof(char *));
                 if (resized == NULL)
                 {
                     break; // out of memory: keep what we have (realloc left `book` valid)
                 }
                 book = resized;
             }
-            char *copy = strdup(line);
+            char *const copy = strdup(line);
             if (copy == NULL)
             {
                 break;
@@ -142,8 +142,8 @@ static char **load_opening_book(const char *path, size_t *count)
  * @return false if a terminal position is hit (the caller retries), so every game starts from a legal,
  *         non-terminal, varied position.
  */
-static bool random_opening(Position *pos, uint64_t *history, int *history_count, DatagenRng *rng, int opening_plies,
-                           const char *start_fen)
+static bool random_opening(Position *pos, uint64_t *history, int *history_count, DatagenRng *rng,
+                           const int opening_plies, const char *start_fen)
 {
     if (!position_set_fen(pos, start_fen))
     {
@@ -158,7 +158,7 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
         {
             return false;
         }
-        Move move                   = moves.moves[rng_next(rng) % moves.count];
+        const Move move             = moves.moves[rng_next(rng) % moves.count];
         history[(*history_count)++] = pos->key;
         pos->ply                    = 0;
         position_make_move(pos, move);
@@ -169,7 +169,7 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
     return moves.count != 0;
 }
 
-int run_datagen(int argc, char **argv)
+int run_datagen(const int argc, char **argv)
 {
     // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=opening_plies
     if (argc < 3)
@@ -178,10 +178,10 @@ int run_datagen(int argc, char **argv)
                 argv[0]);
         return 1;
     }
-    long        games    = atol(argv[1]);
-    const char *out_path = argv[2];
-    uint64_t    seed     = argc > 3 ? strtoull(argv[3], NULL, 10) : 0x9E3779B97F4A7C15ULL;
-    int         nodes    = argc > 4 ? atoi(argv[4]) : 5000;
+    const long        games    = atol(argv[1]);
+    const char *const out_path = argv[2];
+    const uint64_t    seed     = argc > 3 ? strtoull(argv[3], NULL, 10) : 0x9E3779B97F4A7C15ULL;
+    const int         nodes    = argc > 4 ? atoi(argv[4]) : 5000;
     // Clamp opening_plies to the history buffer: random_opening writes one history[] entry per ply, and the
     // buffer is history[SEARCH_HIST_CAP]. Leave headroom so the game itself can still record moves afterwards.
     int opening_plies = argc > 5 ? atoi(argv[5]) : 8;
@@ -193,11 +193,11 @@ int run_datagen(int argc, char **argv)
     {
         opening_plies = SEARCH_HIST_CAP / 2;
     }
-    const char *book_path = argc > 6 ? argv[6] : "";
-    const char *net_path  = argc > 7 ? argv[7] : "";
+    const char *const book_path = argc > 6 ? argv[6] : "";
+    const char *const net_path  = argc > 7 ? argv[7] : "";
 
-    size_t opening_book_count = 0;
-    char **opening_book       = load_opening_book(book_path, &opening_book_count);
+    size_t       opening_book_count = 0;
+    char **const opening_book       = load_opening_book(book_path, &opening_book_count);
     if (book_path[0] != '\0')
     {
         fprintf(stderr, "datagen: loaded %zu opening positions from %s\n", opening_book_count, book_path);
@@ -210,15 +210,15 @@ int run_datagen(int argc, char **argv)
                 net_path);
     }
 
-    FILE *out = fopen(out_path, "w");
+    FILE *const out = fopen(out_path, "w");
     if (!out)
     {
         fprintf(stderr, "datagen: cannot open %s\n", out_path);
         return 1;
     }
 
-    DatagenRng rng      = {seed ? seed : 0x9E3779B97F4A7C15ULL}; // xorshift must not start at 0
-    Searcher  *searcher = malloc(sizeof(Searcher));
+    DatagenRng      rng      = {seed ? seed : 0x9E3779B97F4A7C15ULL}; // xorshift must not start at 0
+    Searcher *const searcher = malloc(sizeof(Searcher));
     searcher_init(searcher);
     searcher->is_silent     = true;
     searcher->move_overhead = 0;
@@ -227,9 +227,9 @@ int run_datagen(int argc, char **argv)
     search_limits_init(&limits);
     limits.nodes = nodes;
 
-    uint64_t total_positions = 0;
-    long     finished        = 0;
-    int64_t  start_time      = platform_now_ms();
+    uint64_t      total_positions = 0;
+    long          finished        = 0;
+    const int64_t start_time      = platform_now_ms();
 
     static Record   pending[MAX_GAME_PLIES];
     int             pending_count = 0;
@@ -240,7 +240,8 @@ int run_datagen(int argc, char **argv)
     {
         Position pos;
         position_init(&pos);
-        const char *start_fen = opening_book_count == 0 ? START_FEN : opening_book[rng_next(&rng) % opening_book_count];
+        const char *const start_fen =
+            opening_book_count == 0 ? START_FEN : opening_book[rng_next(&rng) % opening_book_count];
         while (!random_opening(&pos, history, &history_count, &rng, opening_plies, start_fen))
         { /* retry until non-terminal */
         }
@@ -269,26 +270,26 @@ int run_datagen(int argc, char **argv)
             pos.ply = 0;
             memcpy(searcher->hist_keys, history, history_count * sizeof(uint64_t));
             searcher->hist_count = history_count;
-            Move move            = searcher_go(searcher, pos, &limits, true);
+            const Move move      = searcher_go(searcher, pos, &limits, true);
             if (move_is_none(move))
             {
                 game_result = 0;
                 break;
             }
-            int score = searcher->root_score; // cp, stm POV
+            const int score = searcher->root_score; // cp, stm POV
 
             // Record quiet, not-yet-decided positions (one per ply).
             if (!position_is_in_check(&pos) && move_is_quiet(move) && abs(score) < RECORD_SCORE_CAP)
             {
-                Record *record = &pending[pending_count++];
+                Record *const record = &pending[pending_count++];
                 position_fen(&pos, record->fen);
                 record->score = score;
                 record->stm   = pos.stm;
             }
 
             // Win adjudication (white POV).
-            int white_score = pos.stm == WHITE ? score : -score;
-            int side        = white_score > WIN_ADJ_SCORE ? +1 : (white_score < -WIN_ADJ_SCORE ? -1 : 0);
+            const int white_score = pos.stm == WHITE ? score : -score;
+            const int side        = white_score > WIN_ADJ_SCORE ? +1 : (white_score < -WIN_ADJ_SCORE ? -1 : 0);
             if (side != 0 && side == adjudication_side)
             {
                 if (++win_adj_count >= WIN_ADJ_PLIES)
@@ -310,8 +311,8 @@ int run_datagen(int argc, char **argv)
         // Emit records with the final WDL from each record's side-to-move POV.
         for (int record_index = 0; record_index < pending_count; record_index++)
         {
-            const Record *record = &pending[record_index];
-            double        wdl    = game_result == 0 ? 0.5 : (((game_result > 0) == (record->stm == WHITE)) ? 1.0 : 0.0);
+            const Record *const record = &pending[record_index];
+            const double wdl = game_result == 0 ? 0.5 : (((game_result > 0) == (record->stm == WHITE)) ? 1.0 : 0.0);
             fprintf(out, "%s;%d;%.1f\n", record->fen, record->score, wdl);
         }
         total_positions += pending_count;
@@ -320,7 +321,7 @@ int run_datagen(int argc, char **argv)
         if (finished % 50 == 0 || game_index == games - 1)
         {
             fflush(out);
-            double seconds = (platform_now_ms() - start_time) / 1000.0;
+            const double seconds = (platform_now_ms() - start_time) / 1000.0;
             fprintf(stderr, "[seed %llu] games %ld/%ld  positions %llu  %.0f pos/s\n", (unsigned long long)seed,
                     finished, games, (unsigned long long)total_positions,
                     seconds > 0 ? total_positions / seconds : 0.0);
@@ -342,17 +343,17 @@ int run_datagen(int argc, char **argv)
 // | result u8 (0/1/2) | ksq u8 | opp_ksq u8 | extra[3]. Board is stored from the side-to-move's POV:
 // nibble bit 3 = own(0)/opp(1), bits 0-2 = piece type; square is stm-relative. Emitting "white to move"
 // with own=white/opp=black reproduces exactly the stm/ntm feature indices Zenith's engine computes.
-int run_bullet2text(int argc, char **argv)
+int run_bullet2text(const int argc, char **argv)
 {
     if (argc < 3)
     {
         fprintf(stderr, "usage: %s bullet2text <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
         return 1;
     }
-    const char *in_path     = argv[1];
-    const char *out_path    = argv[2];
-    uint64_t    max_records = argc > 3 ? strtoull(argv[3], NULL, 10) : ~0ULL;
-    uint64_t    stride      = 1;
+    const char *const in_path     = argv[1];
+    const char *const out_path    = argv[2];
+    uint64_t          max_records = argc > 3 ? strtoull(argv[3], NULL, 10) : ~0ULL;
+    uint64_t          stride      = 1;
     if (argc > 4)
     {
         stride = strtoull(argv[4], NULL, 10);
@@ -366,18 +367,18 @@ int run_bullet2text(int argc, char **argv)
         max_records = ~0ULL; // 0 means "all records" (with the given stride)
     }
 
-    FILE *in  = fopen(in_path, "rb");
-    FILE *out = fopen(out_path, "w");
+    FILE *const in  = fopen(in_path, "rb");
+    FILE *const out = fopen(out_path, "w");
     if (!in || !out)
     {
         fprintf(stderr, "bullet2text: cannot open %s / %s\n", in_path, out_path);
         return 1;
     }
 
-    const char   *piece_chars = "PNBRQK";
-    unsigned char record[32];
-    uint64_t      read_count = 0, written = 0;
-    char          line[128];
+    const char *const piece_chars = "PNBRQK";
+    unsigned char     record[32];
+    uint64_t          read_count = 0, written = 0;
+    char              line[128];
     while (written < max_records && fread(record, 1, 32, in) == 32)
     {
         if ((read_count++ % stride) != 0)
@@ -388,7 +389,7 @@ int run_bullet2text(int argc, char **argv)
         int16_t  score;
         memcpy(&occupancy, record, 8);
         memcpy(&score, record + 24, 2);
-        uint8_t result = record[26];
+        const uint8_t result = record[26];
 
         char board[64];
         memset(board, 0, sizeof(board));
@@ -396,12 +397,12 @@ int run_bullet2text(int argc, char **argv)
         int      piece_index    = 0;
         while (occupancy_bits)
         {
-            int square = __builtin_ctzll(occupancy_bits);
+            const int square = __builtin_ctzll(occupancy_bits);
             occupancy_bits &= occupancy_bits - 1;
-            uint8_t nibble = (record[8 + piece_index / 2] >> (4 * (piece_index % 2))) & 0xF;
+            const uint8_t nibble = (record[8 + piece_index / 2] >> (4 * (piece_index % 2))) & 0xF;
             piece_index++;
-            char piece_char = piece_chars[nibble & 7];
-            board[square]   = (nibble & 8) ? (char)tolower(piece_char) : piece_char; // bit3 set => opponent (black)
+            const char piece_char = piece_chars[nibble & 7];
+            board[square] = (nibble & 8) ? (char)tolower(piece_char) : piece_char; // bit3 set => opponent (black)
         }
 
         int length = 0;
@@ -410,7 +411,7 @@ int run_bullet2text(int argc, char **argv)
             int empty_count = 0;
             for (int file = 0; file < 8; file++)
             {
-                char square_char = board[rank * 8 + file];
+                const char square_char = board[rank * 8 + file];
                 if (!square_char)
                 {
                     empty_count++;
