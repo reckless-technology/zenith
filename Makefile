@@ -5,8 +5,10 @@ CC        = clang
 STD       = -std=c17 -D_POSIX_C_SOURCE=200809L
 # Target microarch. Default 'native' for local dev; a release fans out per microarch (e.g. ARCH=x86-64-v2
 # for broad compatibility, ARCH=x86-64-v3 which guarantees BMI2 for `make pext`). See .github/workflows/release.yml.
+# ARCH= (empty) omits -march entirely — a portable baseline, needed on Apple-clang arm64 (no -march=native).
 ARCH      ?= native
-OPT       = -O3 -march=$(ARCH) -funroll-loops -flto -DNDEBUG
+ARCH_FLAG  = $(if $(ARCH),-march=$(ARCH))
+OPT       = -O3 $(ARCH_FLAG) -funroll-loops -flto -DNDEBUG
 WARN      = -Wall -Wextra -Wpedantic -Werror -Wshadow -Wno-unused-parameter
 # Build number = git commit count (globally reproducible per commit; 0 outside a git checkout).
 BUILD_NUM = $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
