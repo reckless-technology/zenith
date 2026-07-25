@@ -1,10 +1,19 @@
 # Zenith
 
-A UCI chess engine in **C17** with its own independently-trained NNUE evaluation. Code was written
-by Claude Code under the close supervision and direction of Jonny Reckless.
+A UCI chess engine in **C17** with its own independently-trained NNUE evaluation. 
+
+Code was written by Claude Code under the close supervision and direction of Jonny Reckless.
+
 Zenith pairs a modern alpha-beta search — iterative deepening, principal-variation search, a lockless
 transposition table, the full pruning/reduction stack, and Lazy SMP — with a king-bucketed neural
 network evaluation trained by the repository's own pipeline.
+
+Goals for the project were:
+- Keep the source code relatively small and simple.
+- Use C for portability and speed.
+- Use an NNUE based evaluator.
+- Train the evaluation weights as part of the project.
+- Competitive play strength (greater than or equal to pawnstar).
 
 ## Build
 
@@ -13,11 +22,20 @@ pthread fallback (`src/platform.h`) for platforms without it (e.g. macOS). Magic
 portable; `-march=native` is for local dev — a release build would fan out per microarchitecture.
 
 ```bash
-make            # -> ./zenith        (clang -std=c17, -O3 -flto -march=native)
-make debug      # -> ./zenith-debug  (AddressSanitizer + UBSan, for correctness work)
-make pext       # -> ./zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, faster on Haswell+/Zen3+)
-make doc        # -> doc/html/index.html (Doxygen API reference)
-./zenith        # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
+make                 # -> ./zenith        (release: clang -std=c17, -O3 -flto -march=native, whole-program LTO)
+make ARCH=x86-64-v2  # portable release build: override the default -march=native (see .github/workflows/release.yml)
+make debug           # -> ./zenith-debug  (AddressSanitizer + UBSan, -O1 -g; use for movegen/make_move work)
+make pext            # -> ./zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
+make check           # build + run every correctness gate (mirrors CI; see Verify below)
+make perft           # build + run the perft movegen gate
+make bench           # build + run the fixed-depth node-signature benchmark
+make baseline        # snapshot the current ./zenith -> ./zenith-base (the SPRT reference binary)
+make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
+make format          # clang-format all sources in place (src/*.{c,h})
+make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
+make doc             # -> doc/html/index.html (Doxygen API reference)
+make clean           # remove build outputs (binaries + doc/html)
+./zenith             # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
 ```
 
 ## Verify
