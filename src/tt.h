@@ -101,6 +101,17 @@ void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move mo
 int tt_hashfull(void);
 
 /**
+ * @brief Prefetch @p key's slot into cache to hide the probe's memory latency.
+ *
+ * Called right after a child is made, so the slot is in flight while the caller finishes this node's work
+ * (extensions, history push, reduction) before the recursive search probes it.
+ */
+static inline void tt_prefetch(uint64_t key)
+{
+    __builtin_prefetch(&TT.table[key & TT.mask]);
+}
+
+/**
  * @brief Adjust a mate score to distance-from-this-node before storing it.
  *
  * Mate scores are stored as distance-from-this-node; convert on the way in/out so a mate found deep in the

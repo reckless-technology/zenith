@@ -407,6 +407,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
 
         Position child = *pos;
         position_make_move(&child, move);
+        tt_prefetch(child.key); // slot loads during the recursive-call setup
         const int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
         if (g_stop)
         {
@@ -655,6 +656,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // Move survived pruning — make it now (legality already established above).
         Position child = *pos;
         position_make_move(&child, move);
+        tt_prefetch(child.key); // slot loads while we finish this node before recursing into the child
         const bool is_child_in_check = position_is_in_check(&child);
         int        extension         = is_child_in_check ? 1 : 0;
 
