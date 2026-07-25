@@ -1,143 +1,281 @@
-# Zenith NNUE — training plan & GPU handoff
+# Zenith NNUE — architecture & training guide
 
-This is the resume-here doc for Phase 4 (the ~+500–700 Elo jump). It is written so that on an
-NVIDIA-GPU machine we can pick up and train Zenith's own net from scratch, independent of pawnstar.
+Zenith evaluates positions with its own king-bucketed NNUE, trained by the pipeline in this repository.
+Nothing here is shared with any other engine: Zenith has its own network architecture, its own trainer
+(`trainer/`), its own quantised file format (`ZNNUE3`), and its own trained weights. This document is the
+reference for how the network is built and how to train a new one.
 
-Everything below plugs into the existing `evaluate()` seam in `src/eval.c` — no search changes needed to
-adopt NNUE; the HCE stays as a fallback and as the eval used during data generation.
+The pipeline is four stages:
+
+```
+   data                         trainer (PyTorch/CUDA)              engine (C)
+ ┌─────────────────┐  text     ┌──────────────────────┐  .nnue   ┌───────────────────┐
+ │ ./zenith datagen│ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
+ │  (self-play)    │  fen;     │  featurise → SCReLU  │  ZNNUE3  │  + integer forward │
+ │  OR             │  score;   │  net → quantise      │          │  behind evaluate() │
+ │ ./zenith        │  wdl      │                      │          │                    │
+ │  bullet2text    │           └──────────────────────┘          └───────────────────┘
+ │  (public data)  │                     │                                 │
+ └─────────────────┘                     └────── trainer/verify.py ────────┘
+                                          engine int eval == trainer ref (0 cp)
+```
+
+`evaluate()` in `src/eval.c` is the single seam: it calls the NNUE forward pass when a net is loaded (UCI
+`EvalFile`) and falls back to the hand-crafted PeSTO evaluation otherwise. No search change is needed to
+adopt or swap a net.
 
 ---
 
-## 1. Network architecture (v1 — deliberately simple, strong, trainable in hours)
+## 1. Network architecture
 
-A **perspective network** (the "simple NNUE" that most 3000+ hobby engines start from):
-
-```
-inputs:   768 per side  =  6 piece types × 2 colors × 64 squares, from the side-to-move's POV
-          (black-to-move mirrors square vertically and swaps colors)
-king      the perspective's own king square selects 1 of 8 KING BUCKETS (4 file-pairs × 2 board-halves),
-buckets:  offsetting its 768 block → 768×8 = 6144 feature-transformer rows
-FT:       6144 → 512   (feature transformer; one accumulator per side)
-concat:   [own(512), opp(512)] = 1024
-activate: SCReLU(x) = clamp(x, 0, 1)²        (screlu is stronger than clipped-relu; matches the engine kernel)
-output:   1024 → 1   (single scalar), then dequantize to centipawns
-```
-
-The shipped net (`ZNNUE3`) is this king-bucketed 768×8→512 perspective net. History: plain 768→512 (`ZNNUE1`)
-was the v1 baseline; king buckets add real eval strength (+21 Elo at fixed depth) but need a bigger data set
-to beat their ~6% speed cost — trained on **650M** PlentyChess positions the king-bucket net is **+57 Elo**
-over the 190M 512-net. (An 8-head output-bucket variant `ZNNUE2` was tried and shelved: neutral Elo.)
-
-### Quantization & on-disk format (fixed contract: trainer export == engine loader)
+A **perspective network** with **king-input buckets** — the design most strong hobby engines converge on:
 
 ```
-QA = 255   (feature/accumulator scale)     QB = 64   (output-weight scale)     eval_scale = 400
-FT weights  : round(w * QA)      -> int16   [6144][512]   (king-bucketed: 8 × 768 rows)
-FT bias     : round(b * QA)      -> int16   [512]
-OUT weights : round(w * QB)      -> int16   [1024]
-OUT bias    : round(b * QA*QB)   -> int32   [1]
+per-perspective inputs : 768  =  2 colors × 6 piece types × 64 squares   (own pieces first)
+king buckets           : the perspective's OWN king square selects 1 of 8 buckets
+                         (4 file-pairs {a/b, c/d, e/f, g/h} × 2 board-halves {ranks 1-4, 5-8}),
+                         offsetting the 768 block → 768 × 8 = 6144 feature-transformer rows
+feature transformer    : 6144 → 512     (one 512-wide accumulator per perspective)
+concatenate            : [own(512), opponent(512)] = 1024
+activation             : SCReLU(x) = clamp(x, 0, 1)²
+output                 : 1024 → 1  (single scalar logit), dequantised to centipawns
 ```
 
-**File `zenith-<tag>.nnue`** (little-endian): 8-byte magic `"ZNNUE3\0\0"`, then the four arrays back-to-back
-in the order above. The engine loader (`src/nnue.c`) reads it directly. Forward pass:
-`acc = FT·features + FT_bias` (per side, maintained incrementally with king-bucket refreshes), then
-`out = Σ screlu(acc_own,acc_opp) · OUT_w + OUT_bias`, `eval_cp = out / (QA*QB) * eval_scale / QA` (fold the
-constants into one final divide; verify against the trainer to 0 cp on a fixed FEN set).
+Two accumulators are maintained, one per perspective (side-to-move "own" and the opponent). Black's
+perspective mirrors the board vertically (`square ^ 56`) and swaps the own/opponent colour halves, so the
+network only ever learns "from the side to move's point of view."
+
+The feature-index convention lives in **`trainer/features.py`** (`feature_index`, `king_bucket`) and is the
+single source of truth; `src/nnue.c` reproduces it exactly. Feature layout within one king bucket:
+
+```
+index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  +  rel_square
+        rel_color  = 0 for the perspective's own pieces, 1 for the opponent's
+        rel_square = square (White perspective)  or  square ^ 56 (Black perspective)
+        piece_type = 0..5  (pawn..king, 0-based on the wire)
+```
+
+Hidden size is a knob (`--hidden-size`, default and shipped value **512**); everything else above is fixed
+by the format.
 
 ---
 
-## 2. Data generation (self-play; independent of any external dataset)
+## 2. Quantisation & on-disk format (`ZNNUE3`)
 
-Add a `datagen` mode to the engine (new `src/datagen.c`, invoked `./zenith datagen <games> <out.txt>`):
+The trainer exports a fixed-point `int16` network; the engine loads it directly and does an all-integer
+forward pass (a float `.pt` checkpoint is saved alongside for inspection only).
 
-- Play self-play games from **random UHO openings** (or 8 random legal plies) at a **fixed node budget**
-  (e.g. `go nodes 5000`), single-thread, hash cleared per game.
-- For every position that is **quiet** (not in check, best move not a capture/promo) and not already decided
-  (|score| < ~1500cp), emit one record: `fen ; stm_relative_score_cp ; wdl` where `wdl ∈ {1.0, 0.5, 0.0}` is
-  the game result from the side-to-move's POV.
-- Skip the first ~8 plies (opening noise) and positions right after a capture. One record per position.
-- Target **100M–300M positions** for v1 (a few CPU-hours × many cores; the SPRT box's cores are fine — this
-  step is CPU-bound, not GPU). Shard to multiple files and shuffle.
+```
+QA = 255   feature-transformer weight / accumulator scale
+QB = 64    output-weight scale
+EVALUATION_SCALE = 400   logit → centipawn scale (must equal the trainer loss scale)
 
-Output format is plain text `fen;score;wdl` for portability; a 10-line converter turns it into the trainer's
-tensor batches (or into `bulletformat`/`marlinformat` if using bullet).
+FT weights : round(w × QA)      → int16   [6144][512]   (feature-major, king-bucketed: 8 × 768 rows)
+FT bias    : round(b × QA)      → int16   [512]
+OUT weights: round(w × QB)      → int16   [1024]         (own half [0,512) then opponent half [512,1024))
+OUT bias   : round(b × QA × QB) → int32   [1]
+```
+
+**File `nets/zenith-<tag>.nnue`** (little-endian): the 8-byte magic `ZNNUE3\0\0`, then the four arrays
+back-to-back in the order above. The integer forward (identical in `trainer/features.py::integer_eval` and
+`src/nnue.c`):
+
+```
+acc = FT_bias + Σ FT_weight[active feature]        (per perspective; int16 columns, int64 accumulation)
+h   = clamp(acc, 0, QA)                            (SCReLU input clamp, per perspective)
+out = Σ (h · OUT_w) · h                            (own half + opponent half; the ·h squares → SCReLU)
+out = out / QA + OUT_bias
+cp  = out × EVALUATION_SCALE / (QA × QB)           (all divisions truncate toward zero, matching C `/`)
+```
+
+The export step prints how many transformer weights saturate `int16` (should be 0 for a healthy net).
 
 ---
 
-## 3. Trainer (GPU)
+## 3. Design tradeoffs
 
-**Primary: a self-contained PyTorch trainer** (`trainer/train.py`, ~200 lines — independent, full control):
-
-- Model: `FT = nn.EmbeddingBag(6144+1, 512, mode="sum")` (memory-efficient sparse feature transformer, one
-  row per king-bucketed feature + a zero pad row); forward builds both perspectives from the sparse feature
-  indices, concatenates, `SCReLU`, `out = nn.Linear(1024, 1)`.
-- Batching: parse `fen;score;wdl`; featurize to sparse **king-bucketed** index lists per side. Two paths:
-  monolithic `--cache` (whole dataset in RAM, ≤~230M positions on a 62GB box) or **`--shard-dir` streaming**
-  (one ~95M-position `.npz` shard in RAM at a time — how the shipped 650M-position net trained). Precompute
-  shard caches with `--featurise-shard TEXT NPZ` (chunked, low-RAM, run several in parallel). Batches 16k–65k.
-- Loss: `MSE( sigmoid(pred/eval_scale), λ·wdl + (1−λ)·sigmoid(score/eval_scale) )`, λ≈0.5 → anneal toward WDL.
-- Optim: AdamW, lr 1e-3 cosine-decayed, ~30–100 epochs over shuffled data. A first net trains in **1–4 h** on
-  a modern GPU.
-- Export: quantize per §1 and write `zenith-<tag>.nnue`.
-
-**Faster alternative: [bullet](https://github.com/jw1912/bullet)** (CUDA, the de-facto NNUE trainer). Convert
-datagen output to `bulletformat::ChessBoard`, train the same 768→512 perspective arch, export, and adapt the
-quantization to the format above. Bullet is ~10–100× faster to a strong net; use it once the PyTorch path is
-validated end-to-end, or straight away if we want speed.
-
----
-
-## 4. Engine integration (`src/nnue.{h,c}`) — all implemented
-
-1. **Loader**: read the `.nnue` file into aligned int16 arrays.
-2. **Feature index**: `idx(perspective, color, pt, sq)` with the mirror/color-swap for the black POV.
-3. **Incremental accumulator** (done): the accumulator lives inside `Position`; put/remove/move piece
-   primitives apply the feature deltas. King moves that change the side's king bucket refresh that
-   perspective via a thread-local **finny cache** (cached accumulator per (perspective,bucket) + the board
-   it was built from; rebuilds apply only piece diffs).
-4. **Forward** (done): SCReLU + int16 output dot, AVX2 column add/sub on the accumulator hot path; a
-   shared lockless eval cache memoises evaluate() (biggest win: qsearch stand-pat).
-5. **Seam** (done): `evaluate()` calls the NNUE forward when a net is loaded (UCI `EvalFile`), else the HCE.
-
-**Verification gates** (mirror the perft discipline):
-- `nnue::eval` (int16) == the trainer's float eval to **0 cp** on a fixed FEN set (a `TestNNUEReference`).
-- incremental accumulator == full refresh, bit-identical, on every node of a perft-like walk.
-- AVX2 dot == scalar dot, bit-identical.
-- **SPRT NNUE-net vs HCE** (`tools/sprt.sh`) — expect a large positive (+500–700); iterate net size/data.
+- **Perspective net over a plain 768→N.** Evaluating "from the side to move's view" halves what the net has
+  to learn (it never has to represent both orientations) and makes the accumulator reusable across plies.
+  Standard and strongly positive.
+- **King-input buckets (768×8).** Conditioning features on the perspective's own king square lets the net
+  learn king-safety-dependent piece values. Worth **+21 Elo at fixed depth**, but it costs ~6% speed (a king
+  move that changes bucket forces an accumulator refresh) and needs *more data* to pay for that speed hit —
+  it only overtakes the plain 512-net once the dataset is large (see §9). An 8-way **output**-bucket variant
+  (`ZNNUE2`) was tried and **shelved** — neutral Elo for the added complexity.
+- **SCReLU over clipped ReLU.** `clamp(x,0,1)²` gives a stronger net than plain clipped ReLU at the same
+  size and is cheap as an integer kernel (`(h·w)·h`). The clamp bound is exactly `QA`, so quantisation and
+  activation share one constant.
+- **Hidden size 512.** Bigger accumulators (e.g. 1024) improve eval but cost proportional per-node time and
+  training memory; 512 is the shipped balance. The trainer uses an `EmbeddingBag(mode="sum")` feature
+  transformer so a batch never materialises a `[batch, 32, hidden]` intermediate — this is what keeps larger
+  hidden sizes trainable on an 8 GB GPU.
+- **WDL blend (`--wdl-lambda`).** The training label is `λ·game_result + (1−λ)·sigmoid(score/400)`: λ→1
+  trusts the eventual game outcome, λ→0 trusts the search score of the position. Mid-range values train the
+  cleanest net; the shipped net used λ=0.3.
+- **Streaming vs monolithic training.** Holding the whole featurised dataset in RAM caps out around ~230M
+  positions on a 62 GB box. Past that, per-shard `.npz` caches are streamed one at a time (`--shard-dir`),
+  which is how the shipped net trained on 1.4B positions. Shard-order shuffling (reseeded per epoch) plus a
+  full in-shard permutation is effectively i.i.d. at ~95M-position shards.
+- **The eval is a faithful executor — fix data, not the loader.** If a *correct* net plays weakly, the cause
+  is eval noise (data quantity/quality), not the engine: minimax amplifies leaf-eval noise. The lever is
+  more/cleaner data and better training, not engine code.
 
 ---
 
-## 5. Resume checklist
+## 4. The contract & verification gates
 
-Done (v1 pipeline built + validated 2026-07-18):
+`trainer/features.py` is the **single source of truth** for feature indexing and quantisation; `src/nnue.c`
+must reproduce `feature_index`, `king_bucket`, and `integer_eval` byte-for-byte. Two gates enforce this and
+are never skipped:
+
+- **0-cp trainer parity** — `trainer/verify.py` loads a `.nnue`, evaluates a FEN set with the Python
+  reference `integer_eval`, runs the same FENs through `./zenith nnueeval <net>`, and requires
+  `max|engine − reference| == 0 cp`. Any nonzero diff means the loader or forward diverged from the export
+  contract.
+- **Incremental == refresh** — `./zenith nnuecheck <net>` walks a perft-like tree and checks the
+  incrementally-maintained accumulator against a full refresh at every node, bit-identical (guards the
+  finny-cache / king-bucket refresh logic).
+
+Also worth a spot-check: `eval(pos) == eval(colour-mirror of pos)` — the perspective symmetry must hold.
+Every net change is then **SPRT-gated** like any strength change (see §7).
+
+---
+
+## 5. Training setup
+
+- **Hardware used:** NVIDIA RTX 4070 Laptop GPU (8 GB) + 32 CPU cores. Datagen and SPRT are CPU-bound;
+  training is the GPU job — they can run concurrently.
+- **Python env** (venv is `.venv`, git-ignored):
+  ```bash
+  python3 -m venv .venv && . .venv/bin/activate
+  pip install -r trainer/requirements.txt      # torch>=2.3 (CUDA build on Linux) + numpy>=1.26
+  ```
+- The trainer imports `features.py` as a top-level module, so run it with `PYTHONPATH=trainer` (or from
+  inside `trainer/`). `data/` and `nets/` are git-ignored; commit a chosen release net with `git add -f`.
+
+---
+
+## 6. Training a new network — step by step
+
+There are two data sources; both produce the same `fen;stm_score_cp;wdl` text the trainer consumes, so the
+train / verify / SPRT steps afterwards are identical.
+
+### Data, option A — Zenith self-play (fully independent)
+
+Generate self-play games at a fixed node budget, fanned across all cores. Each worker is an independent
+`./zenith datagen` process with its own seed writing one shard; only quiet, not-yet-decided positions are
+emitted (one record per ply), labelled with the eventual game result as WDL.
+
+```bash
+make                                             # build ./zenith first
+tools/datagen_parallel.sh 20000 data/run1 32 5000 8
+#                          │     │        │  │    └ opening plies (random legal plies before recording)
+#                          │     │        │  └ nodes/move budget (go nodes N)
+#                          │     │        └ workers (default: nproc)
+#                          │     └ output dir (one shard_NN.txt per worker)
+#                          └ games per worker
 ```
-[x] make ; ./zenith perft                                   # core builds + correct
-[x] src/datagen.c (§2) + tools/datagen_parallel.sh        # ./zenith datagen; fan over cores
-[x] trainer/train.py + trainer/features.py (§3, PyTorch)    # quantised .nnue export
-[x] src/nnue.{h,cpp} (§4): loader + SCReLU integer forward  # FULL REFRESH (not yet incremental)
-[x] verification gate: trainer/verify.py == 0 cp            # engine int eval == trainer, bit-identical
-[x] wire evaluate() -> nnue when EvalFile set; UCI EvalFile option; nnueeval CLI
-[x] SPRT harness (tools/sprt.sh, fastchess): NNUE vs HCE, cross-engine
+Optionally pass a book EPD as arg 6 and a net as arg 7 (`… 8 book.epd nets/prev.nnue`) to label with a net
+already in the loop — the net-in-the-loop bootstrap that lifts data quality above the HCE teacher.
+
+### Data, option B — public PlentyChess data at scale (how the shipped net trained)
+
+The shipped net trained on the **public PlentyChess bulletformat dataset** (independent of any engine).
+Convert each bulletformat shard to Zenith's text format, subsampling with a stride for a diverse slice:
+
+```bash
+./zenith bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
+#                    └ input (bulletformat)         └ output text          │ └ stride (keep 1 in 4)
+#                                                                          └ max records (0 = all)
 ```
 
-All originally-open items are now done:
-```
-[x] eval noise cut via public PlentyChess data at scale (190M -> 650M -> 1.4B positions)
-[x] incremental accumulator + AVX2 kernel + finny refresh cache + eval cache
-[x] king buckets (768x8 -> 512, ZNNUE3); output buckets tried and shelved (neutral)
-[x] streaming trainer (--shard-dir) to train past the RAM ceiling
-[x] beats HCE, then beats pawnstar: +78 Elo single-thread, +107 at 8 threads (tc 8+0.08)
+### Train
+
+**Monolithic** (whole dataset in RAM, ≲230M positions). `--cache` writes/loads a featurised `.npz` so
+re-runs skip featurisation:
+
+```bash
+PYTHONPATH=trainer python trainer/train.py \
+    --data 'data/run1/shard_*.txt' --out nets/zenith-new.nnue --cache data/run1.npz \
+    --epochs 30 --batch-size 16384 --lr 1e-3 --wdl-lambda 0.5 --hidden-size 512 --device cuda
 ```
 
-## State (2026-07-24)
+**Streaming** (past the RAM ceiling — required at the ~1.4B-position scale). First featurise each text shard
+to a `.npz` (chunked, low-RAM, safe to run several in parallel), then stream-train over the directory (the
+last shard is held out as the validation probe):
 
-- Release net: `nets/zenith-kb3.nnue` — king-bucketed 768×8→512, trained on **1.4B** PlentyChess positions
-  with the streaming trainer. Progression: 512/190M (pc2) → +57 king buckets @ 650M (kb2) → +8 @ 1.4B (kb3;
-  data returns now diminishing).
-- Engine side: incremental accumulator in `Position`, finny refresh cache, AVX2 kernel, eval cache — all
-  gated by `nnuecheck` (incremental == refresh) and `verify.py` (0 cp vs the trainer).
-- **Zenith beats pawnstar**: +78 Elo single-thread, +107 at 8 threads (tc 8+0.08, properly controlled —
-  always pass `option.Threads=1 option.OwnBook=false` to pawnstar in matches).
-- The experiment log with every result and lesson lives in `.claude/memory/zenith-eval-experiments.md`.
-- Harness: `tools/sprt.sh` uses **fastchess**; `~/pawnstar_nnue/openings.epd` is the default openings file.
-  SPRT is CPU-bound, training is the GPU job — they run concurrently.
+```bash
+# featurise shards -> data/shards/*.npz  (parallelise across shards; resumable, skips existing)
+for s in data/plenty/shard*.txt; do
+    PYTHONPATH=trainer python trainer/train.py --featurise-shard "$s" "data/shards/$(basename "${s%.txt}").npz"
+done
+
+PYTHONPATH=trainer python trainer/train.py \
+    --shard-dir data/shards --out nets/zenith-new.nnue \
+    --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3 --device cuda
+```
+
+Training prints per-epoch `train`/`val` loss (AdamW + cosine LR decay). Falling val loss that then flattens
+is the signal to stop; rising val loss is overfit. Output: `nets/zenith-new.nnue` plus a `.pt` checkpoint.
+
+### Verify (never skip)
+
+```bash
+PYTHONPATH=trainer python trainer/verify.py --net nets/zenith-new.nnue --fens data/run1/shard_01.txt --count 2000
+./zenith nnuecheck nets/zenith-new.nnue
+```
+Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for strength.
+
+---
+
+## 7. Deciding whether it is better (SPRT)
+
+A verified net is only *correct*, not necessarily *stronger*. Gate it with a self-play SPRT via
+`tools/sprt.sh` (fastchess). `CAND_NET` / `BASE_NET` set each side's `EvalFile`; an unset side uses the HCE.
+
+```bash
+# new net vs the current release net
+CAND_NET=nets/zenith-new.nnue BASE_NET=nets/zenith-kb3.nnue tools/sprt.sh
+# new net vs HCE (BASE_NET unset)
+CAND_NET=nets/zenith-new.nnue tools/sprt.sh
+```
+
+Fixed-depth matches isolate eval quality from NNUE's speed cost. **Self-play gains only partially transfer
+to a much stronger reference** (an eval win of +60 in self-play was ~+20 vs the pawnstar reference), so SPRT
+self-play deltas overstate the gain against a stronger opponent, and speed wins transfer far better than
+eval wins. The full experiment log with every result and lesson is in
+`.claude/memory/zenith-eval-experiments.md`.
+
+---
+
+## 8. Engine integration (already implemented)
+
+`src/nnue.c` holds the loader, feature indexing, and the integer forward:
+
+- **Incremental accumulator** — embedded in `Position`; the put/remove/move primitives apply feature-column
+  deltas as moves are made, so copy-make carries a ready accumulator.
+- **King-bucket refresh via a finny cache** — a king move that changes a perspective's bucket rebuilds that
+  perspective from a thread-local per-`(perspective, bucket)` cached accumulator (plus the board it was built
+  from), applying only piece diffs; a net-generation counter invalidates the cache when a new net loads.
+- **AVX2 forward** — vectorised accumulator column add/sub and the SCReLU output dot, with a scalar fallback.
+- **Shared lockless eval cache** — memoises `evaluate()` results (biggest win: qsearch stand-pat).
+
+Load a net at runtime with `setoption name EvalFile value nets/zenith-<tag>.nnue`; unset ⇒ HCE.
+
+---
+
+## 9. Current release net
+
+`nets/zenith-kb3.nnue` — king-bucketed **768×8 → 512** SCReLU, trained with the streaming trainer on **1.4B**
+PlentyChess positions. Progression of the eval:
+
+| net | arch / data | result |
+|---|---|---|
+| pc2 | 768→512, 190M | baseline |
+| kb2 | + king buckets, 650M | **+57 Elo** over pc2 (self-play) |
+| kb3 | + 1.4B | +8 over kb2 — **data returns now diminishing** |
+
+With this net Zenith beats its reference opponent (pawnstar) at every tested configuration — **+78 Elo
+single-thread and +107 at 8 threads** (TC 8+0.08, single-threaded and bookless on both sides; pawnstar's
+defaults `Threads=32`/`OwnBook=true` must be overridden or the measurement is meaningless). The
+highest-leverage remaining lever is eval quality — more/cleaner data — not engine changes.
