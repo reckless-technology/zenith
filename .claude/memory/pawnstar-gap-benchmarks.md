@@ -5,12 +5,22 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 221925ef-3c7d-4275-96ac-0cd7362cb511
+  modified: 2026-07-25T11:08:31.366Z
 ---
 
 Zenith's strength is benchmarked against pawnstar C++ (the reference opponent; user wants Zenith stronger). Gaps measured with fastchess, tc=8+0.08, plentychess openings.
 
 **GOAL FULLY ACHIEVED (2026-07-23): Zenith beats pawnstar at BOTH single thread (+77.7 ± 25.2) and 8 threads
 (+107.5 ± 37.8).**
+
+**RECONFIRMED (2026-07-25) vs a freshly-rebuilt pawnstar 0.13.603, and the lead is TIME-CONTROL-INVARIANT.**
+Shipped ./zenith (setwise movegen + kb3 + full stack) vs pawnstar 0.13.603 + v12 net, single-thread both,
+OwnBook=false, Hash=64, conc 8, SPRT elo[0,5]:
+- **8+0.08: +78.07 ± 18.39 (61.05%, 724 games) — H1 accepted.**
+- **40/60:  +77.15 ± 16.71 (60.92%, 714 games) — H1 accepted.**
+Near-identical at both TCs → the ~+78 single-thread edge is not a fast-TC artifact; it holds at slower control.
+(Confirms the +77.7 from 2026-07-23. The setwise movegen and optional PEXT build did not change the picture —
+setwise is strength-neutral, PEXT is bit-identical.)
 
 **CRITICAL MEASUREMENT LESSON — pawnstar's UCI defaults are `Threads=32` and `OwnBook=true`.** Every earlier
 "single-thread" gap number (−278, −258, −140, −134) never overrode them, so those matches were actually Zenith
