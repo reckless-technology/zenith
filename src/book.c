@@ -7,6 +7,7 @@
 #include "book.h"
 #include "movegen.h"
 #include "platform.h"
+#include "testfmt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -462,20 +463,19 @@ int run_book_check(void)
         {"rnbqkbnr/p1pppppp/8/8/P6P/R1p5/1P1PPPP1/1NBQKBNR b Kkq - 0 4", 0x5c3f9b829b279560ULL},
     };
 
-    int failures = 0;
-    for (size_t i = 0; i < sizeof vectors / sizeof vectors[0]; i++)
+    const int vector_count = (int)(sizeof vectors / sizeof vectors[0]);
+    int       failures     = 0;
+    for (int i = 0; i < vector_count; i++)
     {
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, vectors[i].fen);
-        const uint64_t key = polyglot_key(&pos);
-        if (key != vectors[i].key)
-        {
-            printf("  MISMATCH key=%016llx want=%016llx  %s\n", (unsigned long long)key,
-                   (unsigned long long)vectors[i].key, vectors[i].fen);
-            failures++;
-        }
+        const uint64_t key     = polyglot_key(&pos);
+        const bool     is_pass = key == vectors[i].key;
+        failures += !is_pass;
+        test_result(is_pass, "book   key %016llx  want %016llx  %s", (unsigned long long)key,
+                    (unsigned long long)vectors[i].key, vectors[i].fen);
     }
-    printf("bookcheck: %d/9 polyglot key vectors -> %s\n", 9 - failures, failures ? "FAIL" : "PASS");
+    test_result(failures == 0, "book   %d/%d polyglot key vectors pass", vector_count - failures, vector_count);
     return failures ? 1 : 0;
 }

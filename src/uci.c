@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "position.h"
 #include "search.h"
+#include "testfmt.h"
 #include "tt.h"
 #include "version.h"
 #include <ctype.h>
@@ -568,7 +569,7 @@ void run_bench(int depth)
         depth = 13;
     }
     uint64_t        total      = 0;
-    const int64_t   start_time = platform_now_ms();
+    double          total_secs = 0.0;
     Searcher *const searcher   = malloc(sizeof(Searcher)); // ~2.4MB — heap, not stack
     for (size_t fen_index = 0; fen_index < sizeof(BenchFens) / sizeof(BenchFens[0]); fen_index++)
     {
@@ -576,18 +577,26 @@ void run_bench(int depth)
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, BenchFens[fen_index]);
-        searcher_init(searcher); // fresh search state per position
+        searcher_init(searcher);        // fresh search state per position
+        searcher->is_silent     = true; // suppress per-iteration info; print one clean per-position line below
         searcher->move_overhead = 0;
         SearchLimits limits;
         search_limits_init(&limits);
-        limits.depth = depth;
-        // silence info by redirecting? keep it; users can ignore. Sum nodes.
+        limits.depth           = depth;
+        const int64_t start_ms = platform_now_ms();
         searcher_go(searcher, pos, &limits, true);
+        const double secs = (platform_now_ms() - start_ms) / 1000.0;
         total += searcher->nodes;
+        total_secs += secs;
+        char nbuf[27];
+        printf("bench  depth %2d  %13s nodes  %8.3fs  %6.2f Mnps  %s\n", depth, u64_commas(searcher->nodes, nbuf), secs,
+               secs > 0.0 ? searcher->nodes / secs / 1e6 : 0.0, BenchFens[fen_index]);
     }
-    const double seconds = (platform_now_ms() - start_time) / 1000.0;
-    printf("%llu nodes %.0f nps\n", (unsigned long long)total, total / (seconds > 0 ? seconds : 1));
     free(searcher);
+    // Final line = node signature + mean nps. Kept leading-digit greppable ('^[0-9]+'): make check and CI
+    // extract the signature from `bench 13 | tail -1`. A benchmark, not a [PASS]/[FAIL] gate — the harness judges.
+    printf("%llu nodes %.0f nps  (signature; mean over %zu positions)\n", (unsigned long long)total,
+           total / (total_secs > 0 ? total_secs : 1), sizeof(BenchFens) / sizeof(BenchFens[0]));
 }
 
 /** @brief One perft test case: a position and its known leaf count at a given depth. */
@@ -753,6 +762,25 @@ static const char *PerftEpd[] = {
     "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -;D1 44;D2 1486;D3 62379;D4 2103487;D5 89941194",
 };
 
+/** @brief Run + time one perft case, print a uniform result line, and accumulate totals. @return pass. */
+static bool perft_report_case(const char *fen, const int depth, const uint64_t expected, uint64_t *total_nodes,
+                              double *total_secs)
+{
+    Position pos;
+    position_init(&pos);
+    position_set_fen(&pos, fen);
+    const int64_t  start_ms = platform_now_ms();
+    const uint64_t nodes    = perft(&pos, depth);
+    const double   secs     = (platform_now_ms() - start_ms) / 1000.0;
+    const bool     is_pass  = nodes == expected;
+    *total_nodes += nodes;
+    *total_secs += secs;
+    char nbuf[27];
+    test_result(is_pass, "perft  depth %2d  %15s nodes  %8.3fs  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf), secs,
+                secs > 0.0 ? nodes / secs / 1e6 : 0.0, fen);
+    return is_pass;
+}
+
 int run_perft_suite(void)
 {
     const PerftCase suite[] = {
@@ -776,24 +804,23 @@ int run_perft_suite(void)
         {"K1k5/8/P7/8/8/8/8/8 w - - 0 1", 6, 2217ULL},                // promotion + stalemate traps
         {"8/k1P5/8/1K6/8/8/8/8 w - - 0 1", 7, 567584ULL},             // deep promotion race
     };
-    bool is_all_pass = true;
+    uint64_t total_nodes = 0;
+    double   total_secs  = 0.0;
+    int      passed = 0, total = 0;
+    bool     is_all_pass = true;
     for (size_t case_index = 0; case_index < sizeof(suite) / sizeof(suite[0]); case_index++)
     {
         const PerftCase *const test_case = &suite[case_index];
-        Position               pos;
-        position_init(&pos);
-        position_set_fen(&pos, test_case->fen);
-        const uint64_t node_count = perft(&pos, test_case->depth);
-        const bool     is_pass    = node_count == test_case->expected;
+        const bool             is_pass =
+            perft_report_case(test_case->fen, test_case->depth, test_case->expected, &total_nodes, &total_secs);
         is_all_pass &= is_pass;
-        printf("[%s] perft(%d)=%llu want %llu  %s\n", is_pass ? "PASS" : "FAIL", test_case->depth,
-               (unsigned long long)node_count, (unsigned long long)test_case->expected, test_case->fen);
+        passed += is_pass;
+        total++;
     }
 
     // Ethereal EPD suite: validate each position at the deepest depth whose expected count fits a node
     // budget, so all 128 positions are checked while the whole suite still runs in a few seconds.
     const uint64_t budget = 5000000ULL;
-    int            passed = 0, total = 0;
     for (size_t entry_index = 0; entry_index < sizeof(PerftEpd) / sizeof(PerftEpd[0]); entry_index++)
     {
         const char *const line      = PerftEpd[entry_index];
@@ -828,24 +855,14 @@ int run_perft_suite(void)
         {
             continue;
         }
-        Position position;
-        position_init(&position);
-        position_set_fen(&position, fen);
-        const uint64_t node_count = perft(&position, best_depth);
+        const bool is_pass = perft_report_case(fen, best_depth, best_expected, &total_nodes, &total_secs);
+        is_all_pass &= is_pass;
+        passed += is_pass;
         total++;
-        if (node_count == best_expected)
-        {
-            passed++;
-        }
-        else
-        {
-            is_all_pass = false;
-            printf("[FAIL] perft(%d)=%llu want %llu  %s\n", best_depth, (unsigned long long)node_count,
-                   (unsigned long long)best_expected, fen);
-        }
     }
-    printf("Ethereal perft suite: %d/%d positions pass\n", passed, total);
-    printf("%s\n", is_all_pass ? "ALL PERFT PASS" : "PERFT FAILURES");
+    char nbuf[27];
+    test_result(is_all_pass, "perft  %d/%d cases pass  %s nodes total  %8.3fs  mean %.1f Mnps", passed, total,
+                u64_commas(total_nodes, nbuf), total_secs, total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0);
     return is_all_pass ? 0 : 1;
 }
 
@@ -925,17 +942,31 @@ int run_legal_check(void)
         "B6b/8/8/8/2K5/4k3/8/b6B w - - 0 1",
         "7k/RR6/8/8/8/8/rr6/7K w - - 0 1",
     };
-    g_legal_nodes = g_legal_mismatches = 0;
+    uint64_t total_nodes = 0, total_mismatches = 0;
+    double   total_secs = 0.0;
     for (size_t fen_index = 0; fen_index < sizeof(fens) / sizeof(fens[0]); fen_index++)
     {
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, fens[fen_index]);
+        g_legal_nodes = g_legal_mismatches = 0;
+        const int64_t start_ms             = platform_now_ms();
         legal_check_walk(&pos, 4);
+        const double secs = (platform_now_ms() - start_ms) / 1000.0;
+        total_nodes += g_legal_nodes;
+        total_mismatches += g_legal_mismatches;
+        total_secs += secs;
+        char nbuf[27];
+        test_result(g_legal_mismatches == 0, "legal  %13s nodes  %3llu mism  %8.3fs  %6.1f Mnps  %s",
+                    u64_commas(g_legal_nodes, nbuf), (unsigned long long)g_legal_mismatches, secs,
+                    secs > 0.0 ? g_legal_nodes / secs / 1e6 : 0.0, fens[fen_index]);
     }
-    printf("legalcheck: %llu nodes, %llu mismatches -> %s\n", (unsigned long long)g_legal_nodes,
-           (unsigned long long)g_legal_mismatches, g_legal_mismatches ? "FAIL" : "PASS (is_legal_fast == is_legal)");
-    return g_legal_mismatches ? 1 : 0;
+    char nbuf[27];
+    test_result(total_mismatches == 0,
+                "legal  %s nodes, %llu mismatches  %8.3fs  %6.1f Mnps  (is_legal_fast == is_legal)",
+                u64_commas(total_nodes, nbuf), (unsigned long long)total_mismatches, total_secs,
+                total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0);
+    return total_mismatches ? 1 : 0;
 }
 
 // Adversarial-input gate: exercises the untrusted-input paths (FEN parsing + movegen/eval on the result)
@@ -965,36 +996,35 @@ int run_fuzz_check(void)
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq z9 0 1", // bad ep, safely ignored
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq !5 0 1", // bad ep char, safely ignored
     };
-    int failures = 0;
+    int failures = 0, cases = 0;
     for (size_t i = 0; i < sizeof(reject_fens) / sizeof(reject_fens[0]); i++)
     {
         Position pos;
         position_init(&pos);
-        if (position_set_fen(&pos, reject_fens[i]))
-        {
-            printf("  NOT REJECTED: %s\n", reject_fens[i]);
-            failures++;
-        }
+        const bool is_rejected = !position_set_fen(&pos, reject_fens[i]);
+        failures += !is_rejected;
+        cases++;
+        test_result(is_rejected, "fuzz   reject  %s", reject_fens[i][0] ? reject_fens[i] : "(empty)");
     }
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
         Position pos;
         position_init(&pos);
-        if (!position_set_fen(&pos, accept_fens[i]))
+        const bool is_accepted = position_set_fen(&pos, accept_fens[i]);
+        failures += !is_accepted;
+        cases++;
+        if (is_accepted)
         {
-            printf("  WRONGLY REJECTED: %s\n", accept_fens[i]);
-            failures++;
-            continue;
+            // Exercise the downstream paths that OOB'd before hardening: movegen (buffer cap), the legality
+            // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
+            Move pseudo[MAX_MOVES], legal[MAX_MOVES];
+            generate_pseudo(&pos, pseudo, false);
+            generate_legal(&pos, legal, false);
+            (void)evaluate(&pos);
         }
-        // Exercise the downstream paths that OOB'd before hardening: movegen (buffer cap), the legality
-        // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
-        Move pseudo[MAX_MOVES], legal[MAX_MOVES];
-        generate_pseudo(&pos, pseudo, false);
-        generate_legal(&pos, legal, false);
-        (void)evaluate(&pos);
+        test_result(is_accepted, "fuzz   accept  %s", accept_fens[i]);
     }
-    printf("fuzzcheck: %d input(s) failed -> %s\n", failures,
-           failures ? "FAIL" : "PASS (malformed input handled safely)");
+    test_result(failures == 0, "fuzz   %d/%d inputs handled safely", cases - failures, cases);
     return failures ? 1 : 0;
 }
 
@@ -1049,24 +1079,22 @@ int run_see_check(void)
         position_init(&pos);
         if (!position_set_fen(&pos, cases[i].fen))
         {
-            printf("  BAD FEN: %s\n", cases[i].fen);
+            test_result(false, "see    bad FEN  %s", cases[i].fen);
             failures++;
             continue;
         }
         const Move move = parse_move(&pos, cases[i].move);
         if (move_is_none(move))
         {
-            printf("  ILLEGAL MOVE %s in %s\n", cases[i].move, cases[i].fen);
+            test_result(false, "see    illegal move %s  %s", cases[i].move, cases[i].fen);
             failures++;
             continue;
         }
-        const int see = static_exchange_eval(&pos, move);
-        if (see != cases[i].expected)
-        {
-            printf("  MISMATCH %s %s: see=%d want=%d\n", cases[i].fen, cases[i].move, see, cases[i].expected);
-            failures++;
-        }
+        const int  see     = static_exchange_eval(&pos, move);
+        const bool is_pass = see == cases[i].expected;
+        failures += !is_pass;
+        test_result(is_pass, "see    %-5s  see %5d  want %5d  %s", cases[i].move, see, cases[i].expected, cases[i].fen);
     }
-    printf("seecheck: %d/%d SEE cases -> %s\n", case_count - failures, case_count, failures ? "FAIL" : "PASS");
+    test_result(failures == 0, "see    %d/%d cases pass", case_count - failures, case_count);
     return failures ? 1 : 0;
 }

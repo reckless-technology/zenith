@@ -6,6 +6,8 @@
  */
 #include "nnue.h"
 #include "movegen.h"
+#include "platform.h"
+#include "testfmt.h"
 #include "types.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -450,15 +452,34 @@ int nnue_run_self_check(const char *net_path)
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
     };
+    uint64_t total_nodes = 0, total_mismatches = 0;
+    int      overall_maxdiff = 0;
+    double   total_secs      = 0.0;
     for (size_t fen_index = 0; fen_index < sizeof(fens) / sizeof(fens[0]); fen_index++)
     {
         Position position;
         position_init(&position);
         position_set_fen(&position, fens[fen_index]);
+        g_check_nodes = g_check_mismatches = 0;
+        g_check_maxdiff                    = 0;
+        const int64_t start_ms             = platform_now_ms();
         self_check_walk(&position, 4);
+        const double secs = (platform_now_ms() - start_ms) / 1000.0;
+        total_nodes += g_check_nodes;
+        total_mismatches += g_check_mismatches;
+        total_secs += secs;
+        if (g_check_maxdiff > overall_maxdiff)
+        {
+            overall_maxdiff = g_check_maxdiff;
+        }
+        char nbuf[27];
+        test_result(g_check_mismatches == 0, "nnue   %13s nodes  max|diff| %d  %3llu mism  %8.3fs  %s",
+                    u64_commas(g_check_nodes, nbuf), g_check_maxdiff, (unsigned long long)g_check_mismatches, secs,
+                    fens[fen_index]);
     }
-    printf("nnuecheck: %llu nodes, %llu accumulator mismatches, max|diff|=%d -> %s\n",
-           (unsigned long long)g_check_nodes, (unsigned long long)g_check_mismatches, g_check_maxdiff,
-           g_check_mismatches ? "FAIL" : "PASS (incremental == refresh)");
-    return g_check_mismatches ? 1 : 0;
+    char nbuf[27];
+    test_result(total_mismatches == 0,
+                "nnue   %s nodes, %llu mismatches, max|diff|=%d  %8.3fs  (incremental == refresh)",
+                u64_commas(total_nodes, nbuf), (unsigned long long)total_mismatches, overall_maxdiff, total_secs);
+    return total_mismatches ? 1 : 0;
 }
