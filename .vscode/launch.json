@@ -1,0 +1,56 @@
+{
+  // Debug configs for Zenith (gdb via the C/C++ extension, ms-vscode.cpptools).
+  // "Launch" builds the ASan/UBSan debug binary first and runs it in the integrated terminal so you can
+  // type UCI commands (uci, position…, go…). "Attach" hooks a gdb onto an already-running engine (pick the
+  // process, e.g. the ./zenith a GUI/fastchess spawned). "Launch (release)" debugs the optimised ./zenith.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch zenith (debug build, ASan+UBSan)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/zenith-debug",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        { "name": "ASAN_OPTIONS", "value": "abort_on_error=1:detect_leaks=0" },
+        { "name": "UBSAN_OPTIONS", "value": "print_stacktrace=1" }
+      ],
+      "externalConsole": false,
+      "console": "integratedTerminal",
+      "MIMode": "gdb",
+      "preLaunchTask": "make debug",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      "name": "Launch zenith (release build)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/zenith",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "MIMode": "gdb",
+      "preLaunchTask": "make",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      "name": "Attach to running zenith",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceFolder}/zenith",
+      "processId": "${command:pickProcess}",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    }
+  ]
+}

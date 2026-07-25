@@ -1,0 +1,22 @@
+{
+  // Build tasks used as preLaunchTask by launch.json.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "make debug",
+      "type": "shell",
+      "command": "make debug",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "make",
+      "type": "shell",
+      "command": "make",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}
