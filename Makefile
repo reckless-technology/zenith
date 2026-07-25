@@ -14,7 +14,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext
 
 all: $(BIN)
 
@@ -24,6 +24,15 @@ $(BIN): $(SRCS) $(HDRS)
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
 debug: $(SRCS) $(HDRS)
 	$(CC) $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
+
+# PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./zenith-pext. Output is bit-identical
+# to the magic build (same bench signature); ~2% faster perft / ~1.7% faster search on Intel Haswell+ and
+# AMD Zen3+, but MUCH slower on AMD Zen1/Zen2 (microcoded pext) — so it is opt-in and magic stays the
+# portable default. Needs a BMI2 target (the default -march=native provides it; a real release enables it
+# only for the x86-64-v3+ microarch variants).
+pext: $(SRCS) $(HDRS)
+	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) -o $(BIN)-pext $(LDLIBS)
+	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
 
 perft: $(BIN)
 	./$(BIN) perft

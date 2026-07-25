@@ -15,6 +15,7 @@ tested configuration. Read [README.md](README.md) for the architecture and
 ```bash
 make            # -> ./zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
 make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
+make pext       # -> ./zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
 make clean
 ./zenith        # interactive UCI loop
 
@@ -63,7 +64,10 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   16-bit `Move` (from|to|flag, CPW flag encoding), value scale (`VALUE_MATE=32000`, `MAX_PLY=128`), and all
   the `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/per-direction `shift`/file+rank masks).
 - **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
-  bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable; PEXT is a drop-in later.
+  bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable. A `ZENITH_USE_PEXT` compile
+  switch (`make pext`) swaps the magic multiply-shift index for a BMI2 `_pext_u64` — bit-identical output
+  (same bench signature), ~2% faster perft on Intel Haswell+/AMD Zen3+, but microcoded-slow on AMD Zen1/2,
+  so magic stays the portable default and PEXT is opt-in for the fast-BMI2 microarch release variants.
 - **position.\*** — board = `colors[2]` + `pieces[NUM_PIECES=7]` bitboards (indexed by `Piece`; the
   `pieces[NO_PIECE]` slot holds the incrementally-maintained occupied-squares bitboard, so
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental

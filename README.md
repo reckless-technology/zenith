@@ -14,6 +14,7 @@ portable; `-march=native` is for local dev — a release build would fan out per
 ```bash
 make            # -> ./zenith        (clang -std=c17, -O3 -flto -march=native)
 make debug      # -> ./zenith-debug  (AddressSanitizer + UBSan, for correctness work)
+make pext       # -> ./zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, faster on Haswell+/Zen3+)
 make doc        # -> doc/html/index.html (Doxygen API reference)
 ./zenith        # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
 ```
@@ -73,8 +74,10 @@ src/main.c       entry + CLI dispatch
   accumulator is embedded in `Position` and updated incrementally by the same primitives, so the copy
   carries a ready-to-use accumulator. (An in-place make/unmake was measured *slower*: the accumulator's
   feature-column reads dominate, and unmake would double them to save a cheap copy.)
-- **Sliding attacks** via **magic bitboards** generated at startup — portable, with PEXT a drop-in on BMI2
-  hardware.
+- **Sliding attacks** via **magic bitboards** generated at startup — portable. `make pext`
+  (`ZENITH_USE_PEXT`) swaps in a BMI2 `_pext_u64` index instead: bit-identical output, ~2% faster on Intel
+  Haswell+/AMD Zen3+, but microcoded-slow on AMD Zen1/2 — so magic is the portable default and PEXT is
+  opt-in for fast-BMI2 release builds.
 
 ### Move generation
 
