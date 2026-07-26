@@ -41,11 +41,15 @@ typedef enum
     NUM_PIECES ///< array bound: NO_PIECE + the six real piece types
 } Piece;
 
-/** @brief Squares: A1 = 0 … H8 = 63; rank = sq/8, file = sq%8. */
+/** @brief A board square: A1 = 0 … H8 = 63 (rank = sq/8, file = sq%8), or NO_SQUARE off the board. */
+typedef enum
+{
+    NO_SQUARE = 64 ///< off-board / "no square" sentinel
+} Square;
+
 enum
 {
-    NO_SQUARE   = 64, ///< off-board / "no square" sentinel
-    NUM_SQUARES = 64  ///< number of board squares
+    NUM_SQUARES = 64 ///< number of board squares
 };
 
 static inline int rank_of(int square)

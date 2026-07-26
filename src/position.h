@@ -43,18 +43,18 @@ typedef struct Position
     /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Color is not stored here — read it from
     /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[NUM_SQUARES];
-    // Scalars, widest-first. The move counters are bounded by the draw rules — halfmove (50-move clock in
-    // plies) never exceeds ~150 under the 75-move rule, and fullmove fits any real game in 16 bits — so they
-    // use narrow types. An absurd FEN beyond the range would truncate, which is harmless: halfmove only feeds
-    // the >=100 draw test + the repetition window, and fullmove is FEN-output only.
-    uint16_t fullmove;        ///< full-move number (FEN output only)
-    uint8_t  halfmove;        ///< 50-move clock (plies); resets on a pawn move or capture
-    uint8_t  ep_square;       ///< en-passant TARGET square (0..63), or NO_SQUARE (64) when no ep capture is possible
-    uint8_t  color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
-    uint8_t  castling_rights; ///< castling-rights bitmask (CR_*)
-    /// King square per color, maintained incrementally by put/move_piece — so position_king_sq is a load,
-    /// not an lsb, and is well-defined (0) even for a kingless side rather than lsb(0).
-    uint8_t king_location[NUM_COLORS];
+    // Scalars, widest-first. The semantic fields carry their enum types (Color/Square) for readability;
+    // those are int-sized but land in the struct's existing tail padding before the 32-aligned accumulator,
+    // so sizeof(Position) is unchanged. The move counters stay narrow: they are bounded by the draw rules
+    // (halfmove <= ~150 under the 75-move rule; fullmove fits any game in 16 bits), and an out-of-range FEN
+    // counter truncates harmlessly (halfmove only feeds the >=100 draw test + repetition window; fullmove is
+    // FEN-output only).
+    Color    color_to_move;             ///< side to move
+    Square   ep_square;                 ///< en-passant TARGET square (0..63), or NO_SQUARE when no ep is possible
+    Square   king_location[NUM_COLORS]; ///< king square per color, maintained incrementally by put/move_piece
+    uint16_t fullmove;                  ///< full-move number (FEN output only)
+    uint8_t  halfmove;                  ///< 50-move clock (plies); resets on a pawn move or capture
+    uint8_t  castling_rights;           ///< castling-rights bitmask (CR_*)
 
     /// NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
     /// Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.

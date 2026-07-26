@@ -100,7 +100,7 @@ static void put(Position *pos, const Color color, const Piece piece, const int s
     }
     else if (piece == KING)
     {
-        pos->king_location[color] = (uint8_t)square;
+        pos->king_location[color] = (Square)square;
     }
     if (nnue_is_loaded())
     {
@@ -148,7 +148,7 @@ static void move_piece(Position *pos, const int from, const int to)
     pos->board[from] = NO_PIECE;
     if (piece == KING)
     {
-        pos->king_location[color] = (uint8_t)to;
+        pos->king_location[color] = (Square)to;
     }
     if (nnue_is_loaded())
     {
@@ -231,7 +231,7 @@ void position_make_move(Position *pos, const Move move)
             const int ep_square = (from + to) / 2;
             if (pawn_attacks(side, ep_square) & position_pieces(pos, opponent, PAWN))
             {
-                pos->ep_square = ep_square;
+                pos->ep_square = (Square)ep_square;
                 pos->key ^= ZobristEp[ep_square];
             }
         }
@@ -606,7 +606,7 @@ bool position_set_fen(Position *pos, const char *fen)
             const int ep_square = make_square(ep_file, ep_rank);
             if (pawn_attacks(enemy_of(pos->color_to_move), ep_square) & position_pieces(pos, pos->color_to_move, PAWN))
             {
-                pos->ep_square = ep_square;
+                pos->ep_square = (Square)ep_square;
             }
         }
     }
