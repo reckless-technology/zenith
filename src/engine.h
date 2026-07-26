@@ -41,12 +41,13 @@ typedef struct SearchParams
 /**
  * @brief Search state shared (read-mostly) by every Lazy-SMP thread of one engine.
  *
- * `stop` is the one live flag: the main thread (or a UCI "stop") sets it and every thread exits. Keeping the
+ * `is_stop_requested` is the one live flag: the main thread (or a UCI "stop") sets it and every thread
+ * exits. Keeping the
  * shared state out of Searcher keeps Searcher copyable, so a thread pool can live in one flat allocation.
  */
 typedef struct SearchShared
 {
-    atomic_bool  stop;                    ///< set to abort all threads' searches
+    atomic_bool  is_stop_requested;       ///< set to request that all threads abort their searches
     SearchParams params;                  ///< live tunable parameters (UCI spins)
     int          reductions[MAX_PLY][64]; ///< LMR table, rebuilt whenever an LMR param changes
 } SearchShared;

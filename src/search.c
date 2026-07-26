@@ -231,7 +231,7 @@ static int64_t elapsed(const Searcher *searcher)
 /** @brief Whether the search must stop now (shared stop set, or the main thread hit its node/time budget). */
 static bool is_time_up(const Searcher *searcher)
 {
-    if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+    if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
     {
         return true;
     }
@@ -239,7 +239,7 @@ static bool is_time_up(const Searcher *searcher)
     if (searcher->is_main && ((searcher->node_limit && searcher->nodes >= (uint64_t)searcher->node_limit) ||
                               (searcher->is_time_limited && elapsed(searcher) >= searcher->hard_ms)))
     {
-        atomic_store_explicit(&searcher->engine->search.stop, true, memory_order_relaxed);
+        atomic_store_explicit(&searcher->engine->search.is_stop_requested, true, memory_order_relaxed);
         return true;
     }
     return false;
@@ -378,7 +378,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         position_make_move(&child, move);
         tt_prefetch(&searcher->engine->tt, child.key); // slot loads during the recursive-call setup
         const int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
-        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+        if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
         {
             return 0;
         }
@@ -553,7 +553,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         const int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
                                    MOVE_NONE, MOVE_NONE);
         searcher_hist_pop(searcher);
-        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+        if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
         {
             return 0;
         }
@@ -765,7 +765,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             }
         }
         searcher_hist_pop(searcher);
-        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+        if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
         {
             return 0; // aborted mid-move: the partial score is garbage; iterative deepening keeps the last full result
         }
@@ -877,7 +877,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     searcher->is_main = is_main_thread;
     if (searcher->is_main)
     {
-        atomic_store_explicit(&searcher->engine->search.stop, false, memory_order_relaxed);
+        atomic_store_explicit(&searcher->engine->search.is_stop_requested, false, memory_order_relaxed);
         // ^ clear the shared stop before a new search (helpers are launched after this)
     }
     searcher->nodes    = 0;
@@ -916,7 +916,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
         while (true)
         {
             const int window_score = negamax(searcher, &root, depth, alpha, beta, 0, false, MOVE_NONE, MOVE_NONE);
-            if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+            if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
             {
                 break;
             }
@@ -937,7 +937,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
                 break;
             }
         }
-        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed) && best != MOVE_NONE)
+        if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed) &&
+            best != MOVE_NONE)
         {
             break;
         }
@@ -970,7 +971,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
             fflush(stdout);
         }
 
-        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
+        if (atomic_load_explicit(&searcher->engine->search.is_stop_requested, memory_order_relaxed))
         {
             break;
         }
@@ -987,7 +988,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     }
     if (searcher->is_main)
     {
-        atomic_store_explicit(&searcher->engine->search.stop, true, memory_order_relaxed); // release the helpers
+        atomic_store_explicit(&searcher->engine->search.is_stop_requested, true,
+                              memory_order_relaxed); // release the helpers
     }
     searcher->root_score = score;
     return move_is_none(best) ? searcher->root_best : best;

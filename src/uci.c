@@ -52,7 +52,7 @@ static void join_search(UciSession *session)
 {
     if (session->is_search_thread_running)
     {
-        atomic_store_explicit(&session->engine->search.stop, true, memory_order_relaxed);
+        atomic_store_explicit(&session->engine->search.is_stop_requested, true, memory_order_relaxed);
         zen_thread_join(&session->search_thread);
         session->is_search_thread_running = false;
     }
@@ -264,7 +264,7 @@ static int go_thread_main(void *raw)
         pool[thread_index].hist_count    = args->hist_count;
         pool[thread_index].move_overhead = session->move_overhead;
     }
-    atomic_store_explicit(&session->engine->search.stop, false, memory_order_relaxed);
+    atomic_store_explicit(&session->engine->search.is_stop_requested, false, memory_order_relaxed);
     zen_thread_t helpers[256];
     HelperArgs   helper_args[256];
     for (int thread_index = 1; thread_index < active_threads; thread_index++)
@@ -274,7 +274,8 @@ static int go_thread_main(void *raw)
         zen_thread_create(&helpers[thread_index], helper_thread_main, &helper_args[thread_index]);
     }
     const Move best = searcher_go(&pool[0], args->root, &args->limits, true); // main thread manages time + prints info
-    atomic_store_explicit(&session->engine->search.stop, true, memory_order_relaxed); // stop any deepening helper
+    atomic_store_explicit(&session->engine->search.is_stop_requested, true,
+                          memory_order_relaxed); // stop any deepening helper
     for (int thread_index = 1; thread_index < active_threads; thread_index++)
     {
         zen_thread_join(&helpers[thread_index]);
@@ -583,7 +584,7 @@ void uci_loop(Engine *engine)
         }
         else if (strcmp(token, "stop") == 0)
         {
-            atomic_store_explicit(&session.engine->search.stop, true, memory_order_relaxed);
+            atomic_store_explicit(&session.engine->search.is_stop_requested, true, memory_order_relaxed);
         }
         else if (strcmp(token, "setoption") == 0)
         {
