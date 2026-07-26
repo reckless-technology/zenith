@@ -25,3 +25,13 @@ Zenith has an SPSA tuner for its hand-set search constants (fastchess has no bui
 **First pass (2026-07-23, commit a8113c0): +26.5 ± 9.6 Elo, H1 accepted.** Biggest moves: RfpMargin 80→62, LmrBase
 80→86, FutilityMargin 90→96, HistoryMax 400→418, LmpBase 3→4; the other 6 were already near-optimal. Re-tuning
 periodically (esp. after eval/net changes) is worth it; the harness is reusable. See [[zenith-eval-experiments]].
+
+**Second pass (2026-07-26): +11.1 ± 6.0 Elo, H1 accepted (LLR 2.96, ~2900 games @ 8+0.08).** Run as ONE
+chained descent via the new `--resume` flag (continues theta AND iteration count so the gain schedule keeps
+decaying): 2 rounds x 250 iters, 16 games/iter @ 5+0.05, conc 16 (~1.9h/round). Theta converged by ~350
+iters (last 150 = noise). Winners: RfpMargin 62→56, NmpDivisor 202→199, LmpBase 4→5, FutilityBase 102→94,
+FutilityMargin 96→98, SeeCaptureMargin 102→97, LmrBase 86→90, LmrDivisor 229→220, HistoryMax 418→402;
+SingularMargin/AspirationDelta never moved. New bench signature 2657379. Consistency gate (baked ==
+options, node-identical) passed. Ops lesson: launch the tuner detached (setsid) in its OWN Bash call —
+never put pkill and the launch in one command (the pattern matches the launch line's text and kills the
+wrapper); monitor liveness by checkpoint-file mtime, never pgrep.
