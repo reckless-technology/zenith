@@ -204,8 +204,8 @@ int run_datagen(Engine *engine, const int argc, char **argv)
     // engine bootstraps above its hand-crafted teacher. Absent => the HCE labels the data.
     if (net_path[0] != '\0')
     {
-        fprintf(stderr, "datagen: %s NNUE %s for labels\n", nnue_load(net_path) ? "loaded" : "FAILED to load",
-                net_path);
+        engine->net = nnue_load(net_path);
+        fprintf(stderr, "datagen: %s NNUE %s for labels\n", engine->net ? "loaded" : "FAILED to load", net_path);
     }
 
     FILE *const out = fopen(out_path, "w");
@@ -237,7 +237,7 @@ int run_datagen(Engine *engine, const int argc, char **argv)
     for (long game_index = 0; game_index < games; game_index++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, engine->net);
         const char *const start_fen =
             opening_book_count == 0 ? START_FEN : opening_book[rng_next(&rng) % opening_book_count];
         while (!random_opening(&pos, history, &history_count, &rng, opening_plies, start_fen))

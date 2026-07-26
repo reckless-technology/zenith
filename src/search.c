@@ -947,7 +947,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     {
         tt_new_search(&searcher->engine->tt); // bump generation once per search, not per helper thread
     }
-    if (nnue_is_loaded())
+    root.accumulator.cache = &searcher->refresh_cache; // this thread's finny cache, inherited by all children
+    if (root.accumulator.net != NULL)
     {
         nnue_refresh(&root.accumulator, &root); // authoritative root accumulator (robust to a net loaded mid-game)
     }

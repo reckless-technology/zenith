@@ -106,6 +106,12 @@ void eval_cache_init(EvalCache *cache)
     }
 }
 
+void eval_cache_free(EvalCache *cache)
+{
+    free((void *)cache->slots);
+    cache->slots = NULL;
+}
+
 void eval_cache_clear(EvalCache *cache)
 {
     if (cache->slots)
@@ -143,9 +149,9 @@ int evaluate(const Position *pos, EvalCache *cache)
     }
 
     int value;
-    // NNUE replaces the whole hand-crafted evaluation when a net is loaded (UCI EvalFile). Read the
-    // incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
-    if (nnue_is_loaded())
+    // NNUE replaces the whole hand-crafted evaluation when the position is bound to a net (UCI EvalFile).
+    // Read the incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
+    if (pos->accumulator.net != NULL)
     {
         value = nnue_evaluate(&pos->accumulator, pos->color_to_move);
         if (slot)

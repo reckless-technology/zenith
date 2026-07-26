@@ -62,14 +62,17 @@ typedef struct Position
 } Position;
 
 /**
- * @brief Initialise @p pos to an empty board: White to move, zeroed keys, both cached king buckets at 0.
+ * @brief Initialise @p pos to an empty board bound to @p net: White to move, zeroed keys, both cached king
+ * buckets at 0.
  *
  * The zeroed king buckets are crucial so set_fen's incremental put() calls index the net in bounds before
- * the authoritative refresh. Call it before using any freshly-declared `Position`.
+ * the authoritative refresh. @p net may be NULL (no NNUE — evaluate() uses the HCE and the accumulator
+ * updates become no-ops). Call it before using any freshly-declared `Position`.
  */
-static inline void position_init(Position *pos)
+static inline void position_init(Position *pos, const NnueNetwork *net)
 {
     memset(pos, 0, sizeof(Position));
+    pos->accumulator.net = net;
 }
 
 /// @name Queries

@@ -79,7 +79,7 @@ static void set_position(UciSession *session, char **save_ptr)
 {
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
     Position    pos;
-    position_init(&pos);
+    position_init(&pos, session->engine->net);
     bool is_valid = false;
     if (token != NULL && strcmp(token, "startpos") == 0)
     {
@@ -140,13 +140,17 @@ static void set_position(UciSession *session, char **save_ptr)
  */
 static inline void perft_copy(Position *dst, const Position *src)
 {
-    if (nnue_is_loaded())
+    if (src->accumulator.net != NULL)
     {
         *dst = *src;
     }
     else
     {
         memcpy(dst, src, offsetof(Position, accumulator));
+        // The skipped accumulator holds the net/cache bindings the make_move guards read — a child copied
+        // this way must still read as "no net bound" (the rest of the accumulator stays dead weight).
+        dst->accumulator.net   = NULL;
+        dst->accumulator.cache = NULL;
     }
 }
 
@@ -472,8 +476,14 @@ static void set_option(UciSession *session, char **save_ptr)
     }
     else if (strcmp(option_name, "evalfile") == 0)
     {
-        if (nnue_load(value))
+        const NnueNetwork *const loaded = nnue_load(value);
+        if (loaded != NULL)
         {
+            nnue_free(session->engine->net); // safe: join_search() above ensured no thread is searching
+            session->engine->net = loaded;
+            // Rebind the live game position (its accumulator tracked the old net) and rebuild it.
+            session->game.accumulator.net = loaded;
+            nnue_refresh(&session->game.accumulator, &session->game);
             eval_cache_clear(&session->engine->eval_cache); // a new net changes every evaluation
             printf("info string loaded NNUE %s\n", value);
         }
@@ -503,7 +513,7 @@ void uci_loop(Engine *engine)
     printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
     fflush(stdout);
     UciSession session = {.engine = engine, .thread_count = 1, .move_overhead = 20};
-    position_init(&session.game);
+    position_init(&session.game, engine->net);
     position_set_fen(&session.game, START_FEN); // start from a legal position, so a bare/invalid `go` never
                                                 // searches the empty board (king_sq would then do lsb(0))
     static char line[1 << 16];
@@ -650,7 +660,7 @@ int run_bench(Engine *engine, int depth)
     {
         tt_clear(&engine->tt);
         Position pos;
-        position_init(&pos);
+        position_init(&pos, engine->net);
         position_set_fen(&pos, BenchCases[i].fen);
         searcher_init(searcher, engine); // fresh search state per position
         searcher->is_silent     = true;  // suppress per-iteration info; print one clean per-position line below
@@ -868,7 +878,7 @@ static bool perft_report_case(const char *fen, const int depth, const uint64_t e
                               double *total_secs)
 {
     Position pos;
-    position_init(&pos);
+    position_init(&pos, NULL); // perft never evaluates
     position_set_fen(&pos, fen);
     const int64_t  start_ms = platform_now_ms();
     const uint64_t nodes    = perft(&pos, depth);
@@ -1058,7 +1068,7 @@ int run_legal_check(void)
     for (size_t fen_index = 0; fen_index < fen_count; fen_index++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, NULL); // legality oracles are eval-free
         position_set_fen(&pos, fens[fen_index]);
         LegalCheckTally tally    = {0};
         const int64_t   start_ms = platform_now_ms();
@@ -1115,7 +1125,7 @@ int run_fuzz_check(void)
     for (size_t i = 0; i < sizeof(reject_fens) / sizeof(reject_fens[0]); i++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, NULL);
         const bool is_rejected = !position_set_fen(&pos, reject_fens[i]);
         failures += !is_rejected;
         cases++;
@@ -1125,7 +1135,7 @@ int run_fuzz_check(void)
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, NULL);
         const bool is_accepted = position_set_fen(&pos, accept_fens[i]);
         failures += !is_accepted;
         cases++;
@@ -1194,7 +1204,7 @@ int run_see_check(void)
     for (int i = 0; i < case_count; i++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, NULL); // SEE is material-only
         if (!position_set_fen(&pos, cases[i].fen))
         {
             test_result_columns(false, "see", cases[i].move, -1, "bad FEN", -1.0, -1.0, cases[i].fen);

@@ -61,6 +61,14 @@ void tt_clear(TranspositionTable *tt)
     tt->generation = 0;
 }
 
+void tt_free(TranspositionTable *tt)
+{
+    free(tt->table);
+    tt->table      = NULL;
+    tt->slot_count = 0;
+    tt->mask       = 0;
+}
+
 bool tt_probe(const TranspositionTable *tt, const uint64_t key, TTData *out)
 {
     const TTSlot *const slot    = &tt->table[key & tt->mask];

@@ -18,23 +18,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-/** @brief Initialise subsystems (order matters), then run a CLI subcommand if given, else the UCI loop. */
-int main(int argc, char **argv)
+/** @brief Dispatch a CLI subcommand if given, else run the UCI loop. @return the process exit status. */
+static int run(Engine *engine, int argc, char **argv)
 {
-    init_bitboards();
-    init_zobrist();
-    init_eval();
-
-    Engine engine = {0}; // the one engine instance, owned here; every entry point below borrows it
-    search_shared_init(&engine.search);
-    eval_cache_init(&engine.eval_cache);
-    tt_resize(&engine.tt, 64);
-
     if (argc > 1)
     {
         if (!strcmp(argv[1], "bench"))
         {
-            return run_bench(&engine,
+            return run_bench(engine,
                              argc > 2 ? atoi(argv[2]) : 0); // 0 => the pinned default depth; exit code = pass/fail
         }
         if (!strcmp(argv[1], "perft"))
@@ -59,7 +50,7 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "datagen"))
         {
-            return run_datagen(&engine, argc - 1, argv + 1);
+            return run_datagen(engine, argc - 1, argv + 1);
         }
         if (!strcmp(argv[1], "bullet2text"))
         {
@@ -84,6 +75,23 @@ int main(int argc, char **argv)
             return nnue_run_self_check(argv[2]);
         }
     }
-    uci_loop(&engine);
+    uci_loop(engine);
     return 0;
+}
+
+/** @brief Program entry: initialise subsystems (order matters), build the one Engine, run, release. */
+int main(int argc, char **argv)
+{
+    init_bitboards();
+    init_zobrist();
+    init_eval();
+
+    Engine engine = {0}; // the one engine instance, owned here; everything else borrows it
+    search_shared_init(&engine.search);
+    eval_cache_init(&engine.eval_cache);
+    tt_resize(&engine.tt, 64);
+
+    const int status = run(&engine, argc, argv);
+    engine_free(&engine);
+    return status;
 }

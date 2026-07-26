@@ -10,6 +10,7 @@
  * engine state, so tests and future multi-instance embeddings cannot alias each other.
  */
 #pragma once
+#include "accumulator.h"
 #include "eval.h"
 #include "tt.h"
 #include "types.h"
@@ -66,4 +67,17 @@ typedef struct Engine
     TranspositionTable tt;         ///< the shared lockless transposition table
     SearchShared       search;     ///< stop flag, tunable parameters, LMR table
     EvalCache          eval_cache; ///< shared lockless eval memoisation
+    const NnueNetwork *net;        ///< the loaded NNUE net (owned; NULL = HCE evaluation)
 } Engine;
+
+const NnueNetwork *nnue_load(const char *path); // (full API in nnue.h; declared here so engine_free stays inline)
+void               nnue_free(const NnueNetwork *net);
+
+/** @brief Release everything @p engine owns (TT, eval cache, net). Call once, after all searching is done. */
+static inline void engine_free(Engine *engine)
+{
+    tt_free(&engine->tt);
+    eval_cache_free(&engine->eval_cache);
+    nnue_free(engine->net);
+    engine->net = NULL;
+}

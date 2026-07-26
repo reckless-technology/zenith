@@ -16,8 +16,6 @@
 #include <immintrin.h>
 #endif
 
-bool nnue_g_is_loaded = false;
-
 /** @brief Architecture / quantisation contract — must match trainer/features.py exactly. */
 enum
 {
@@ -32,16 +30,16 @@ enum
 
 static const char NNUE_MAGIC[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'};
 
-/** @brief The quantised network weights, loaded from a `.nnue` file. */
-typedef struct Network
+/** @brief The quantised network weights, loaded from a `.nnue` file (completes accumulator.h's forward decl). */
+struct NnueNetwork
 {
     int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; ///< feature-major, king-bucketed
     int16_t feature_transformer_bias[HIDDEN_SIZE];                   ///< feature-transformer bias
     int16_t output_weight[2 * HIDDEN_SIZE]; ///< own half [0,HIDDEN), opponent half [HIDDEN,2*HIDDEN)
     int32_t output_bias;                    ///< output bias
-} Network;
+};
 
-static Network network;
+_Static_assert(NNUE_KING_BUCKETS == NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
 
 /**
  * @brief King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
@@ -129,85 +127,92 @@ static inline int32_t clamp_accumulator(const int32_t value)
 }
 #endif
 
-/**
- * @brief Net generation counter that invalidates the whole refresh cache when a new net is loaded.
- *
- * The accumulator refresh cache ("finny tables"): per thread, for each (perspective, king bucket) we keep
- * the last accumulator computed for that bucket and the board bitboards it was built from. A king move that
- * switches a perspective to bucket B rebuilds by applying only the piece diffs versus that cached board — a
- * handful of column ops instead of a full 32-piece rescan. Always correct (the diffs are exact); this
- * generation counter invalidates the whole cache when a new net is loaded. _Thread_local ⇒ Lazy-SMP safe.
- */
-static uint32_t g_net_generation = 0;
-
-/** @brief One cached refresh-cache accumulator plus the board bitboards it was built from. */
-typedef struct RefreshCacheEntry
-{
-    _Alignas(32) int16_t values[HIDDEN_SIZE]; ///< cached accumulator half for this (perspective, bucket)
-    Bitboard colors[2];                       ///< board occupancy per color when @ref values was built
-    Bitboard pieces[NUM_PIECES];              ///< board occupancy per piece type when @ref values was built
-    uint32_t net_generation;                  ///< 0 ⇒ never populated for the current net
-} RefreshCacheEntry;
-
-static _Thread_local RefreshCacheEntry g_refresh_cache[2][NUM_KING_BUCKETS];
-
 // ---- incremental accumulator maintenance -------------------------------------------------------------
 // Each perspective indexes into its own cached king bucket (accumulator->king_bucket[perspective]); a piece
 // add/remove/move within the same king bucket is a pure incremental update. King moves that change a side's
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
 void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
+    const NnueNetwork *const net = accumulator->net;
     add_column(
         accumulator->values[WHITE],
-        network.feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
     add_column(
         accumulator->values[BLACK],
-        network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
 void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
+    const NnueNetwork *const net = accumulator->net;
     sub_column(
         accumulator->values[WHITE],
-        network.feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
     sub_column(
         accumulator->values[BLACK],
-        network.feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
 }
 
 void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int from, const int to)
 {
+    const NnueNetwork *const net = accumulator->net;
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
         const int bucket = accumulator->king_bucket[perspective];
         sub_column(accumulator->values[perspective],
-                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, from)]);
+                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, from)]);
         add_column(accumulator->values[perspective],
-                   network.feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, to)]);
+                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, to)]);
     }
 }
 
 /**
  * @brief Rebuild a single perspective's half (when that side's king bucket changes, and from refresh()).
  *
- * Uses the thread-local refresh cache: start from the cached accumulator for this (perspective, bucket) and
- * apply only the piece diffs versus the board it was built from. Cost is proportional to pieces changed, not 32.
+ * With a bound refresh cache (accumulator->cache, one per search thread): start from the cached accumulator
+ * for this (perspective, bucket) and apply only the piece diffs versus the board it was built from — cost
+ * proportional to pieces changed, not 32. An entry built for a different net (or never built: NULL) is a
+ * miss and rebuilds from the bias, which replaces the old global net-generation guard. Without a cache the
+ * half is rebuilt from scratch directly into the accumulator.
  */
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, const Color perspective)
 {
+    const NnueNetwork *const net = accumulator->net;
     const int bucket = king_bucket(relative_king_square(perspective, position_king_sq(position, perspective)));
     accumulator->king_bucket[perspective] = bucket;
 
-    RefreshCacheEntry *const cache = &g_refresh_cache[perspective][bucket];
-    if (cache->net_generation != g_net_generation)
+    if (accumulator->cache == NULL)
     {
-        memcpy(cache->values, network.feature_transformer_bias, sizeof(cache->values));
+        // No cache (standalone evals, verification walks): plain full rebuild of this half.
+        memcpy(accumulator->values[perspective], net->feature_transformer_bias,
+               sizeof(accumulator->values[perspective]));
+        for (int color = WHITE; color <= BLACK; color++)
+        {
+            for (int type = PAWN; type <= KING; type++)
+            {
+                Bitboard pieces = position->colors[color] & position->pieces[type];
+                while (pieces)
+                {
+                    const int square = pop_lsb(&pieces);
+                    add_column(accumulator->values[perspective],
+                               net->feature_transformer_weight[feature_index(bucket, perspective, (Color)color,
+                                                                             (Piece)type, square)]);
+                }
+            }
+        }
+        return;
+    }
+
+    NnueRefreshCacheEntry *const cache = &accumulator->cache->entries[perspective][bucket];
+    if (cache->net != net)
+    {
+        memcpy(cache->values, net->feature_transformer_bias, sizeof(cache->values));
         cache->colors[0] = cache->colors[1] = 0;
         for (int type = PAWN; type <= KING; type++)
         {
             cache->pieces[type] = 0;
         }
-        cache->net_generation = g_net_generation;
+        cache->net = net;
     }
 
     for (int color = WHITE; color <= BLACK; color++)
@@ -221,13 +226,13 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
             while (added)
             {
                 const int square = pop_lsb(&added);
-                add_column(cache->values, network.feature_transformer_weight[feature_index(
+                add_column(cache->values, net->feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (Piece)type, square)]);
             }
             while (removed)
             {
                 const int square = pop_lsb(&removed);
-                sub_column(cache->values, network.feature_transformer_weight[feature_index(
+                sub_column(cache->values, net->feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (Piece)type, square)]);
             }
         }
@@ -299,40 +304,42 @@ static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 
 int nnue_evaluate(const NnueAccumulator *accumulator, const Color stm)
 {
-    const int16_t *const own      = accumulator->values[stm];
-    const int16_t *const opponent = accumulator->values[enemy_of(stm)];
+    const NnueNetwork *const net      = accumulator->net;
+    const int16_t *const     own      = accumulator->values[stm];
+    const int16_t *const     opponent = accumulator->values[enemy_of(stm)];
 #if defined(__AVX2__)
-    int64_t accumulated =
-        screlu_dot(own, network.output_weight) + screlu_dot(opponent, network.output_weight + HIDDEN_SIZE);
+    int64_t accumulated = screlu_dot(own, net->output_weight) + screlu_dot(opponent, net->output_weight + HIDDEN_SIZE);
 #else
     int64_t accumulated = 0;
     for (int i = 0; i < HIDDEN_SIZE; i++)
     {
         const int32_t own_clamped = clamp_accumulator(own[i]);
-        accumulated += (int64_t)(own_clamped * network.output_weight[i]) * own_clamped;
+        accumulated += (int64_t)(own_clamped * net->output_weight[i]) * own_clamped;
         const int32_t opponent_clamped = clamp_accumulator(opponent[i]);
-        accumulated += (int64_t)(opponent_clamped * network.output_weight[HIDDEN_SIZE + i]) * opponent_clamped;
+        accumulated += (int64_t)(opponent_clamped * net->output_weight[HIDDEN_SIZE + i]) * opponent_clamped;
     }
 #endif
     accumulated /= QUANT_ACCUMULATOR;
-    accumulated += network.output_bias;
+    accumulated += net->output_bias;
     return (int)(accumulated * EVALUATION_SCALE / (QUANT_ACCUMULATOR * QUANT_OUTPUT));
 }
 
 int nnue_evaluate_position(const Position *position)
 {
     NnueAccumulator accumulator;
+    accumulator.net   = position->accumulator.net;
+    accumulator.cache = NULL; // standalone eval: full rebuild, no per-thread cache
     nnue_refresh(&accumulator, position);
     return nnue_evaluate(&accumulator, position->color_to_move);
 }
 
 // ---- loading -----------------------------------------------------------------------------------------
-bool nnue_load(const char *path)
+const NnueNetwork *nnue_load(const char *path)
 {
     FILE *const file = fopen(path, "rb");
     if (!file)
     {
-        return false;
+        return NULL;
     }
     char magic[8];
     bool is_read_ok = fread(magic, 1, 8, file) == 8;
@@ -340,17 +347,16 @@ bool nnue_load(const char *path)
     {
         fprintf(stderr, "nnue: bad magic in %s\n", path);
         fclose(file);
-        return false;
+        return NULL;
     }
-    // Read into a heap temporary and only commit to the live `network` on a fully-successful read. Reading
-    // straight into the global would leave a previously-good net half-overwritten (and still flagged loaded)
-    // if the file is truncated — the engine would then evaluate with garbage weights.
-    Network *const loaded = malloc(sizeof(Network));
+    // The net is returned only on a fully-successful read, so a truncated file can never leave a caller
+    // holding garbage weights.
+    NnueNetwork *const loaded = malloc(sizeof(NnueNetwork));
     if (loaded == NULL)
     {
         fclose(file);
         fprintf(stderr, "nnue: out of memory loading %s\n", path);
-        return false;
+        return NULL;
     }
     is_read_ok = is_read_ok && fread(loaded->feature_transformer_weight, 1, sizeof(loaded->feature_transformer_weight),
                                      file) == sizeof(loaded->feature_transformer_weight);
@@ -364,20 +370,22 @@ bool nnue_load(const char *path)
     if (!is_read_ok)
     {
         free(loaded);
-        fprintf(stderr, "nnue: truncated file %s\n", path); // previously-loaded net (if any) stays intact
-        return false;
+        fprintf(stderr, "nnue: truncated file %s\n", path); // the caller's previous net (if any) stays intact
+        return NULL;
     }
-    network          = *loaded;
-    nnue_g_is_loaded = true;
-    g_net_generation++; // invalidate every thread's refresh cache (weights/bias changed)
-    free(loaded);
-    return true;
+    return loaded;
+}
+
+void nnue_free(const NnueNetwork *net)
+{
+    free((void *)net);
 }
 
 // ---- verification helpers ----------------------------------------------------------------------------
 int nnue_eval_fens_from_stdin(const char *net_path)
 {
-    if (!nnue_load(net_path))
+    const NnueNetwork *const net = nnue_load(net_path);
+    if (net == NULL)
     {
         fprintf(stderr, "nnue: failed to load %s\n", net_path);
         return 1;
@@ -391,7 +399,7 @@ int nnue_eval_fens_from_stdin(const char *net_path)
             continue;
         }
         Position position;
-        position_init(&position);
+        position_init(&position, net);
         if (!position_set_fen(&position, line))
         {
             printf("0\n"); // malformed FEN: emit a placeholder so output stays line-aligned with the input
@@ -399,6 +407,7 @@ int nnue_eval_fens_from_stdin(const char *net_path)
         }
         printf("%d\n", nnue_evaluate_position(&position));
     }
+    nnue_free(net);
     return 0;
 }
 
@@ -414,6 +423,8 @@ typedef struct SelfCheckTally
 static void self_check_walk(const Position *position, const int depth, SelfCheckTally *tally)
 {
     NnueAccumulator fresh;
+    fresh.net   = position->accumulator.net;
+    fresh.cache = NULL; // the reference side is always a full rebuild
     nnue_refresh(&fresh, position);
     for (int perspective = 0; perspective < 2; perspective++)
     {
@@ -447,11 +458,16 @@ static void self_check_walk(const Position *position, const int depth, SelfCheck
 
 int nnue_run_self_check(const char *net_path)
 {
-    if (!nnue_load(net_path))
+    const NnueNetwork *const net = nnue_load(net_path);
+    if (net == NULL)
     {
         fprintf(stderr, "nnue: failed to load %s\n", net_path);
         return 1;
     }
+    // Bind a refresh cache into the walk's root so the finny diff-rebuild path is exercised, exactly as it
+    // is in a real search thread; the walk's copy-make children inherit it.
+    NnueRefreshCache refresh_cache;
+    memset(&refresh_cache, 0, sizeof refresh_cache);
     const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
@@ -465,7 +481,8 @@ int nnue_run_self_check(const char *net_path)
     for (size_t fen_index = 0; fen_index < fen_count; fen_index++)
     {
         Position position;
-        position_init(&position);
+        position_init(&position, net);
+        position.accumulator.cache = &refresh_cache;
         position_set_fen(&position, fens[fen_index]);
         SelfCheckTally tally    = {0};
         const int64_t  start_ms = platform_now_ms();
@@ -489,5 +506,6 @@ int nnue_run_self_check(const char *net_path)
     snprintf(aux, sizeof aux, "max|diff| %d  %3llu mism", overall_maxdiff, (unsigned long long)total_mismatches);
     test_result_columns(total_mismatches == 0, "nnue", detail, (int64_t)total_nodes, aux, total_secs,
                         total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0, "(incremental == refresh)");
+    nnue_free(net);
     return total_mismatches ? 1 : 0;
 }

@@ -7,6 +7,7 @@
 #pragma once
 #include "engine.h"
 #include "movegen.h"
+#include "nnue.h"
 #include "position.h"
 #include "tt.h"
 #include <stdatomic.h>
@@ -81,6 +82,10 @@ typedef struct Searcher
     Move pv_table[MAX_PLY][MAX_PLY];   ///< triangular principal-variation table
     int  pv_len[MAX_PLY];              ///< PV length per ply
     Move root_best;                    ///< best move at the root of the current search
+
+    /// This thread's NNUE refresh cache; searcher_go binds it into the root position, and copy-make hands
+    /// it down to every node this thread searches. Zeroed by searcher_init (entries then miss on first use).
+    NnueRefreshCache refresh_cache;
 } Searcher;
 
 /**

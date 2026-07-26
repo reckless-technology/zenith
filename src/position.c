@@ -102,7 +102,7 @@ static void put(Position *pos, const Color color, const Piece piece, const int s
     {
         pos->king_location[color] = (Square)square;
     }
-    if (nnue_is_loaded())
+    if (pos->accumulator.net != NULL)
     {
         nnue_add_feature(&pos->accumulator, color, piece, square);
     }
@@ -123,7 +123,7 @@ static void remove_piece(Position *pos, const int square)
         pos->pawn_key ^= ZobristPiece[color][piece][square];
     }
     pos->board[square] = NO_PIECE;
-    if (nnue_is_loaded())
+    if (pos->accumulator.net != NULL)
     {
         nnue_remove_feature(&pos->accumulator, color, piece, square);
     }
@@ -150,7 +150,7 @@ static void move_piece(Position *pos, const int from, const int to)
     {
         pos->king_location[color] = (Square)to;
     }
-    if (nnue_is_loaded())
+    if (pos->accumulator.net != NULL)
     {
         nnue_move_feature(&pos->accumulator, color, piece, from, to);
     }
@@ -240,7 +240,7 @@ void position_make_move(Position *pos, const Move move)
     // King-input buckets: a king move (including castling) can change the moving side's king bucket, which
     // shifts that whole perspective's feature block — refresh it. The primitives above updated both
     // perspectives incrementally with the pre-move buckets; refresh_perspective discards the stale own half.
-    if (piece == KING && nnue_is_loaded())
+    if (piece == KING && pos->accumulator.net != NULL)
     {
         nnue_update_king_bucket(&pos->accumulator, pos, side);
     }
@@ -637,7 +637,7 @@ bool position_set_fen(Position *pos, const char *fen)
     }
 
     // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
-    if (nnue_is_loaded())
+    if (pos->accumulator.net != NULL)
     {
         nnue_refresh(&pos->accumulator, pos);
     }

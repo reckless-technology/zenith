@@ -84,6 +84,8 @@ typedef struct TranspositionTable
 void tt_resize(TranspositionTable *tt, size_t megabytes);
 /** @brief Zero every slot of @p tt and reset the generation. */
 void tt_clear(TranspositionTable *tt);
+/** @brief Release @p tt's slot array (safe on an unsized table). */
+void tt_free(TranspositionTable *tt);
 
 /** @brief Advance @p tt's generation so older entries become replaceable. Call once at the start of a search. */
 static inline void tt_new_search(TranspositionTable *tt)

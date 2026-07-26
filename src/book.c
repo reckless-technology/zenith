@@ -470,7 +470,7 @@ int run_book_check(void)
     for (int i = 0; i < vector_count; i++)
     {
         Position pos;
-        position_init(&pos);
+        position_init(&pos, NULL);
         position_set_fen(&pos, vectors[i].fen);
         const uint64_t key     = polyglot_key(&pos);
         const bool     is_pass = key == vectors[i].key;

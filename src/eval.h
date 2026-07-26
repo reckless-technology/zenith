@@ -22,6 +22,8 @@ typedef struct EvalCache
 
 /** @brief Allocate @p cache's zeroed table (idempotent; a failed allocation leaves it NULL = uncached). */
 void eval_cache_init(EvalCache *cache);
+/** @brief Release @p cache's table (safe on an unallocated cache). */
+void eval_cache_free(EvalCache *cache);
 
 /** @brief Initialise the evaluation PST tables. Call once at startup. */
 void init_eval(void);
