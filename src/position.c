@@ -49,7 +49,7 @@ static const uint8_t CastleMask[64] = {
 // clang-format on
 
 /** @brief Place a piece and update every representation: bitboards (incl. occupied), mailbox, Zobrist, NNUE. */
-static void put(Position *pos, const Color color, const Piece piece, const int square)
+static void add_piece(Position *pos, const Color color, const Piece piece, const int square)
 {
     const Bitboard square_bit = sq_bb(square);
     pos->colors[color] |= square_bit;
@@ -71,7 +71,7 @@ static void put(Position *pos, const Color color, const Piece piece, const int s
     }
 }
 
-/** @brief Remove the piece on @p square and update every representation (inverse of put). */
+/** @brief Remove the piece on @p square and update every representation (inverse of add_piece). */
 static void remove_piece(Position *pos, const int square)
 {
     const Piece    piece      = (Piece)pos->board[square];
@@ -219,7 +219,7 @@ void position_make_move(Position *pos, const Move move)
         if (move_is_promo(move))
         {
             remove_piece(pos, to);
-            put(pos, side, move_promo_pt(move), to);
+            add_piece(pos, side, move_promo_pt(move), to);
         }
         else if (move_is_double(move))
         {
@@ -511,8 +511,9 @@ bool position_set_fen(Position *pos, const char *fen)
         }
     }
 
-    // Piece placement. Every square index is bounds-checked before put(): a malformed board field (over-long
-    // rank, too many '/', stray digits) can drive file/rank out of [0,8), and put() writes board[square] +
+    // Piece placement. Every square index is bounds-checked before add_piece(): a malformed board field
+    // (over-long rank, too many '/', stray digits) can drive file/rank out of [0,8), and add_piece() writes
+    // board[square] +
     // indexes Zobrist[..][square] + shifts 1<<square, so an unchecked square is a memory-safety hole reachable
     // from a single `position fen` line. Out-of-range placements are skipped rather than written.
     int  file = 0, rank = 7;
@@ -559,7 +560,7 @@ bool position_set_fen(Position *pos, const char *fen)
             }
             if (file >= 0 && file < 8 && rank >= 0 && rank < 8)
             {
-                put(pos, color, piece, make_square(file, rank));
+                add_piece(pos, color, piece, make_square(file, rank));
             }
             else
             {
@@ -631,7 +632,7 @@ bool position_set_fen(Position *pos, const char *fen)
         update_checkers(pos); // seed the cached checkers for the root position (make_move maintains it thereafter)
     }
 
-    // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
+    // Authoritative accumulator rebuild (add_piece() updated it incrementally from an uninitialised state above).
     if (pos->accumulator.net != NULL)
     {
         nnue_refresh(&pos->accumulator, pos);

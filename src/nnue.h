@@ -4,7 +4,7 @@
  * @file
  * @brief NNUE evaluation: a quantised SCReLU perspective network with an incrementally-maintained accumulator.
  *
- * Position embeds an NnueAccumulator that put/remove/move_piece update, so make_move/set_fen keep it in
+ * Position embeds an NnueAccumulator that add_piece/remove_piece/move_piece update, so make_move/set_fen keep it in
  * sync and eval is a cheap forward pass (no per-node full refresh). The accumulator carries the net it
  * tracks (NULL = HCE) — there is no global network. The integer forward stays byte-identical to the
  * integer_eval reference in trainer/features.py (0 cp gate); `nnuecheck` verifies incremental == refresh.

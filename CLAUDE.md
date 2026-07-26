@@ -83,7 +83,7 @@ kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental
   **Zobrist** `key` (`ZobristPiece[color][piece][sq]`, `ZobristEp[sq]`) + pawn-only `pawn_key`; the NNUE
   accumulator is embedded and updated
-  in the put/remove/move primitives. Copy-free oracles for the search: `position_is_legal` (checkers+pins;
+  in the add_piece/remove_piece/move_piece primitives. Copy-free oracles for the search: `position_is_legal` (checkers+pins;
   the copy-make `position_is_legal_slow` is the reference oracle it is validated against),
   `pinned_to_king`, `gives_check_fast`/`discovered_check_candidates` — all differentially validated by
   `legalcheck`. FEN I/O.

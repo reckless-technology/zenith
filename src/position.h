@@ -39,12 +39,12 @@ typedef struct Position
     // FEN-output only).
     Color    color_to_move;             ///< side to move
     Square   ep_square;                 ///< en-passant TARGET square (0..63), or NO_SQUARE when no ep is possible
-    Square   king_location[NUM_COLORS]; ///< king square per color, maintained incrementally by put/move_piece
+    Square   king_location[NUM_COLORS]; ///< king square per color, maintained incrementally by add_piece/move_piece
     uint16_t fullmove;                  ///< full-move number (FEN output only)
     uint8_t  halfmove;                  ///< 50-move clock (plies); resets on a pawn move or capture
     uint8_t  castling_rights;           ///< castling-rights bitmask (CR_*)
 
-    /// NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
+    /// NNUE accumulator, maintained incrementally in add_piece/remove_piece/move_piece (only when a net is loaded).
     /// Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
     NnueAccumulator accumulator;
 } Position;
@@ -53,7 +53,7 @@ typedef struct Position
  * @brief Initialise @p pos to an empty board bound to @p net: White to move, zeroed keys, both cached king
  * buckets at 0.
  *
- * The zeroed king buckets are crucial so set_fen's incremental put() calls index the net in bounds before
+ * The zeroed king buckets are crucial so set_fen's incremental add_piece() calls index the net in bounds before
  * the authoritative refresh. @p net may be NULL (no NNUE — evaluate() uses the HCE and the accumulator
  * updates become no-ops). Call it before using any freshly-declared `Position`.
  */

@@ -94,7 +94,7 @@ written once by `init_bitboards()` — main's only startup call — before any t
 
 - **Bitboards** — `colors[2]` and `pieces[7]` (indexed by `Piece`; the `NO_PIECE` slot holds the
   occupied-squares bitboard) — plus a `board[64]` piece-type mailbox (color comes from `colors`) for
-  O(1) piece lookup, all kept in sync by the put/remove/move primitives.
+  O(1) piece lookup, all kept in sync by the add_piece/remove_piece/move_piece primitives.
 - **Zobrist** hashing maintained incrementally, with a separate pawn-only key used by the eval correction
   history in search.
 - **Copy-make.** `Position` is a value type: the search copies the parent and applies `make_move` to the

@@ -21,7 +21,7 @@ typedef struct NnueRefreshCache NnueRefreshCache; ///< per-thread accumulator re
 /**
  * @brief One NNUE hidden-layer accumulator per perspective, embedded in Position.
  *
- * Maintained incrementally by put/remove/move_piece (so make_move and set_fen keep it in sync). Eval reads
+ * Maintained incrementally by add_piece/remove_piece/move_piece (so make_move and set_fen keep it in sync). Eval reads
  * values[stm] as "own" and values[~stm] as "opponent".
  *
  * The accumulator also carries its bindings: the net it is maintained against (NULL = no net, HCE eval — the
