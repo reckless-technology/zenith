@@ -33,6 +33,7 @@ static const char *const TOKEN_SEPARATORS = " \t\r\n";
  */
 typedef struct UciSession
 {
+    Engine      *engine;                     ///< the engine instance this session drives (TT etc.)
     Position     game;                       ///< current game position
     uint64_t     game_hist[SEARCH_HIST_CAP]; ///< keys of positions before @ref game (for repetition detection)
     int          game_hist_count;            ///< number of valid entries in @ref game_hist
@@ -246,7 +247,7 @@ static int go_thread_main(void *raw)
             session->pool = resized;
             for (int thread_index = 0; thread_index < active_threads; thread_index++)
             {
-                searcher_init(&session->pool[thread_index]);
+                searcher_init(&session->pool[thread_index], session->engine);
             }
             session->pool_size = active_threads;
         }
@@ -437,11 +438,11 @@ static void set_option(UciSession *session, char **save_ptr)
     }
     if (strcmp(option_name, "hash") == 0)
     {
-        tt_resize(atoi(value));
+        tt_resize(&session->engine->tt, atoi(value));
     }
     else if (strcmp(option_name, "clear hash") == 0)
     {
-        tt_clear();
+        tt_clear(&session->engine->tt);
         eval_cache_clear();
     }
     else if (strcmp(option_name, "move overhead") == 0)
@@ -496,12 +497,12 @@ static void set_option(UciSession *session, char **save_ptr)
     // Ponder accepted and ignored.
 }
 
-void uci_loop(void)
+void uci_loop(Engine *engine)
 {
     // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
     printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
     fflush(stdout);
-    UciSession session = {.thread_count = 1, .move_overhead = 20};
+    UciSession session = {.engine = engine, .thread_count = 1, .move_overhead = 20};
     position_init(&session.game);
     position_set_fen(&session.game, START_FEN); // start from a legal position, so a bare/invalid `go` never
                                                 // searches the empty board (king_sq would then do lsb(0))
@@ -548,7 +549,7 @@ void uci_loop(void)
         else if (strcmp(token, "ucinewgame") == 0)
         {
             join_search(&session);
-            tt_clear();
+            tt_clear(&session.engine->tt);
             position_set_fen(&session.game, START_FEN);
             session.game_hist_count = 0;
         }
@@ -622,7 +623,7 @@ static const BenchCase BenchCases[] = {
  * the lines are informational (node count + nps, no verdict).
  * @return 0 if every checked position matched (or the depth has no reference), 1 on any mismatch.
  */
-int run_bench(int depth)
+int run_bench(Engine *engine, int depth)
 {
     if (depth <= 0)
     {
@@ -637,12 +638,12 @@ int run_bench(int depth)
     int             passed     = 0;
     for (size_t i = 0; i < count; i++)
     {
-        tt_clear();
+        tt_clear(&engine->tt);
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, BenchCases[i].fen);
-        searcher_init(searcher);        // fresh search state per position
-        searcher->is_silent     = true; // suppress per-iteration info; print one clean per-position line below
+        searcher_init(searcher, engine); // fresh search state per position
+        searcher->is_silent     = true;  // suppress per-iteration info; print one clean per-position line below
         searcher->move_overhead = 0;
         SearchLimits limits;
         search_limits_init(&limits);

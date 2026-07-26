@@ -5,6 +5,7 @@
  * @brief The search: the Searcher state, tunable parameters, per-search limits, and searcher_go.
  */
 #pragma once
+#include "engine.h"
 #include "movegen.h"
 #include "position.h"
 #include "tt.h"
@@ -96,6 +97,7 @@ enum
 /** @brief One search thread's complete state (~2.4 MB; heap-allocate these). */
 typedef struct Searcher
 {
+    Engine  *engine;        ///< the owning engine instance (shared TT; every pool thread points at the same one)
     uint64_t nodes;         ///< nodes searched this search
     int      seldepth;      ///< greatest ply reached (selective depth)
     int64_t  move_overhead; ///< ms subtracted from the clock to cover I/O latency
@@ -127,9 +129,10 @@ typedef struct Searcher
  *
  * The struct is ~2.4 MB — heap-allocate Searchers (the UCI thread pool is malloc'd).
  */
-static inline void searcher_init(Searcher *searcher)
+static inline void searcher_init(Searcher *searcher, Engine *engine)
 {
     memset(searcher, 0, sizeof *searcher);
+    searcher->engine        = engine;
     searcher->move_overhead = 20;
 }
 

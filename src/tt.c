@@ -7,8 +7,6 @@
 #include "tt.h"
 #include <stdlib.h>
 
-TranspositionTable TT;
-
 static int clamp_int(const int value, const int low, const int high)
 {
     return value < low ? low : (value > high ? high : value);
@@ -20,7 +18,7 @@ static size_t bit_floor_size(const size_t x)
     return (size_t)1 << (63 - __builtin_clzll((uint64_t)x));
 }
 
-void tt_resize(size_t megabytes)
+void tt_resize(TranspositionTable *tt, size_t megabytes)
 {
     // Clamp to the advertised UCI range before the byte multiply, so a negative/huge `Hash` value (it reaches
     // here as a wrapped size_t via atoi) cannot overflow `bytes` and request an absurd allocation.
@@ -48,24 +46,24 @@ void tt_resize(size_t megabytes)
     }
     if (fresh == NULL)
     {
-        return; // keep the existing table (never leave TT.table NULL for probe/store to dereference)
+        return; // keep the existing table (never leave tt->table NULL for probe/store to dereference)
     }
-    free(TT.table);
-    TT.table      = fresh;
-    TT.slot_count = slot_count;
-    TT.mask       = slot_count - 1;
-    TT.generation = 0;
+    free(tt->table);
+    tt->table      = fresh;
+    tt->slot_count = slot_count;
+    tt->mask       = slot_count - 1;
+    tt->generation = 0;
 }
 
-void tt_clear(void)
+void tt_clear(TranspositionTable *tt)
 {
-    memset((void *)TT.table, 0, TT.slot_count * sizeof(TTSlot));
-    TT.generation = 0;
+    memset((void *)tt->table, 0, tt->slot_count * sizeof(TTSlot));
+    tt->generation = 0;
 }
 
-bool tt_probe(const uint64_t key, TTData *out)
+bool tt_probe(const TranspositionTable *tt, const uint64_t key, TTData *out)
 {
-    const TTSlot *const slot    = &TT.table[key & TT.mask];
+    const TTSlot *const slot    = &tt->table[key & tt->mask];
     const uint64_t      data    = atomic_load_explicit(&slot->data, memory_order_relaxed);
     const uint64_t      xor_key = atomic_load_explicit(&slot->key, memory_order_relaxed);
     if ((xor_key ^ data) != key || data == 0)
@@ -76,10 +74,10 @@ bool tt_probe(const uint64_t key, TTData *out)
     return out->bound != BOUND_NONE;
 }
 
-void tt_store(const uint64_t key, const int score, const int eval, const int depth, const Bound bound, Move move,
-              const int ply)
+void tt_store(TranspositionTable *tt, const uint64_t key, const int score, const int eval, const int depth,
+              const Bound bound, Move move, const int ply)
 {
-    TTSlot *const  slot         = &TT.table[key & TT.mask];
+    TTSlot *const  slot         = &tt->table[key & tt->mask];
     const uint64_t current_data = atomic_load_explicit(&slot->data, memory_order_relaxed);
     const uint64_t current_key  = atomic_load_explicit(&slot->key, memory_order_relaxed);
     const bool     is_same_key  = (current_data != 0) && ((current_key ^ current_data) == key);
@@ -92,7 +90,7 @@ void tt_store(const uint64_t key, const int score, const int eval, const int dep
     }
     // Replace when: empty/torn, this position, from an older search, or a deeper/exact result.
     // depth comparisons are SIGNED — a qsearch-style entry (depth <= 0) must lose to any real depth.
-    if (current_data == 0 || current.bound == BOUND_NONE || is_same_key || current.gen != TT.generation ||
+    if (current_data == 0 || current.bound == BOUND_NONE || is_same_key || current.gen != tt->generation ||
         depth + (bound == BOUND_EXACT ? 2 : 0) >= (int)current.depth)
     {
         TTData entry = {0};
@@ -101,7 +99,7 @@ void tt_store(const uint64_t key, const int score, const int eval, const int dep
         entry.eval   = eval;
         entry.depth  = clamp_int(depth, -128, 127); // signed :8 field — clamp, never wrap
         entry.bound  = bound;
-        entry.gen    = TT.generation;
+        entry.gen    = tt->generation;
 
         const uint64_t data = tt_data_to_u64(entry);
         atomic_store_explicit(&slot->key, key ^ data, memory_order_relaxed);
@@ -109,14 +107,14 @@ void tt_store(const uint64_t key, const int score, const int eval, const int dep
     }
 }
 
-int tt_hashfull(void)
+int tt_hashfull(const TranspositionTable *tt)
 {
     int       used   = 0;
-    const int sample = TT.slot_count < 1000 ? (int)TT.slot_count : 1000;
+    const int sample = tt->slot_count < 1000 ? (int)tt->slot_count : 1000;
     for (int i = 0; i < sample; i++)
     {
-        const uint64_t data = atomic_load_explicit(&TT.table[i].data, memory_order_relaxed);
-        if (data != 0 && u64_to_tt_data(data).gen == TT.generation)
+        const uint64_t data = atomic_load_explicit(&tt->table[i].data, memory_order_relaxed);
+        if (data != 0 && u64_to_tt_data(data).gen == tt->generation)
         {
             used++;
         }

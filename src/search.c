@@ -425,7 +425,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
 
         Position child = *pos;
         position_make_move(&child, move);
-        tt_prefetch(child.key); // slot loads during the recursive-call setup
+        tt_prefetch(&searcher->engine->tt, child.key); // slot loads during the recursive-call setup
         const int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
         if (g_stop)
         {
@@ -544,7 +544,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     // entry describes the position WITH the excluded move). Even without a cutoff, the entry contributes its
     // move (ordering anchor) and static eval.
     TTData     tt_entry  = {0};
-    const bool is_tt_hit = tt_probe(pos->key, &tt_entry);
+    const bool is_tt_hit = tt_probe(&searcher->engine->tt, pos->key, &tt_entry);
     const int  tt_score  = is_tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
     const Move tt_move   = is_tt_hit ? (Move)tt_entry.move : MOVE_NONE;
     if (move_is_none(excluded) && !is_pv_node && is_tt_hit && (int)tt_entry.depth >= depth &&
@@ -729,7 +729,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // Move survived pruning — make it now (legality already established above).
         Position child = *pos;
         position_make_move(&child, move);
-        tt_prefetch(child.key); // slot loads while we finish this node before recursing into the child
+        tt_prefetch(&searcher->engine->tt,
+                    child.key); // slot loads while we finish this node before recursing into the child
 
         // Check extension: search checking moves one ply deeper — forcing sequences resolve instead of
         // being pushed past the horizon, and evasions are never the last searched ply.
@@ -890,7 +891,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     const Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
     if (move_is_none(excluded))
     {
-        tt_store(pos->key, best_score, is_in_check ? VALUE_NONE : raw_eval, depth, bound, best_move, ply);
+        tt_store(&searcher->engine->tt, pos->key, best_score, is_in_check ? VALUE_NONE : raw_eval, depth, bound,
+                 best_move, ply);
 
         // Update the eval correction: blend in (search score - raw static eval), but only when the score is
         // a trustworthy signal — not in check, not a tactical (capture) best move, not a mate, and the bound
@@ -929,7 +931,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     set_time(searcher, &root, lim);
     if (searcher->is_main)
     {
-        tt_new_search(); // bump generation once per search, not per helper thread
+        tt_new_search(&searcher->engine->tt); // bump generation once per search, not per helper thread
     }
     if (nnue_is_loaded())
     {
@@ -997,7 +999,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
             }
             printf("info depth %d seldepth %d score %s nodes %llu nps %llu time %lld hashfull %d pv", depth,
                    searcher->seldepth, score_str, (unsigned long long)searcher->nodes,
-                   (unsigned long long)nodes_per_second, (long long)elapsed_ms, tt_hashfull());
+                   (unsigned long long)nodes_per_second, (long long)elapsed_ms, tt_hashfull(&searcher->engine->tt));
             for (int pv_index = 0; pv_index < searcher->pv_len[0]; pv_index++)
             {
                 char uci_buf[8];

@@ -7,13 +7,14 @@
  * Zenith generates its own independent dataset — nothing here is shared with any other engine.
  */
 #pragma once
+#include "engine.h"
 /**
  * @brief Self-play generator. Emits one text record per quiet position:
  * `fen ; stm_relative_score_cp ; wdl` (wdl in {1.0, 0.5, 0.0} from the side-to-move's POV).
  *
  * CLI: `./build/zenith datagen <games> <out.txt> [seed] [nodes] [opening_plies]`
  */
-int run_datagen(int argc, char **argv);
+int run_datagen(Engine *engine, int argc, char **argv);
 
 /**
  * @brief Convert a bulletformat .data file (e.g. the public PlentyChess dataset) to Zenith's fen;score;wdl text.

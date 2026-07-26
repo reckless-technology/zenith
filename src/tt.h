@@ -71,7 +71,7 @@ typedef struct TTSlot
     _Atomic uint64_t data; ///< tt_data_to_u64(TTData)
 } TTSlot;
 
-/** @brief The global transposition table: a power-of-two array of slots with a generation counter. */
+/** @brief A transposition table: a power-of-two array of slots with a generation counter. */
 typedef struct TranspositionTable
 {
     TTSlot  *table;      ///< slot array (calloc'd)
@@ -80,25 +80,23 @@ typedef struct TranspositionTable
     uint8_t  generation; ///< current search generation, for aging
 } TranspositionTable;
 
-extern TranspositionTable TT; ///< the single global transposition table
+/** @brief (Re)allocate @p tt to @p megabytes (clamped to [1, TT_MAX_MB]); clears it. */
+void tt_resize(TranspositionTable *tt, size_t megabytes);
+/** @brief Zero every slot of @p tt and reset the generation. */
+void tt_clear(TranspositionTable *tt);
 
-/** @brief (Re)allocate the table to @p megabytes (clamped to [1, TT_MAX_MB]); clears it. */
-void tt_resize(size_t megabytes);
-/** @brief Zero every slot and reset the generation. */
-void tt_clear(void);
-
-/** @brief Advance the generation so older entries become replaceable. Call once at the start of a search. */
-static inline void tt_new_search(void)
+/** @brief Advance @p tt's generation so older entries become replaceable. Call once at the start of a search. */
+static inline void tt_new_search(TranspositionTable *tt)
 {
-    TT.generation++;
+    tt->generation++;
 }
 
-/** @brief Probe @p key. @return true on a key hit with a real entry, copying the payload into @p out. */
-bool tt_probe(uint64_t key, TTData *out);
+/** @brief Probe @p tt for @p key. @return true on a key hit with a real entry, copying the payload into @p out. */
+bool tt_probe(const TranspositionTable *tt, uint64_t key, TTData *out);
 /** @brief Store a result under @p key (depth-preferred replacement with generation aging). */
-void tt_store(uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
-/** @brief Approximate table fill (per mille) over a 1000-slot sample, of the current generation. */
-int tt_hashfull(void);
+void tt_store(TranspositionTable *tt, uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
+/** @brief Approximate fill of @p tt (per mille) over a 1000-slot sample, of the current generation. */
+int tt_hashfull(const TranspositionTable *tt);
 
 /**
  * @brief Prefetch @p key's slot into cache to hide the probe's memory latency.
@@ -106,9 +104,9 @@ int tt_hashfull(void);
  * Called right after a child is made, so the slot is in flight while the caller finishes this node's work
  * (extensions, history push, reduction) before the recursive search probes it.
  */
-static inline void tt_prefetch(uint64_t key)
+static inline void tt_prefetch(const TranspositionTable *tt, uint64_t key)
 {
-    __builtin_prefetch(&TT.table[key & TT.mask]);
+    __builtin_prefetch(&tt->table[key & tt->mask]);
 }
 
 /**

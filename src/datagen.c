@@ -167,7 +167,7 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
     return generate_legal(pos, moves, false) != 0;
 }
 
-int run_datagen(const int argc, char **argv)
+int run_datagen(Engine *engine, const int argc, char **argv)
 {
     // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=opening_plies
     if (argc < 3)
@@ -217,7 +217,7 @@ int run_datagen(const int argc, char **argv)
 
     DatagenRng      rng      = {seed ? seed : 0x9E3779B97F4A7C15ULL}; // xorshift must not start at 0
     Searcher *const searcher = malloc(sizeof(Searcher));
-    searcher_init(searcher);
+    searcher_init(searcher, engine);
     searcher->is_silent     = true;
     searcher->move_overhead = 0;
 
@@ -243,7 +243,7 @@ int run_datagen(const int argc, char **argv)
         while (!random_opening(&pos, history, &history_count, &rng, opening_plies, start_fen))
         { /* retry until non-terminal */
         }
-        tt_clear();
+        tt_clear(&engine->tt);
 
         pending_count         = 0;
         int game_result       = 0; // +1 white win, -1 black win, 0 draw

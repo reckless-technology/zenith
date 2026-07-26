@@ -7,6 +7,7 @@
 #include "bitboard.h"
 #include "book.h"
 #include "datagen.h"
+#include "engine.h"
 #include "eval.h"
 #include "nnue.h"
 #include "position.h"
@@ -24,13 +25,16 @@ int main(int argc, char **argv)
     init_zobrist();
     init_eval();
     init_search();
-    tt_resize(64);
+
+    Engine engine = {0}; // the one engine instance, owned here; every entry point below borrows it
+    tt_resize(&engine.tt, 64);
 
     if (argc > 1)
     {
         if (!strcmp(argv[1], "bench"))
         {
-            return run_bench(argc > 2 ? atoi(argv[2]) : 0); // 0 => the pinned default depth; exit code = pass/fail
+            return run_bench(&engine,
+                             argc > 2 ? atoi(argv[2]) : 0); // 0 => the pinned default depth; exit code = pass/fail
         }
         if (!strcmp(argv[1], "perft"))
         {
@@ -54,7 +58,7 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "datagen"))
         {
-            return run_datagen(argc - 1, argv + 1);
+            return run_datagen(&engine, argc - 1, argv + 1);
         }
         if (!strcmp(argv[1], "bullet2text"))
         {
@@ -79,6 +83,6 @@ int main(int argc, char **argv)
             return nnue_run_self_check(argv[2]);
         }
     }
-    uci_loop();
+    uci_loop(&engine);
     return 0;
 }
