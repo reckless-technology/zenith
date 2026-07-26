@@ -9,6 +9,9 @@ Emits:
                            any change shifts every position key, the TT behaviour, and the bench signature.
   src/eval_tables.inc    — the PeSTO piece-square tables combined with material values, exactly as the old
                            init_eval() computed them at startup.
+  src/ln_tables.inc      — ln(n) for n = 1..127 in Q28 fixed point (round(ln(n) * 2^28)), for the LMR
+                           reduction table: the search then needs no floating point at all, so the bench
+                           node signature is reproducible on every platform/compiler by construction.
 
 The tables are true constants, so generating them once (and committing the output) makes them `static const`
 — thread-safe by construction, no init-order dependency — instead of write-once globals. Regenerate only if
@@ -263,12 +266,28 @@ def emit_pesto(mg, eg):
     (ROOT / "src" / "eval_tables.inc").write_text("\n".join(out))
 
 
+def emit_ln():
+    import math
+    out = [HEADER]
+    out.append("// ln(n) in Q28 fixed point (round(ln(n) * 2^28)); index 0 unused. int64_t so products stay 64-bit.")
+    out.append("// clang-format off")
+    out.append("static const int64_t LnQ28[128] = {")
+    values = [0] + [round(math.log(n) * (1 << 28)) for n in range(1, 128)]
+    for i in range(0, 128, 8):
+        out.append("    " + ", ".join(str(v) for v in values[i:i + 8]) + ",")
+    out.append("};")
+    out.append("// clang-format on")
+    out.append("")
+    (ROOT / "src" / "ln_tables.inc").write_text("\n".join(out))
+
+
 def main():
     piece, castle, ep, side = generate_zobrist()
     emit_zobrist(piece, castle, ep, side)
     mg, eg = generate_pesto(PST)
     emit_pesto(mg, eg)
-    print("wrote src/zobrist_tables.inc and src/eval_tables.inc")
+    emit_ln()
+    print("wrote src/zobrist_tables.inc, src/eval_tables.inc, and src/ln_tables.inc")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// ln(n) in Q28 fixed point for the LMR table (generated; see tools/generate_tables.py).
+#include "ln_tables.inc"
+
 static const int SeeValue[NUM_PIECES] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
 
 /**
@@ -140,59 +143,25 @@ int static_exchange_eval(const Position *pos, const Move move)
 }
 
 /**
- * @brief Portable natural logarithm — a reproducible replacement for libm log() in the LMR table.
+ * @brief (Re)build @p shared's LMR reduction table from its current LmrBase/LmrDivisor parameters.
  *
- * libm's log() is not required to be correctly rounded, so its last-bit result varies by platform and version;
- * because the LMR seed below truncates to int, that variance could flip a reduction and make the bench node
- * signature non-reproducible across builds. This uses only IEEE-754 add/sub/mul/div (each correctly rounded)
- * with FP contraction disabled, so it yields bit-identical doubles on every conforming target (verified equal
- * across FMA / non-FMA microarchitectures). Its output matches libm to < 1e-13 over the domain the table needs
- * (integers 1..127), so the truncated table — hence engine behavior — is unchanged from the libm version.
- *
- * Range-reduces x = m * 2^k with m in [1,2) by exact halving (dividing a finite double by two never rounds),
- * then sums the atanh series ln(m) = 2*(s + s^3/3 + s^5/5 + ...) with s = (m-1)/(m+1) in [0,1/3). Valid for
- * x >= 1, which is all the table asks for.
+ * Pure 64-bit fixed-point integer arithmetic (Q28), with ln(n) taken from the generated LnQ28 table — no
+ * floating point anywhere, so the table (and with it the bench node signature) is bit-identical on every
+ * platform and compiler by construction. Q28 reproduces the previous double computation exactly: its
+ * ~4e-9 error is four orders of magnitude inside the closest truncation boundary (~8e-5) over the whole
+ * parameter grid, and the largest intermediate (ln(127)^2 in Q56) uses 61 of the 63 available bits.
  */
-static double portable_log(double x)
-{
-    // Contraction control: clang honors the standard pragma; gcc does not implement it (and would fail
-    // -Werror on it), so the one contractible expression below is also split across statements — ISO C only
-    // licenses contraction within a single expression, which both compilers honor under -std=c17.
-#if defined(__clang__)
-#pragma STDC FP_CONTRACT OFF
-#endif
-    int k = 0;
-    while (x >= 2.0)
-    {
-        x /= 2.0; // exact: halving only decrements the binary exponent
-        k++;
-    }
-    const double s    = (x - 1.0) / (x + 1.0);
-    const double s2   = s * s;
-    double       term = s;   // s^(2i+1)
-    double       sum  = 0.0; // accumulates the odd-power series
-    for (int i = 0; i < 12; i++)
-    { // s2 <= 1/9, so 12 terms drive the remainder far below a double ulp
-        sum += term / (double)(2 * i + 1);
-        term *= s2;
-    }
-    const double ln2          = 0.69314718055994530942; // nearest double to ln 2
-    const double mantissa_log = 2.0 * sum;
-    const double exponent_log = (double)k * ln2;
-    return mantissa_log + exponent_log; // separate statements: no a*b+c for either compiler to fuse
-}
-
-/** @brief (Re)build @p shared's LMR reduction table from its current LmrBase/LmrDivisor parameters. */
 static void build_reductions(SearchShared *shared)
 {
-    const double lmr_base    = shared->params.lmr_base_x100 / 100.0;
-    const double lmr_divisor = shared->params.lmr_divisor_x100 / 100.0;
+    // reduction = floor(lmr_base/100 + ln(depth) * ln(move_number) / (lmr_divisor/100)), all in Q28.
+    const int64_t base_q28 = ((int64_t)shared->params.lmr_base_x100 << 28) / 100;
     for (int depth = 1; depth < MAX_PLY; depth++)
     {
         for (int move_number = 1; move_number < 64; move_number++)
         {
-            shared->reductions[depth][move_number] =
-                (int)(lmr_base + portable_log(depth) * portable_log(move_number) / lmr_divisor);
+            const int64_t product_q28              = (LnQ28[depth] * LnQ28[move_number]) >> 28;
+            const int64_t term_q28                 = product_q28 * 100 / shared->params.lmr_divisor_x100;
+            shared->reductions[depth][move_number] = (int)((base_q28 + term_q28) >> 28);
         }
     }
 }

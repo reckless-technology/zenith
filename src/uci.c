@@ -613,10 +613,10 @@ void uci_loop(Engine *engine)
  * @brief A bench position and its deterministic search node count at BENCH_DEPTH.
  *
  * The node counts are the signature components: their sum (2,657,379) is the bench node signature that guards
- * search determinism. They are reproducible on every platform — the fixed-depth search is all-integer except
- * the LMR reduction table, which is now seeded by our own portable_log (not libm), so the counts no longer
- * depend on a platform's math library. If a search/eval change intentionally moves the signature, re-run
- * `./build/zenith bench` and update these counts.
+ * search determinism. They are reproducible on every platform and compiler by construction: the fixed-depth
+ * search — including the LMR reduction table, built in Q28 fixed point from the generated LnQ28 table — is
+ * pure integer arithmetic with no floating point anywhere. If a search/eval change intentionally moves the
+ * signature, re-run `./build/zenith bench` and update these counts.
  */
 typedef struct
 {
