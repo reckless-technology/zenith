@@ -54,8 +54,8 @@ static void slider_moves(Move *moves, int *count, Bitboard slider_pieces, Bitboa
  * @brief Generate pseudo-legal moves into @p moves (a MAX_MOVES buffer), terminated with MOVE_NONE.
  *
  * Castling is emitted fully legal (king not in/through check); every other move is legal iff it does not
- * leave the mover's own king in check — the search tests that with a single make_move (see negamax/qsearch),
- * avoiding the separate copy-make that generate_legal does per move.
+ * leave the mover's own king in check — callers filter that with the copy-free is_legal_fast (the search
+ * in negamax/qsearch, and generate_legal below), so no per-move make_move is needed.
  */
 int generate_pseudo(const Position *pos, Move *moves, bool is_noisy_only)
 {
@@ -204,16 +204,21 @@ int generate_pseudo(const Position *pos, Move *moves, bool is_noisy_only)
     return count;
 }
 
-/** @brief Generate fully legal moves: pseudo-legal generation followed by a copy-make legality filter. */
+/** @brief Generate fully legal moves: pseudo-legal generation followed by the copy-free is_legal_fast filter. */
 int generate_legal(const Position *pos, Move *moves, bool is_noisy_only)
 {
     Move      pseudo[MAX_MOVES];
     const int pseudo_count = generate_pseudo(pos, pseudo, is_noisy_only);
 
-    int count = 0;
+    // Filter with the copy-free legality oracle search uses (cached checkers + once-per-node pinned), not the
+    // per-move copy-make position_is_legal — the two agree on every pseudo-legal move (the `legalcheck` gate),
+    // but this avoids a full make_move per candidate. Big win for perft/datagen/UCI, which call this hot.
+    const Bitboard checkers = pos->checkers;
+    const Bitboard pinned   = position_pinned_to_king(pos);
+    int            count    = 0;
     for (int index = 0; index < pseudo_count; index++)
     {
-        if (position_is_legal(pos, pseudo[index]))
+        if (position_is_legal_fast(pos, pseudo[index], checkers, pinned))
         {
             moves[count++] = pseudo[index]; // count <= pseudo_count <= MAX_MOVES-1, terminator slot safe
         }
