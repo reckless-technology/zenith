@@ -194,17 +194,17 @@ void search_shared_init(SearchShared *shared)
 {
     memset(shared, 0, sizeof *shared);
     shared->params = (SearchParams){
-        .rfp_margin         = 62,
-        .nmp_divisor        = 202,
-        .lmp_base           = 4,
-        .futility_base      = 102,
-        .futility_margin    = 96,
-        .see_capture_margin = 102,
-        .lmr_base_x100      = 86,
-        .lmr_divisor_x100   = 229,
+        .rfp_margin         = 56,
+        .nmp_divisor        = 199,
+        .lmp_base           = 5,
+        .futility_base      = 94,
+        .futility_margin    = 98,
+        .see_capture_margin = 97,
+        .lmr_base_x100      = 90,
+        .lmr_divisor_x100   = 220,
         .singular_margin    = 3,
         .aspiration_delta   = 21,
-        .history_max        = 418,
+        .history_max        = 402,
     };
     build_reductions(shared);
 }

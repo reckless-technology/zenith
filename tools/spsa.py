@@ -20,19 +20,21 @@ import re
 import subprocess
 import time
 
-# (name, initial, min, max) — must match the UCI spin options exposed by the engine.
+# (name, initial, min, max) — must match the UCI spin options exposed by the engine. Initials mirror the
+# CURRENT SearchParams defaults in search.c (the first SPSA pass, already baked in), so a fresh run continues
+# from the shipped engine rather than re-tuning from the pre-pass values.
 PARAMS = [
-    ("RfpMargin", 80, 20, 200),
-    ("NmpDivisor", 200, 50, 600),
-    ("LmpBase", 3, 1, 10),
-    ("FutilityBase", 100, 0, 300),
-    ("FutilityMargin", 90, 30, 200),
-    ("SeeCaptureMargin", 100, 20, 300),
-    ("LmrBase", 80, 0, 200),
-    ("LmrDivisor", 230, 100, 400),
+    ("RfpMargin", 56, 20, 200),
+    ("NmpDivisor", 199, 50, 600),
+    ("LmpBase", 5, 1, 10),
+    ("FutilityBase", 94, 0, 300),
+    ("FutilityMargin", 98, 30, 200),
+    ("SeeCaptureMargin", 97, 20, 300),
+    ("LmrBase", 90, 0, 200),
+    ("LmrDivisor", 220, 100, 400),
     ("SingularMargin", 3, 1, 8),
-    ("AspirationDelta", 20, 5, 60),
-    ("HistoryMax", 400, 100, 1200),
+    ("AspirationDelta", 21, 5, 60),
+    ("HistoryMax", 402, 100, 1200),
 ]
 
 GAMMA, ALPHA = 0.101, 0.602
@@ -82,10 +84,23 @@ def main():
     parser.add_argument("--tc", default="8+0.08")
     parser.add_argument("--out", default="tools/spsa_state.json")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", default=None,
+                        help="state json from a previous round: continue its theta AND its iteration count, "
+                             "so chained rounds form one gradient-descent trajectory (the gain schedule keeps "
+                             "decaying instead of restarting)")
     args = parser.parse_args()
     random.seed(args.seed)
 
     theta = [float(init) for (_, init, _, _) in PARAMS]
+    start_iteration = 1
+    if args.resume:
+        with open(args.resume) as handle:
+            prior = json.load(handle)
+        theta = [float(prior["theta"][name]) for (name, _, _, _) in PARAMS]
+        start_iteration = prior["iteration"] + 1
+        print(f"resuming from {args.resume}: iteration {start_iteration}, theta "
+              + "  ".join(f"{k}={v}" for k, v in prior["theta"].items()), flush=True)
+
     # Per-param perturbation c0 (~8% of range, >=1) and learning rate a0. a0 is scaled so an early full-signal
     # iteration nudges theta by ~a0/(2c0); we pick a0 to move a few % of range per confident iteration.
     c0 = [max(1.0, 0.08 * (hi - lo)) for (_, _, lo, hi) in PARAMS]
@@ -93,7 +108,7 @@ def main():
     A = max(20, args.iters // 10)
 
     start = time.time()
-    for iteration in range(1, args.iters + 1):
+    for iteration in range(start_iteration, args.iters + 1):
         ck = [c / iteration ** GAMMA for c in c0]
         ak = [a / (iteration + A) ** ALPHA for a in a0]
         delta = [random.choice((-1, 1)) for _ in PARAMS]

@@ -20,8 +20,8 @@
  * @brief Tunable search parameters, exposed as UCI spin options for SPSA tuning.
  *
  * Defaults reproduce the shipped engine exactly, so the bench signature is unchanged. After tuning, the
- * winning values are baked back here. Current defaults are SPSA-tuned (800 iterations self-play, +26.5 Elo
- * SPRT vs the pre-tune values).
+ * winning values are baked back here. Current defaults are SPSA-tuned twice: pass 1 (800 iterations,
+ * +26.5 Elo SPRT) and pass 2 (500 iterations from those values, +11.1 +/- 6.0 Elo SPRT at 8+0.08).
  */
 typedef struct SearchParams
 {
