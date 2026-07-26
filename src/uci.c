@@ -35,6 +35,7 @@ static bool         is_search_thread_running = false;
 static int          thread_count             = 1;
 static int64_t      move_overhead            = 20;
 static bool         is_own_book_enabled      = false; // default OFF: testing must stay bookless
+static Book         book; // the loaded opening book (zero-initialized = none) — absorbed into the session struct next
 
 /** @brief Stop any in-flight search and join the coordinator thread (safe to call when idle). */
 static void join_search(void)
@@ -348,9 +349,9 @@ static void go(char **save_ptr)
     }
     // Opening book (Polyglot): only for real game searches — never for analysis (infinite) or fixed
     // depth/node test searches, so bench signatures and SPRT harness runs are unaffected even if enabled.
-    if (is_own_book_enabled && book_is_loaded() && !limits.is_infinite && limits.depth == 0 && limits.nodes == 0)
+    if (is_own_book_enabled && book_is_loaded(&book) && !limits.is_infinite && limits.depth == 0 && limits.nodes == 0)
     {
-        const Move book_move = book_probe(&game);
+        const Move book_move = book_probe(&book, &game);
         if (!move_is_none(book_move))
         {
             char uci_buf[8];
@@ -444,7 +445,7 @@ static void set_option(char **save_ptr)
     }
     else if (strcmp(option_name, "bookfile") == 0)
     {
-        if (book_load(value))
+        if (book_load(&book, value))
         {
             printf("info string loaded book %s\n", value);
         }

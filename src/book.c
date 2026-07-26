@@ -274,9 +274,6 @@ typedef struct BookEntry
     uint32_t learn;  ///< learn field (unused)
 } BookEntry;
 
-static BookEntry *book_entries = NULL;
-static size_t     book_count   = 0;
-
 static uint64_t read_be64(const unsigned char *bytes)
 {
     uint64_t value = 0;
@@ -292,7 +289,7 @@ static uint16_t read_be16(const unsigned char *bytes)
     return (uint16_t)((bytes[0] << 8) | bytes[1]);
 }
 
-bool book_load(const char *path)
+bool book_load(Book *book, const char *path)
 {
     FILE *const file = fopen(path, "rb");
     if (file == NULL)
@@ -336,15 +333,22 @@ bool book_load(const char *path)
     }
     free(raw);
 
-    free(book_entries);
-    book_entries = entries;
-    book_count   = count;
+    free(book->entries);
+    book->entries = entries;
+    book->count   = count;
     return true;
 }
 
-bool book_is_loaded(void)
+bool book_is_loaded(const Book *book)
 {
-    return book_entries != NULL && book_count > 0;
+    return book->entries != NULL && book->count > 0;
+}
+
+void book_free(Book *book)
+{
+    free(book->entries);
+    book->entries = NULL;
+    book->count   = 0;
 }
 
 // ---- probing -----------------------------------------------------------------------------------------
@@ -366,36 +370,34 @@ static uint16_t polyglot_encode(const Position *pos, const Move move)
     return (uint16_t)(file_of(to) | (rank_of(to) << 3) | (file_of(from) << 6) | (rank_of(from) << 9) | (promo << 12));
 }
 
-// Weighted-random pick needs nondeterminism for opening variety (xorshift64*, seeded once from the clock).
-static uint64_t book_rng_state = 0;
-
-/** @brief Next value from the book's xorshift64* PRNG (lazily seeded from the clock on first use). */
-static uint64_t book_rng(void)
+/** @brief Next value from @p book's xorshift64* PRNG (lazily seeded from the clock on first use).
+ * Weighted-random picks need nondeterminism for opening variety. */
+static uint64_t book_rng(Book *book)
 {
-    if (book_rng_state == 0)
+    if (book->rng_state == 0)
     {
-        book_rng_state = (uint64_t)platform_now_ms() | 1;
+        book->rng_state = (uint64_t)platform_now_ms() | 1;
     }
-    book_rng_state ^= book_rng_state >> 12;
-    book_rng_state ^= book_rng_state << 25;
-    book_rng_state ^= book_rng_state >> 27;
-    return book_rng_state * 0x2545F4914F6CDD1DULL;
+    book->rng_state ^= book->rng_state >> 12;
+    book->rng_state ^= book->rng_state << 25;
+    book->rng_state ^= book->rng_state >> 27;
+    return book->rng_state * 0x2545F4914F6CDD1DULL;
 }
 
-Move book_probe(const Position *pos)
+Move book_probe(Book *book, const Position *pos)
 {
-    if (!book_is_loaded())
+    if (!book_is_loaded(book))
     {
         return MOVE_NONE;
     }
     const uint64_t key = polyglot_key(pos);
 
     // Binary search for the first entry with this key (entries are sorted by key).
-    size_t low = 0, high = book_count;
+    size_t low = 0, high = book->count;
     while (low < high)
     {
         const size_t mid = low + (high - low) / 2;
-        if (book_entries[mid].key < key)
+        if (book->entries[mid].key < key)
         {
             low = mid + 1;
         }
@@ -412,14 +414,14 @@ Move book_probe(const Position *pos)
     uint32_t weights[64];
     int      matched_count = 0;
     uint64_t total_weight  = 0;
-    for (size_t i = low; i < book_count && book_entries[i].key == key && matched_count < 64; i++)
+    for (size_t i = low; i < book->count && book->entries[i].key == key && matched_count < 64; i++)
     {
         for (int m = 0; legal[m] != MOVE_NONE; m++)
         {
-            if (polyglot_encode(pos, legal[m]) == book_entries[i].move)
+            if (polyglot_encode(pos, legal[m]) == book->entries[i].move)
             {
                 matched[matched_count] = legal[m];
-                weights[matched_count] = book_entries[i].weight ? book_entries[i].weight : 1;
+                weights[matched_count] = book->entries[i].weight ? book->entries[i].weight : 1;
                 total_weight += weights[matched_count];
                 matched_count++;
                 break;
@@ -431,7 +433,7 @@ Move book_probe(const Position *pos)
         return MOVE_NONE;
     }
 
-    uint64_t pick = book_rng() % total_weight;
+    uint64_t pick = book_rng(book) % total_weight;
     for (int i = 0; i < matched_count; i++)
     {
         if (pick < weights[i])

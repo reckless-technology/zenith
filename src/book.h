@@ -13,12 +13,25 @@
 #include "position.h"
 #include <stdbool.h>
 
-/** @brief Load a .bin book fully into memory (replaces any previous book). @return false on failure. */
-bool book_load(const char *path);
-/** @brief Whether a non-empty book is currently loaded. */
-bool book_is_loaded(void);
-/** @brief Pick a book move for @p pos. @return a verified-legal move, or MOVE_NONE on miss / no book. */
-Move book_probe(const Position *pos);
+typedef struct BookEntry BookEntry; ///< decoded Polyglot entry (layout private to book.c)
+
+/** @brief An opening book instance: the decoded entries plus the pick PRNG. Zero-initialize for "no book". */
+typedef struct Book
+{
+    BookEntry *entries;   ///< decoded, key-sorted entries (owned; NULL when no book is loaded)
+    size_t     count;     ///< number of entries
+    uint64_t   rng_state; ///< xorshift64* state for the weighted pick (lazily seeded from the clock)
+} Book;
+
+/** @brief Load a .bin book fully into @p book (replacing any previous contents). @return false on failure. */
+bool book_load(Book *book, const char *path);
+/** @brief Whether @p book holds a non-empty book. */
+bool book_is_loaded(const Book *book);
+/** @brief Pick a book move for @p pos (advances @p book's pick PRNG).
+ *  @return a verified-legal move, or MOVE_NONE on miss / no book. */
+Move book_probe(Book *book, const Position *pos);
+/** @brief Release @p book's entries (safe on a zero-initialized or already-freed book). */
+void book_free(Book *book);
 
 /** @brief The position's Polyglot Zobrist key. Exposed for the bookcheck gate. */
 uint64_t polyglot_key(const Position *pos);
