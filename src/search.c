@@ -356,7 +356,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
     }
     if (ply >= MAX_PLY - 1)
     {
-        return evaluate(pos);
+        return evaluate(pos, &searcher->engine->eval_cache);
     }
 
     const Bitboard checkers    = pos->checkers; // cached: recomputed once per make_move
@@ -364,7 +364,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
     int            best        = -VALUE_INF;
     if (!is_in_check)
     {
-        best = evaluate(pos);
+        best = evaluate(pos, &searcher->engine->eval_cache);
         if (best >= beta)
         {
             return best; // stand-pat cutoff — returns before the pin scan below
@@ -514,7 +514,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     }
     if (ply >= MAX_PLY - 1)
     {
-        return evaluate(pos); // out of ply stack — return the static eval rather than recursing further
+        return evaluate(
+            pos,
+            &searcher->engine->eval_cache); // out of ply stack — return the static eval rather than recursing further
     }
     if (depth <= 0)
     {
@@ -571,7 +573,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     // average of (search result - static eval) keyed by pawn structure — it nudges the eval toward what
     // deeper searches of similar structures actually returned. In check there is no meaningful static eval.
     const int raw_eval =
-        is_in_check ? VALUE_NONE : (is_tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval : evaluate(pos));
+        is_in_check ? VALUE_NONE
+                    : (is_tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval
+                                                                : evaluate(pos, &searcher->engine->eval_cache));
     int eval = raw_eval;
     if (!is_in_check)
     {

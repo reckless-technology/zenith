@@ -75,13 +75,9 @@ static const int *eg_pst[6] = {eg_pawn, eg_knight, eg_bishop, eg_rook, eg_queen,
 static int mg_table[12][64];
 static int eg_table[12][64];
 
-// Shared lockless eval cache: 2^20 single-u64 entries = 8 MB. Each entry packs the key's high 48 bits with
-// the 16-bit eval; the slot index uses the key's low 20 bits, so a verified hit implies ALL 64 key bits
-// match (bits 0-19 via the index, 16-63 via the compare) — false hits are impossible, a collision only
-// evicts. Single-word relaxed atomics cannot tear, so it is Lazy-SMP-safe like the TT. The big win is
-// qsearch, which evaluates at every stand-pat with no other caching.
+// The eval cache type lives in eval.h; the big win is qsearch, which evaluates at every stand-pat with no
+// other caching.
 #define EVAL_CACHE_ENTRIES (1ull << 20)
-static _Atomic uint64_t *eval_cache;
 
 static uint64_t eval_cache_pack(const uint64_t key, const int value)
 {
@@ -100,18 +96,21 @@ void init_eval(void)
             eg_table[piece + 6][square] = eg_value[piece] + eg_pst[piece][square];
         }
     }
-    // The eval cache is a zero-initialised table allocated on first init.
-    if (eval_cache == NULL)
+}
+
+void eval_cache_init(EvalCache *cache)
+{
+    if (cache->slots == NULL)
     {
-        eval_cache = calloc(EVAL_CACHE_ENTRIES, sizeof(_Atomic uint64_t));
+        cache->slots = calloc(EVAL_CACHE_ENTRIES, sizeof(_Atomic uint64_t));
     }
 }
 
-void eval_cache_clear(void)
+void eval_cache_clear(EvalCache *cache)
 {
-    if (eval_cache)
+    if (cache->slots)
     {
-        memset((void *)eval_cache, 0, EVAL_CACHE_ENTRIES * sizeof(_Atomic uint64_t));
+        memset((void *)cache->slots, 0, EVAL_CACHE_ENTRIES * sizeof(_Atomic uint64_t));
     }
 }
 
@@ -129,11 +128,11 @@ static void mobility(int *middlegame, int *endgame, Bitboard piece_bitboard, Bit
     }
 }
 
-int evaluate(const Position *pos)
+int evaluate(const Position *pos, EvalCache *cache)
 {
-    // eval_cache is NULL only if its allocation failed at init — degrade to an uncached eval rather than
-    // dereferencing NULL. The branch is perfectly predicted (cache is non-NULL in every normal run).
-    _Atomic uint64_t *const slot = eval_cache ? &eval_cache[pos->key & (EVAL_CACHE_ENTRIES - 1)] : NULL;
+    // cache may be NULL (uncached callers) or its allocation may have failed — degrade to an uncached eval
+    // rather than dereferencing NULL. The branch is perfectly predicted in every normal run.
+    _Atomic uint64_t *const slot = (cache && cache->slots) ? &cache->slots[pos->key & (EVAL_CACHE_ENTRIES - 1)] : NULL;
     if (slot)
     {
         const uint64_t entry = atomic_load_explicit(slot, memory_order_relaxed);

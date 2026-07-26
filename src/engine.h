@@ -10,6 +10,7 @@
  * engine state, so tests and future multi-instance embeddings cannot alias each other.
  */
 #pragma once
+#include "eval.h"
 #include "tt.h"
 #include "types.h"
 #include <stdatomic.h>
@@ -62,6 +63,7 @@ bool set_search_param(SearchShared *shared, const char *name, int value);
  *  TT with tt_resize and call search_shared_init before searching. */
 typedef struct Engine
 {
-    TranspositionTable tt;     ///< the shared lockless transposition table
-    SearchShared       search; ///< stop flag, tunable parameters, LMR table
+    TranspositionTable tt;         ///< the shared lockless transposition table
+    SearchShared       search;     ///< stop flag, tunable parameters, LMR table
+    EvalCache          eval_cache; ///< shared lockless eval memoisation
 } Engine;

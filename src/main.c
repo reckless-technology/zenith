@@ -27,6 +27,7 @@ int main(int argc, char **argv)
 
     Engine engine = {0}; // the one engine instance, owned here; every entry point below borrows it
     search_shared_init(&engine.search);
+    eval_cache_init(&engine.eval_cache);
     tt_resize(&engine.tt, 64);
 
     if (argc > 1)

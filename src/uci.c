@@ -443,7 +443,7 @@ static void set_option(UciSession *session, char **save_ptr)
     else if (strcmp(option_name, "clear hash") == 0)
     {
         tt_clear(&session->engine->tt);
-        eval_cache_clear();
+        eval_cache_clear(&session->engine->eval_cache);
     }
     else if (strcmp(option_name, "move overhead") == 0)
     {
@@ -474,7 +474,7 @@ static void set_option(UciSession *session, char **save_ptr)
     {
         if (nnue_load(value))
         {
-            eval_cache_clear(); // a new net changes every evaluation
+            eval_cache_clear(&session->engine->eval_cache); // a new net changes every evaluation
             printf("info string loaded NNUE %s\n", value);
         }
         else
@@ -1136,7 +1136,7 @@ int run_fuzz_check(void)
             Move pseudo[MAX_MOVES], legal[MAX_MOVES];
             generate_pseudo(&pos, pseudo, false);
             generate_legal(&pos, legal, false);
-            (void)evaluate(&pos);
+            (void)evaluate(&pos, NULL); // uncached: the fuzz gate has no engine
         }
         test_result_columns(is_accepted, "fuzz", "accept", -1, NULL, -1.0, -1.0, accept_fens[i]);
     }
