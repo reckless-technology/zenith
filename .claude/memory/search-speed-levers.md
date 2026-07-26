@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 221925ef-3c7d-4275-96ac-0cd7362cb511
-  modified: 2026-07-26T02:40:08.992Z
+  modified: 2026-07-26T04:16:37.029Z
 ---
 
 Zenith uses **copy-make** (Position is a value type; search does `Position child = pos; child.make_move(m)`),
@@ -42,15 +42,15 @@ Wins realised (both SPRT-gated):
 
 - **TT prefetch: pure-speed win** (2026-07-25, commit 0aefd74). `tt_prefetch(key)` = `__builtin_prefetch(&TT.table[key & mask])`, called right after each `make_move` in negamax/qsearch so the slot loads while the node finishes (extensions, hist push, reduction) before the recursive probe. Bench signature 3065743 unchanged (pure speed); ~+4-7% bench nps. Cheap, low-risk latency hiding on the memory-bound lockless TT.
 
-- **AVX-512 forward-pass prototype (`make avx512` -> ./zenith-avx512, commit f46bcac, 2026-07-25): written but
-  NOT validated on this box.** Widens the NNUE column add/sub + SCReLU dot 256->512-bit behind `__AVX512BW__`
-  (-march=x86-64-v4); bit-identical to the AVX2 path by construction. CANNOT be run here: the 13900HX has
-  AVX-512 fused off (cpuinfo shows only avx2 + avx_vnni), and qemu-user 8.2's TCG does not emulate AVX-512
-  (a bare `vpminsw zmm` SIGILLs even with `-cpu max`, despite -cpu help advertising the flag), and no Intel
-  SDE is installed. Needs real AVX-512 silicon or a v4 CI runner to validate (nnuecheck 0-mismatch +
-  node-count match vs AVX2) and measure. Also note: **AVX-VNNI (present on this CPU) can't accelerate this
-  net** — VNNI is int16xint16->int32 madd, but SCReLU is clamped^2 * weight (needs int32 intermediates); VNNI
-  would only help an int8-quantised net (a trainer/format change).
+- **AVX-512 forward-pass variant: tried, then REMOVED (commit f46bcac added it, reverted right after,
+  2026-07-25).** Widening the NNUE column add/sub + SCReLU dot 256->512-bit (`__AVX512BW__`, -march=x86-64-v4)
+  is bit-identical to AVX2 by construction, but there is NO way to run/validate/measure it on this setup: the
+  13900HX has AVX-512 fused off (cpuinfo: only avx2 + avx_vnni), qemu-user 8.2's TCG doesn't emulate AVX-512
+  (a bare `vpminsw zmm` SIGILLs even with `-cpu max`, despite -cpu help listing the flag), and no Intel SDE.
+  An unrunnable code path earns nothing in-tree, so it was removed — revisit only with real AVX-512 silicon or
+  a v4 CI runner (validate via nnuecheck 0-mismatch + node-count match vs AVX2). Also: **AVX-VNNI (present on
+  this CPU) can't accelerate this net** — VNNI is int16xint16->int32 madd, but SCReLU is clamped^2 * weight
+  (int32 intermediates); VNNI would only help an int8-quantised net (a trainer/format change).
 
 More wins realised (2026-07-24, from the independent-review speed pass):
 - **AVX2-vectorized NNUE forward pass: +8.5 ± 5.8 Elo** (commit 851bb83). `nnue_evaluate`'s SCReLU dot was a
