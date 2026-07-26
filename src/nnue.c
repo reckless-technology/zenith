@@ -402,11 +402,16 @@ int nnue_eval_fens_from_stdin(const char *net_path)
     return 0;
 }
 
-static uint64_t g_check_nodes = 0, g_check_mismatches = 0;
-static int      g_check_maxdiff = 0;
+/** @brief Tallies for one accumulator self-check walk (passed down the recursion, no file-scope state). */
+typedef struct SelfCheckTally
+{
+    uint64_t nodes;      ///< positions visited
+    uint64_t mismatches; ///< accumulator lanes that differed from a full refresh
+    int      maxdiff;    ///< largest per-lane absolute difference seen
+} SelfCheckTally;
 
 /** @brief Recurse to @p depth comparing the incrementally-maintained accumulator against a full refresh. */
-static void self_check_walk(const Position *position, const int depth)
+static void self_check_walk(const Position *position, const int depth, SelfCheckTally *tally)
 {
     NnueAccumulator fresh;
     nnue_refresh(&fresh, position);
@@ -417,15 +422,15 @@ static void self_check_walk(const Position *position, const int depth)
             const int diff = abs(position->accumulator.values[perspective][i] - fresh.values[perspective][i]);
             if (diff)
             {
-                g_check_mismatches++;
+                tally->mismatches++;
             }
-            if (diff > g_check_maxdiff)
+            if (diff > tally->maxdiff)
             {
-                g_check_maxdiff = diff;
+                tally->maxdiff = diff;
             }
         }
     }
-    g_check_nodes++;
+    tally->nodes++;
     if (depth == 0)
     {
         return;
@@ -436,7 +441,7 @@ static void self_check_walk(const Position *position, const int depth)
     {
         Position child = *position;
         position_make_move(&child, moves[index]);
-        self_check_walk(&child, depth - 1);
+        self_check_walk(&child, depth - 1, tally);
     }
 }
 
@@ -462,23 +467,22 @@ int nnue_run_self_check(const char *net_path)
         Position position;
         position_init(&position);
         position_set_fen(&position, fens[fen_index]);
-        g_check_nodes = g_check_mismatches = 0;
-        g_check_maxdiff                    = 0;
-        const int64_t start_ms             = platform_now_ms();
-        self_check_walk(&position, 4);
+        SelfCheckTally tally    = {0};
+        const int64_t  start_ms = platform_now_ms();
+        self_check_walk(&position, 4, &tally);
         const double secs = (platform_now_ms() - start_ms) / 1000.0;
-        total_nodes += g_check_nodes;
-        total_mismatches += g_check_mismatches;
+        total_nodes += tally.nodes;
+        total_mismatches += tally.mismatches;
         total_secs += secs;
-        passed += g_check_mismatches == 0;
-        if (g_check_maxdiff > overall_maxdiff)
+        passed += tally.mismatches == 0;
+        if (tally.maxdiff > overall_maxdiff)
         {
-            overall_maxdiff = g_check_maxdiff;
+            overall_maxdiff = tally.maxdiff;
         }
         char aux[32];
-        snprintf(aux, sizeof aux, "max|diff| %d  %3llu mism", g_check_maxdiff, (unsigned long long)g_check_mismatches);
-        test_result_columns(g_check_mismatches == 0, "nnue", NULL, (int64_t)g_check_nodes, aux, secs,
-                            secs > 0.0 ? g_check_nodes / secs / 1e6 : 0.0, fens[fen_index]);
+        snprintf(aux, sizeof aux, "max|diff| %d  %3llu mism", tally.maxdiff, (unsigned long long)tally.mismatches);
+        test_result_columns(tally.mismatches == 0, "nnue", NULL, (int64_t)tally.nodes, aux, secs,
+                            secs > 0.0 ? tally.nodes / secs / 1e6 : 0.0, fens[fen_index]);
     }
     char detail[16], aux[32];
     snprintf(detail, sizeof detail, "%zu/%zu", passed, fen_count);

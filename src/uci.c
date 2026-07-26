@@ -943,10 +943,16 @@ int run_perft_suite(void)
 
 // --- CLI: legalcheck — the copy-free position_is_legal must agree with position_is_legal_slow on every pseudo-legal
 // move ---
-static uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
+
+/** @brief Tallies for one legalcheck walk (passed down the recursion instead of file-scope counters). */
+typedef struct LegalCheckTally
+{
+    uint64_t nodes;      ///< positions visited
+    uint64_t mismatches; ///< disagreements found (first few are printed with their FEN)
+} LegalCheckTally;
 
 /** @brief Recurse to @p depth checking position_is_legal / gives_check_fast against copy-make ground truth. */
-static void legal_check_walk(const Position *pos, const int depth)
+static void legal_check_walk(const Position *pos, const int depth, LegalCheckTally *tally)
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
@@ -959,14 +965,14 @@ static void legal_check_walk(const Position *pos, const int depth)
         const Move move = pseudo[index];
         if (position_is_legal(pos, move, checkers, pinned) != position_is_legal_slow(pos, move))
         {
-            if (g_legal_mismatches < 8)
+            if (tally->mismatches < 8)
             {
                 char fen_buf[128];
                 printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
                        position_is_legal(pos, move, checkers, pinned), position_is_legal_slow(pos, move),
                        move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
             }
-            g_legal_mismatches++;
+            tally->mismatches++;
         }
         // gives_check_fast: for legal QUIET non-castle moves it must equal the copy-make ground truth
         // (castling is allowed to conservatively report true — it is only a pruning guard).
@@ -978,17 +984,17 @@ static void legal_check_walk(const Position *pos, const int depth)
             const bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
             if (is_check_fast != is_check_truth)
             {
-                if (g_legal_mismatches < 8)
+                if (tally->mismatches < 8)
                 {
                     char fen_buf[128];
                     printf("  CHECK-MISMATCH fast=%d truth=%d move=%d->%d flag=%d  %s\n", is_check_fast, is_check_truth,
                            move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
                 }
-                g_legal_mismatches++;
+                tally->mismatches++;
             }
         }
     }
-    g_legal_nodes++;
+    tally->nodes++;
     if (depth == 0)
     {
         return;
@@ -999,7 +1005,7 @@ static void legal_check_walk(const Position *pos, const int depth)
     {
         Position child = *pos;
         position_make_move(&child, legal[index]);
-        legal_check_walk(&child, depth - 1);
+        legal_check_walk(&child, depth - 1, tally);
     }
 }
 
@@ -1026,18 +1032,18 @@ int run_legal_check(void)
         Position pos;
         position_init(&pos);
         position_set_fen(&pos, fens[fen_index]);
-        g_legal_nodes = g_legal_mismatches = 0;
-        const int64_t start_ms             = platform_now_ms();
-        legal_check_walk(&pos, 4);
+        LegalCheckTally tally    = {0};
+        const int64_t   start_ms = platform_now_ms();
+        legal_check_walk(&pos, 4, &tally);
         const double secs = (platform_now_ms() - start_ms) / 1000.0;
-        total_nodes += g_legal_nodes;
-        total_mismatches += g_legal_mismatches;
+        total_nodes += tally.nodes;
+        total_mismatches += tally.mismatches;
         total_secs += secs;
-        passed += g_legal_mismatches == 0;
+        passed += tally.mismatches == 0;
         char aux[32];
-        snprintf(aux, sizeof aux, "%13s%3llu mism", "", (unsigned long long)g_legal_mismatches);
-        test_result_columns(g_legal_mismatches == 0, "legal", NULL, (int64_t)g_legal_nodes, aux, secs,
-                            secs > 0.0 ? g_legal_nodes / secs / 1e6 : 0.0, fens[fen_index]);
+        snprintf(aux, sizeof aux, "%13s%3llu mism", "", (unsigned long long)tally.mismatches);
+        test_result_columns(tally.mismatches == 0, "legal", NULL, (int64_t)tally.nodes, aux, secs,
+                            secs > 0.0 ? tally.nodes / secs / 1e6 : 0.0, fens[fen_index]);
     }
     char detail[16], aux[32];
     snprintf(detail, sizeof detail, "%zu/%zu", passed, fen_count);
