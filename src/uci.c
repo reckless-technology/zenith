@@ -114,12 +114,10 @@ static void set_position(char **save_ptr)
                 break; // leave MAX_PLY headroom so the in-tree hist pushes during search stay in bounds
             }
             game_hist[game_hist_count++] = pos.key;
-            pos.ply                      = 0;
             position_make_move(&pos, move);
         }
     }
-    pos.ply = 0;
-    game    = pos;
+    game = pos;
 }
 
 /** @brief Recursive perft node count under @p node to @p remaining_depth (helper for perft_divide). */

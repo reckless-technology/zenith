@@ -160,7 +160,6 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
         }
         const Move move             = moves[rng_next(rng) % count];
         history[(*history_count)++] = pos->key;
-        pos->ply                    = 0;
         position_make_move(pos, move);
     }
     // Reject openings that are already terminal.
@@ -266,7 +265,6 @@ int run_datagen(const int argc, char **argv)
                 break;
             }
 
-            pos.ply = 0;
             memcpy(searcher->hist_keys, history, history_count * sizeof(uint64_t));
             searcher->hist_count = history_count;
             const Move move      = searcher_go(searcher, pos, &limits, true);

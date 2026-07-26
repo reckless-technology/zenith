@@ -258,7 +258,6 @@ void position_make_move(Position *pos, const Move move)
     }
     pos->color_to_move = opponent;
     pos->key ^= ZobristSide;
-    pos->ply++;
     update_checkers(pos); // for the new side to move
 }
 
@@ -272,7 +271,6 @@ void position_make_null(Position *pos)
     pos->color_to_move = enemy_of(pos->color_to_move);
     pos->key ^= ZobristSide;
     pos->halfmove++;
-    pos->ply++;
     update_checkers(pos); // null move only made when not in check, but the new stm's checkers must be current
 }
 
@@ -469,7 +467,6 @@ bool position_set_fen(Position *pos, const char *fen)
     pos->ep_square       = NO_SQUARE;
     pos->halfmove        = 0;
     pos->fullmove        = 1;
-    pos->ply             = 0;
     pos->color_to_move   = WHITE;
 
     // Tokenize a local copy on whitespace; missing trailing fields read as "".

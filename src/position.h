@@ -44,11 +44,10 @@ typedef struct Position
     /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[NUM_SQUARES];
     // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
-    // narrow type would silently truncate); ep_square (0..NUM_SQUARES), ply (0..MAX_PLY), stm and castling are small.
+    // narrow type would silently truncate); ep_square (0..NUM_SQUARES), stm and castling are small.
     int32_t halfmove;        ///< 50-move clock (plies)
     int32_t fullmove;        ///< full-move number (FEN output only)
     int16_t ep_square;       ///< en-passant TARGET square, only set when a capture is actually possible
-    int16_t ply;             ///< plies from the search root (for mate scoring / repetition window)
     uint8_t color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
     uint8_t castling_rights; ///< castling-rights bitmask (CR_*)
     /// King square per color, maintained incrementally by put/move_piece — so position_king_sq is a load,
