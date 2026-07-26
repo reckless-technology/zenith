@@ -77,3 +77,16 @@ the make/unmake result above: reverse-delta unmake was SLOWER; an accumulator-st
 **How to apply:** when adding a per-move operation, ask "does this pay a make_move (2KB copy) it could avoid?"
 Prune/filter before make_move wherever possible. Any change that alters the search tree must keep the bench node
 signature meaningful (a pure-speed change keeps it IDENTICAL — a strong correctness check). See [[zenith-eval-experiments]].
+
+**Perft/movegen parity with pawnstar (2026-07-25, commits 49fb310/459b653/bcfb413).** Investigated "pawnstar
+perft ~10x faster": root cause was generate_legal filtering every pseudo move with the copy-make
+position_is_legal (a 2.3KB copy + make_move PER CANDIDATE MOVE) — search had the fast oracle for months but
+perft/datagen/UCI never got it. Fix chain, each verified count-identical + bench 3065743: (1) copy-free
+filter in generate_legal: 40 -> 213 Mnps; (2) perft_copy skips the dead accumulator: -> 233; (3) mask-based
+legal generation (one masked setwise skeleton, generate_pseudo = permissive masks so search emissions are
+byte-identical; check-evasion + pin-ray masks, king-safety per destination, full test only for ep): -> ~505
+mean, startpos-d6 554 vs pawnstar 534-545 (parity; pawnstar's remaining edge was template monomorphization —
+not needed). Ablations along the way: zobrist updates ~5%, checkers recompute ~noise; once the filter is copy-free the
+recursion copy is a minor cost (perft_copy +10%). Lesson: attribute
+before optimizing — the "obvious" accumulator-copy theory measured +10%, the real cost was an O(make_move)
+legality test per generated move. PROFILE-CONFIRMED after the user set perf_event_paranoid=1: old binary = 44.5% libc memmove (the 2.3KB copy PER LEGALITY TEST, ~35x per node) + 33.8% position_make_move (double-make) = ~78% overhead, generate_pseudo only 6%; new binary = 69% generate_moves, 11% make_move, memmove gone. The early "recursion-copy-skip barely helps" confusion: it ablated 1 of ~36 copies per node — the hot copies were inside position_is_legal. (perf works now; on this hybrid CPU perf report prints one section per core-type PMU.)
