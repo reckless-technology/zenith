@@ -78,12 +78,13 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   the copy-make `position_is_legal_slow` is the reference oracle it is validated against),
   `pinned_to_king`, `gives_check_fast`/`discovered_check_candidates` — all differentially validated by
   `legalcheck`. FEN I/O.
-- **movegen.\*** — `generate_pseudo` emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]`
-  buffer, terminated with a `MOVE_NONE` sentinel and returning the move count (so callers needing a length
-  never re-scan);
-  the search filters with `position_is_legal` *before* pruning/make (the +66 Elo prune-before-make change).
-  `generate_legal` (pseudo + the same copy-free filter) serves perft/datagen/UCI parsing.
-  `noisy_only` = captures+promotions.
+- **movegen.\*** — one masked setwise skeleton (`generate_moves`) instantiated twice: `generate_pseudo`
+  (permissive masks — plain pseudo-legal emission into a caller-provided `Move[MAX_MOVES]` buffer,
+  `MOVE_NONE`-terminated, returning the count) and `generate_legal` (real check-evasion + pin-ray masks baked
+  into the target sets, per-destination king safety, full test only for en passant — no per-move filter pass;
+  ~550 Mnps perft, at parity with pawnstar). The search uses `generate_pseudo` and filters with
+  `position_is_legal` *before* pruning/make (the +66 Elo prune-before-make change); `generate_legal` serves
+  perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
 - **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
   when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
   tempo). This single call site is the NNUE seam.
