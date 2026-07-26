@@ -25,26 +25,35 @@ static const char *const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN
 
 static const char *const TOKEN_SEPARATORS = " \t\r\n";
 
-static Position     game;
-static uint64_t     game_hist[SEARCH_HIST_CAP]; // keys of positions before `game`
-static int          game_hist_count = 0;
-static Searcher    *pool            = NULL; // one Searcher per search thread (Lazy SMP), malloc'd
-static int          pool_size       = 0;
-static zen_thread_t search_thread; // coordinator thread: spawns helpers, runs the main search
-static bool         is_search_thread_running = false;
-static int          thread_count             = 1;
-static int64_t      move_overhead            = 20;
-static bool         is_own_book_enabled      = false; // default OFF: testing must stay bookless
-static Book         book; // the loaded opening book (zero-initialized = none) — absorbed into the session struct next
+/**
+ * @brief All state of one UCI session: the game, options, the Lazy-SMP searcher pool, and the opening book.
+ *
+ * Owned by uci_loop's stack frame and passed explicitly to every handler — the engine has no session globals,
+ * so multiple sessions (or tests) cannot alias each other's state.
+ */
+typedef struct UciSession
+{
+    Position     game;                       ///< current game position
+    uint64_t     game_hist[SEARCH_HIST_CAP]; ///< keys of positions before @ref game (for repetition detection)
+    int          game_hist_count;            ///< number of valid entries in @ref game_hist
+    Searcher    *pool;                       ///< one Searcher per search thread (Lazy SMP), malloc'd
+    int          pool_size;                  ///< current pool length
+    zen_thread_t search_thread;              ///< coordinator thread: spawns helpers, runs the main search
+    bool         is_search_thread_running;   ///< whether @ref search_thread is live (join before reuse)
+    int          thread_count;               ///< requested Threads option (1..256)
+    int64_t      move_overhead;              ///< Move Overhead option (ms)
+    bool         is_own_book_enabled;        ///< OwnBook option; default OFF — testing must stay bookless
+    Book         book;                       ///< the loaded opening book (zeroed = none)
+} UciSession;
 
 /** @brief Stop any in-flight search and join the coordinator thread (safe to call when idle). */
-static void join_search(void)
+static void join_search(UciSession *session)
 {
-    if (is_search_thread_running)
+    if (session->is_search_thread_running)
     {
         g_stop = true;
-        zen_thread_join(&search_thread);
-        is_search_thread_running = false;
+        zen_thread_join(&session->search_thread);
+        session->is_search_thread_running = false;
     }
 }
 
@@ -65,7 +74,7 @@ static Move parse_move(const Position *pos, const char *text)
 }
 
 /** @brief Handle the `position` command: set the board (startpos/fen) and replay any `moves`, rebuilding history. */
-static void set_position(char **save_ptr)
+static void set_position(UciSession *session, char **save_ptr)
 {
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr);
     Position    pos;
@@ -100,7 +109,7 @@ static void set_position(char **save_ptr)
     {
         return;
     }
-    game_hist_count = 0;
+    session->game_hist_count = 0;
     if (token != NULL && strcmp(token, "moves") == 0)
     {
         const char *move_text;
@@ -111,15 +120,15 @@ static void set_position(char **save_ptr)
             {
                 break;
             }
-            if (game_hist_count >= SEARCH_HIST_CAP - MAX_PLY)
+            if (session->game_hist_count >= SEARCH_HIST_CAP - MAX_PLY)
             {
                 break; // leave MAX_PLY headroom so the in-tree hist pushes during search stay in bounds
             }
-            game_hist[game_hist_count++] = pos.key;
+            session->game_hist[session->game_hist_count++] = pos.key;
             position_make_move(&pos, move);
         }
     }
-    game = pos;
+    session->game = pos;
 }
 
 /**
@@ -188,6 +197,7 @@ static void perft_divide(const Position *pos, const int depth)
 /** @brief The coordinator thread's captured search state (root, limits, pre-root history), passed by pointer. */
 typedef struct GoArgs
 {
+    UciSession  *session;               ///< owning session (pool, thread count, move overhead)
     Position     root;                  ///< root position to search
     SearchLimits limits;                ///< stopping conditions
     uint64_t     hist[SEARCH_HIST_CAP]; ///< pre-root position keys for repetition detection
@@ -212,40 +222,42 @@ static int helper_thread_main(void *raw)
 /** @brief Search coordinator thread: (re)size the pool, launch helpers, run the main search, print bestmove. */
 static int go_thread_main(void *raw)
 {
-    GoArgs *const args           = raw;
-    int           active_threads = thread_count < 1 ? 1 : thread_count;
-    if (pool_size != active_threads)
+    GoArgs *const     args           = raw;
+    UciSession *const session        = args->session;
+    int               active_threads = session->thread_count < 1 ? 1 : session->thread_count;
+    if (session->pool_size != active_threads)
     {
         Searcher *const resized = malloc(active_threads * sizeof(Searcher)); // (re)size the Lazy-SMP thread pool
         if (resized == NULL)
         {
             // Out of memory resizing the pool: keep the existing pool if usable, else give up this search.
-            if (pool == NULL || pool_size < 1)
+            if (session->pool == NULL || session->pool_size < 1)
             {
                 printf("bestmove 0000\n");
                 fflush(stdout);
                 free(args);
                 return 0;
             }
-            active_threads = pool_size; // fall back to the pool we already have
+            active_threads = session->pool_size; // fall back to the pool we already have
         }
         else
         {
-            free(pool);
-            pool = resized;
+            free(session->pool);
+            session->pool = resized;
             for (int thread_index = 0; thread_index < active_threads; thread_index++)
             {
-                searcher_init(&pool[thread_index]);
+                searcher_init(&session->pool[thread_index]);
             }
-            pool_size = active_threads;
+            session->pool_size = active_threads;
         }
     }
+    Searcher *const pool = session->pool;
     for (int thread_index = 0; thread_index < active_threads; thread_index++)
     {
         // each thread gets its own repetition history + move-overhead
         memcpy(pool[thread_index].hist_keys, args->hist, args->hist_count * sizeof(uint64_t));
         pool[thread_index].hist_count    = args->hist_count;
-        pool[thread_index].move_overhead = move_overhead;
+        pool[thread_index].move_overhead = session->move_overhead;
     }
     g_stop = false;
     zen_thread_t helpers[256];
@@ -270,9 +282,9 @@ static int go_thread_main(void *raw)
 }
 
 /** @brief Handle the `go` command: parse limits, do perft/book shortcuts, else spawn the search coordinator. */
-static void go(char **save_ptr)
+static void go(UciSession *session, char **save_ptr)
 {
-    join_search();
+    join_search(session);
     SearchLimits limits;
     search_limits_init(&limits);
     const char *token;
@@ -343,15 +355,16 @@ static void go(char **save_ptr)
     }
     if (perft_depth > 0)
     {
-        const Position perft_position = game;
+        const Position perft_position = session->game;
         perft_divide(&perft_position, perft_depth);
         return;
     }
     // Opening book (Polyglot): only for real game searches — never for analysis (infinite) or fixed
     // depth/node test searches, so bench signatures and SPRT harness runs are unaffected even if enabled.
-    if (is_own_book_enabled && book_is_loaded(&book) && !limits.is_infinite && limits.depth == 0 && limits.nodes == 0)
+    if (session->is_own_book_enabled && book_is_loaded(&session->book) && !limits.is_infinite && limits.depth == 0 &&
+        limits.nodes == 0)
     {
-        const Move book_move = book_probe(&book, &game);
+        const Move book_move = book_probe(&session->book, &session->game);
         if (!move_is_none(book_move))
         {
             char uci_buf[8];
@@ -369,13 +382,14 @@ static void go(char **save_ptr)
         fflush(stdout);
         return;
     }
-    args->root   = game;
-    args->limits = limits;
-    memcpy(args->hist, game_hist, game_hist_count * sizeof(uint64_t));
-    args->hist_count = game_hist_count;
-    if (zen_thread_create(&search_thread, go_thread_main, args) == 0)
+    args->session = session;
+    args->root    = session->game;
+    args->limits  = limits;
+    memcpy(args->hist, session->game_hist, session->game_hist_count * sizeof(uint64_t));
+    args->hist_count = session->game_hist_count;
+    if (zen_thread_create(&session->search_thread, go_thread_main, args) == 0)
     {
-        is_search_thread_running = true;
+        session->is_search_thread_running = true;
     }
     else
     {
@@ -386,12 +400,12 @@ static void go(char **save_ptr)
 }
 
 /** @brief Handle the `setoption` command: parse name/value and apply Hash/Threads/EvalFile/book/SPSA params. */
-static void set_option(char **save_ptr)
+static void set_option(UciSession *session, char **save_ptr)
 {
     // setoption may only arrive while the engine is idle (UCI spec). Defensively stop any in-flight search
     // first: Hash/Clear Hash/EvalFile mutate state the Lazy-SMP threads read live (tt_resize frees TT.table;
     // nnue_load overwrites the network), so mutating mid-search would be a use-after-free / data race.
-    join_search();
+    join_search(session);
     const char *token = strtok_r(NULL, TOKEN_SEPARATORS, save_ptr); // "name"
     char        name[256], value[256];
     name[0]  = '\0';
@@ -432,20 +446,20 @@ static void set_option(char **save_ptr)
     }
     else if (strcmp(option_name, "move overhead") == 0)
     {
-        move_overhead = atoi(value);
+        session->move_overhead = atoi(value);
     }
     else if (strcmp(option_name, "threads") == 0)
     {
         const int requested_threads = atoi(value);
-        thread_count                = requested_threads < 1 ? 1 : (requested_threads > 256 ? 256 : requested_threads);
+        session->thread_count       = requested_threads < 1 ? 1 : (requested_threads > 256 ? 256 : requested_threads);
     }
     else if (strcmp(option_name, "ownbook") == 0)
     {
-        is_own_book_enabled = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        session->is_own_book_enabled = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
     }
     else if (strcmp(option_name, "bookfile") == 0)
     {
-        if (book_load(&book, value))
+        if (book_load(&session->book, value))
         {
             printf("info string loaded book %s\n", value);
         }
@@ -487,9 +501,10 @@ void uci_loop(void)
     // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
     printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
     fflush(stdout);
-    position_init(&game);
-    position_set_fen(&game, START_FEN); // start from a legal position, so a bare/invalid `go` never searches
-                                        // the empty board (king_sq would then do lsb(0))
+    UciSession session = {.thread_count = 1, .move_overhead = 20};
+    position_init(&session.game);
+    position_set_fen(&session.game, START_FEN); // start from a legal position, so a bare/invalid `go` never
+                                                // searches the empty board (king_sq would then do lsb(0))
     static char line[1 << 16];
     while (fgets(line, sizeof line, stdin) != NULL)
     {
@@ -532,18 +547,18 @@ void uci_loop(void)
         }
         else if (strcmp(token, "ucinewgame") == 0)
         {
-            join_search();
+            join_search(&session);
             tt_clear();
-            position_set_fen(&game, START_FEN);
-            game_hist_count = 0;
+            position_set_fen(&session.game, START_FEN);
+            session.game_hist_count = 0;
         }
         else if (strcmp(token, "position") == 0)
         {
-            set_position(&save_ptr);
+            set_position(&session, &save_ptr);
         }
         else if (strcmp(token, "go") == 0)
         {
-            go(&save_ptr);
+            go(&session, &save_ptr);
         }
         else if (strcmp(token, "stop") == 0)
         {
@@ -551,21 +566,22 @@ void uci_loop(void)
         }
         else if (strcmp(token, "setoption") == 0)
         {
-            set_option(&save_ptr);
+            set_option(&session, &save_ptr);
         }
         else if (strcmp(token, "d") == 0)
         {
             char fen_buf[128];
-            printf("%s\n", position_fen(&game, fen_buf));
+            printf("%s\n", position_fen(&session.game, fen_buf));
             fflush(stdout);
         }
         else if (strcmp(token, "quit") == 0)
         {
-            join_search();
             break;
         }
     }
-    join_search();
+    join_search(&session);
+    free(session.pool);
+    book_free(&session.book);
 }
 
 // --- CLI: bench (fixed-depth node signature) and perft suite ---
