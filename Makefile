@@ -19,7 +19,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 BIN       = zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext avx512
 
 all: $(BIN)
 
@@ -38,6 +38,14 @@ debug: $(SRCS) $(HDRS)
 pext: $(SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) -o $(BIN)-pext $(LDLIBS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
+
+# AVX-512 (x86-64-v4) build -> ./zenith-avx512. The NNUE column add/sub and SCReLU dot widen from 256- to
+# 512-bit; output is bit-identical to the AVX2 build. Intended for the fast-AVX-512 microarch release variant
+# (Intel Skylake-X/Ice Lake+ server, AMD Zen4+). NOTE: Alder/Raptor Lake consumer chips have AVX-512 fused
+# off, so validate correctness under an emulator (qemu-x86_64) and measure speed on real AVX-512 silicon.
+avx512: $(SRCS) $(HDRS)
+	$(CC) $(STD) -O3 -march=x86-64-v4 -funroll-loops -flto -DNDEBUG $(WARN) $(VERSION) $(SRCS) -o $(BIN)-avx512 $(LDLIBS)
+	@echo "built $(BIN)-avx512 (AVX-512 forward pass; bit-identical to $(BIN); measure on AVX-512 hardware)"
 
 perft: $(BIN)
 	./$(BIN) perft

@@ -77,10 +77,17 @@ static inline int feature_index(const int king_bucket_index, const Color perspec
     return king_bucket_index * BASE_FEATURES + base_feature_index(perspective, piece_color, piece, square);
 }
 
-/** @brief Add a feature-transformer weight column into an accumulator half (AVX2 or scalar). */
+/** @brief Add a feature-transformer weight column into an accumulator half (AVX-512 / AVX2 / scalar). */
 static inline void add_column(int16_t *accumulator, const int16_t *column)
 {
-#if defined(__AVX2__)
+#if defined(__AVX512BW__)
+    for (int i = 0; i < HIDDEN_SIZE; i += 32)
+    {
+        __m512i acc = _mm512_loadu_si512((const void *)(accumulator + i));
+        __m512i col = _mm512_loadu_si512((const void *)(column + i));
+        _mm512_storeu_si512((void *)(accumulator + i), _mm512_add_epi16(acc, col));
+    }
+#elif defined(__AVX2__)
     for (int i = 0; i < HIDDEN_SIZE; i += 16)
     {
         __m256i acc = _mm256_loadu_si256((const __m256i *)(accumulator + i));
@@ -95,10 +102,17 @@ static inline void add_column(int16_t *accumulator, const int16_t *column)
 #endif
 }
 
-/** @brief Subtract a feature-transformer weight column from an accumulator half (AVX2 or scalar). */
+/** @brief Subtract a feature-transformer weight column from an accumulator half (AVX-512 / AVX2 / scalar). */
 static inline void sub_column(int16_t *accumulator, const int16_t *column)
 {
-#if defined(__AVX2__)
+#if defined(__AVX512BW__)
+    for (int i = 0; i < HIDDEN_SIZE; i += 32)
+    {
+        __m512i acc = _mm512_loadu_si512((const void *)(accumulator + i));
+        __m512i col = _mm512_loadu_si512((const void *)(column + i));
+        _mm512_storeu_si512((void *)(accumulator + i), _mm512_sub_epi16(acc, col));
+    }
+#elif defined(__AVX2__)
     for (int i = 0; i < HIDDEN_SIZE; i += 16)
     {
         __m256i acc = _mm256_loadu_si256((const __m256i *)(accumulator + i));
@@ -257,14 +271,41 @@ void nnue_refresh(NnueAccumulator *accumulator, const Position *position)
 }
 
 // ---- forward pass ------------------------------------------------------------------------------------
-#if defined(__AVX2__)
-/**
- * @brief SCReLU dot for one perspective: sum over i of clamp(acc[i],0,QA)^2 * weight[i], accumulated in int64.
- *
- * Bit-identical to the scalar reference: each term is (int64)(clamped*weight)*clamped (the middle product is
- * exact in int32 — clamped<=255, |weight|<=32767 => <=8.35M), and integer addition is associative so the
- * vector summation order does not matter. QA=255 fits int16, so the clamp is a plain int16 min/max.
- */
+// The SCReLU dot for one perspective: sum over i of clamp(acc[i],0,QA)^2 * weight[i], accumulated in int64.
+// Every variant is BIT-IDENTICAL to the scalar reference: each term is (int64)(clamped*weight)*clamped (the
+// middle product is exact in int32 — clamped<=255, |weight|<=32767 => <=8.35M), and integer addition is
+// associative so the vector summation order does not matter. QA=255 fits int16, so the clamp is int16 min/max.
+#if defined(__AVX512BW__)
+/** @brief Accumulate 16 SCReLU terms clamped*(clamped*weight) (int64) from a 256-bit clamped/weight half. */
+static inline __m512i screlu_half(const __m512i sum, const __m256i clamped16, const __m256i weight16)
+{
+    const __m512i c32 = _mm512_cvtepi16_epi32(clamped16); // 16 int32 clamped, [0,255]
+    const __m512i w32 = _mm512_cvtepi16_epi32(weight16);  // 16 int32 weights
+    const __m512i p32 = _mm512_mullo_epi32(c32, w32);     // clamped*weight, exact in int32
+    // clamped * (clamped*weight) as int64: mul_epi32 reads even 32-bit lanes as signed, odd lanes after a shift.
+    const __m512i even = _mm512_mul_epi32(c32, p32);
+    const __m512i odd  = _mm512_mul_epi32(_mm512_srli_epi64(c32, 32), _mm512_srli_epi64(p32, 32));
+    return _mm512_add_epi64(sum, _mm512_add_epi64(even, odd));
+}
+
+static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
+{
+    const __m512i zero = _mm512_setzero_si512();
+    const __m512i qa   = _mm512_set1_epi16((int16_t)QUANT_ACCUMULATOR);
+    __m512i       sum  = _mm512_setzero_si512(); // 8 int64 partial sums
+
+    for (int i = 0; i < HIDDEN_SIZE; i += 32)
+    {
+        const __m512i a = _mm512_loadu_si512((const void *)(acc + i));     // 32 int16 accumulator values
+        const __m512i w = _mm512_loadu_si512((const void *)(weight + i));  // 32 int16 output weights
+        const __m512i c = _mm512_min_epi16(_mm512_max_epi16(a, zero), qa); // clamp to [0,255] (32 int16)
+        // Split into two 16-int16 halves with constant lane indices (extract needs a compile-time index).
+        sum = screlu_half(sum, _mm512_castsi512_si256(c), _mm512_castsi512_si256(w));
+        sum = screlu_half(sum, _mm512_extracti64x4_epi64(c, 1), _mm512_extracti64x4_epi64(w, 1));
+    }
+    return _mm512_reduce_add_epi64(sum);
+}
+#elif defined(__AVX2__)
 static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 {
     const __m256i zero = _mm256_setzero_si256();
