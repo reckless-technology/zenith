@@ -16,6 +16,7 @@
 #include "tt.h"
 #include "version.h"
 #include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -120,6 +121,24 @@ static void set_position(char **save_ptr)
     game = pos;
 }
 
+/**
+ * @brief Copy a position for perft, which never evaluates: with no net loaded the NNUE accumulator (2KB, 92%
+ * of the struct) is dead weight — the make primitives leave it untouched — so copy only the fields before it.
+ * With a net loaded (a `go perft` after setoption EvalFile) copy the whole struct, since make_move then
+ * updates the accumulator incrementally and must read valid contents.
+ */
+static inline void perft_copy(Position *dst, const Position *src)
+{
+    if (nnue_is_loaded())
+    {
+        *dst = *src;
+    }
+    else
+    {
+        memcpy(dst, src, offsetof(Position, accumulator));
+    }
+}
+
 /** @brief Recursive perft node count under @p node to @p remaining_depth (helper for perft_divide). */
 static uint64_t perft_recurse(const Position *node, const int remaining_depth)
 {
@@ -136,7 +155,8 @@ static uint64_t perft_recurse(const Position *node, const int remaining_depth)
     uint64_t node_count = 0;
     for (int index = 0; child_moves[index] != MOVE_NONE; index++)
     {
-        Position grandchild = *node;
+        Position grandchild;
+        perft_copy(&grandchild, node);
         position_make_move(&grandchild, child_moves[index]);
         node_count += perft_recurse(&grandchild, remaining_depth - 1);
     }
@@ -667,7 +687,8 @@ static uint64_t perft(const Position *pos, const int depth)
     uint64_t node_count = 0;
     for (int index = 0; moves[index] != MOVE_NONE; index++)
     {
-        Position child = *pos;
+        Position child;
+        perft_copy(&child, pos);
         position_make_move(&child, moves[index]);
         node_count += perft(&child, depth - 1);
     }
