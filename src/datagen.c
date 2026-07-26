@@ -54,41 +54,6 @@ static uint64_t rng_next(DatagenRng *rng)
 }
 
 /**
- * @brief Local draw test (search's is_draw is private): 50-move, insufficient material, and 2-fold repetition.
- *
- * Repetition scans the in-game @p history (keys of positions *before* @p pos).
- */
-static bool datagen_is_draw(const Position *pos, const uint64_t *history, const int history_count)
-{
-    if (pos->halfmove >= 100)
-    {
-        return true;
-    }
-    if (!(pos->pieces[PAWN] | pos->pieces[ROOK] | pos->pieces[QUEEN]))
-    {
-        const int white_minors = popcount(pos->colors[WHITE] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
-        const int black_minors = popcount(pos->colors[BLACK] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
-        if (white_minors <= 1 && black_minors <= 1)
-        {
-            return true;
-        }
-    }
-    int stop_at = history_count - pos->halfmove;
-    if (stop_at < 0)
-    {
-        stop_at = 0;
-    }
-    for (int index = history_count - 2; index >= stop_at; index -= 2)
-    {
-        if (history[index] == pos->key)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
  * @brief Load an openings file (EPD/FEN, one position per line) into memory.
  *
  * set_fen ignores trailing EPD opcodes, so raw EPD lines work directly.
@@ -259,7 +224,7 @@ int run_datagen(Engine *engine, const int argc, char **argv)
                     position_is_in_check(&pos) ? (pos.color_to_move == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
-            if (datagen_is_draw(&pos, history, history_count))
+            if (position_is_draw(&pos, history, history_count))
             {
                 game_result = 0;
                 break;

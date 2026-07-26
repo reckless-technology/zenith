@@ -181,6 +181,14 @@ Bitboard position_discovered_check_candidates(const Position *pos);
  */
 bool position_gives_check_fast(const Position *pos, Move move, Bitboard discovered, int enemy_king_square);
 
+/**
+ * @brief Whether @p pos is drawn by the 50-move rule, insufficient material (K/K+minor vs K/K+minor), or
+ * 2-fold repetition against @p history_keys (the Zobrist keys of the positions played before @p pos, oldest
+ * first — the search passes its game+tree history, datagen its game history). The repetition scan steps by
+ * 2 (same side to move) back to the last irreversible move.
+ */
+bool position_is_draw(const Position *pos, const uint64_t *history_keys, int history_count);
+
 /** @brief Whether @p color has any non-pawn, non-king material (used to gate null-move pruning). */
 static inline bool position_has_non_pawn_material(const Position *pos, Color color)
 {

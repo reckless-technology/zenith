@@ -275,36 +275,6 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
     }
 }
 
-/** @brief Whether @p pos is a draw by 50-move rule, insufficient material, or repetition within the history. */
-static bool is_draw(const Searcher *searcher, const Position *pos)
-{
-    if (pos->halfmove >= 100)
-    {
-        return true;
-    }
-    // Insufficient material (K vs K, K+minor vs K/K+minor).
-    if (!(pos->pieces[PAWN] | pos->pieces[ROOK] | pos->pieces[QUEEN]))
-    {
-        const int white_minors = popcount(pos->colors[WHITE] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
-        const int black_minors = popcount(pos->colors[BLACK] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
-        if (white_minors <= 1 && black_minors <= 1)
-        {
-            return true;
-        }
-    }
-    // Repetition: scan the path back to the last irreversible move (step 2 keeps the side to move).
-    const int end     = searcher->hist_count;
-    const int stop_at = max_int(0, end - pos->halfmove);
-    for (int i = end - 2; i >= stop_at; i -= 2)
-    {
-        if (searcher->hist_keys[i] == pos->key)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 static void update_pv(Searcher *searcher, const int ply, const Move move)
 {
     searcher->pv_table[ply][0] = move;
@@ -474,7 +444,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
     if (!is_root)
     {
-        if (is_draw(searcher, pos))
+        if (position_is_draw(pos, searcher->hist_keys, searcher->hist_count))
         {
             return draw_value(); // repetition / 50-move / insufficient material
         }

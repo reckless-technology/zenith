@@ -119,6 +119,38 @@ static void move_piece(Position *pos, const int from, const int to)
     }
 }
 
+bool position_is_draw(const Position *pos, const uint64_t *history_keys, const int history_count)
+{
+    if (pos->halfmove >= 100)
+    {
+        return true;
+    }
+    // Insufficient material (K vs K, K+minor vs K/K+minor).
+    if (!(pos->pieces[PAWN] | pos->pieces[ROOK] | pos->pieces[QUEEN]))
+    {
+        const int white_minors = popcount(pos->colors[WHITE] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
+        const int black_minors = popcount(pos->colors[BLACK] & (pos->pieces[KNIGHT] | pos->pieces[BISHOP]));
+        if (white_minors <= 1 && black_minors <= 1)
+        {
+            return true;
+        }
+    }
+    // Repetition: scan the history back to the last irreversible move (step 2 keeps the side to move).
+    int stop_at = history_count - pos->halfmove;
+    if (stop_at < 0)
+    {
+        stop_at = 0;
+    }
+    for (int index = history_count - 2; index >= stop_at; index -= 2)
+    {
+        if (history_keys[index] == pos->key)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 Bitboard position_attackers_to(const Position *pos, const int square, const Color color, const Bitboard occupancy)
 {
     Bitboard attackers = 0;
