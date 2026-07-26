@@ -15,7 +15,7 @@
 #include <string.h>
 
 // ln(n) in Q28 fixed point for the LMR table (generated; see tools/generate_tables.py).
-#include "ln_tables.inc"
+#include "generated/ln_tables.inc"
 
 static const int SeeValue[NUM_PIECES] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
 
