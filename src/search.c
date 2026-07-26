@@ -454,7 +454,29 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
 /**
  * @brief Fail-soft PVS negamax: the main recursive search with all pruning, extensions, and move ordering.
  *
- * The `excluded` argument skips a move (for the singular-extension exclusion search), or is MOVE_NONE.
+ * Negamax: scores are always from the side to move's point of view, so one function serves both colors —
+ * a child's score is negated (`-negamax(...)`) to convert it to the parent's perspective. Alpha-beta: the
+ * window (alpha, beta) brackets the scores that can still influence the result; a score >= beta refutes the
+ * opponent's previous choice ("beta cutoff" — the rest of the moves need not be searched), a score <= alpha
+ * cannot improve on an alternative already available higher in the tree. Fail-soft: the returned score may
+ * lie outside the window (best_score is tracked independently of alpha), which gives the TT tighter bounds.
+ * PVS (principal variation search): only the first move gets the full window; later moves get a cheap
+ * null-window "is it better than alpha at all?" test and are re-searched with a wider window only when that
+ * test fails high — see the move loop.
+ *
+ * @param searcher per-thread search state (histories, killers, PV, node counts).
+ * @param pos the position at this node (copy-make: children are copies, there is no unmake).
+ * @param depth remaining full-width depth in plies; <= 0 drops into qsearch.
+ * @param alpha lower bound of the search window (side-to-move POV).
+ * @param beta upper bound of the search window.
+ * @param ply distance from the root (drives mate scoring and per-ply tables).
+ * @param is_cutnode whether this node is *expected* to fail high (>= beta) — an alpha-beta tree-shape
+ *        prediction used only to bias LMR; a wrong prediction costs a re-search, never correctness.
+ * @param prev_move the move that led to this node (keys the countermove/continuation-history tables), or
+ *        MOVE_NONE after a null move / at the root.
+ * @param excluded a move to pretend does not exist, for the singular-extension exclusion search ("how good
+ *        is this node WITHOUT the TT move?"), or MOVE_NONE for a normal search.
+ * @return the best score found (side-to-move POV); mates are encoded as VALUE_MATE - ply.
  */
 static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha, int beta, const int ply,
                    const bool is_cutnode, const Move prev_move, const Move excluded)
@@ -463,7 +485,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     {
         return 0; // is_time_up() already set g_stop for the main thread
     }
-    const bool is_root    = ply == 0;
+    const bool is_root = ply == 0;
+    // A PV node was given a real window by its parent (first move, or a re-search); everything searched with
+    // a null window (beta == alpha+1) is a yes/no test node where pruning can be more aggressive.
     const bool is_pv_node = beta - alpha > 1;
     searcher->pv_len[ply] = 0;
 
@@ -471,9 +495,11 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     {
         if (is_draw(searcher, pos))
         {
-            return draw_value();
+            return draw_value(); // repetition / 50-move / insufficient material
         }
-        // Mate-distance pruning.
+        // Mate-distance pruning: at ply p the best possible outcome is mate-in-p (VALUE_MATE - p) and the
+        // worst is being mated now (-VALUE_MATE + p). Clamping the window to those limits fails immediately
+        // when a shorter mate is already known higher in the tree — no point searching for a longer one.
         alpha = max_int(alpha, -VALUE_MATE + ply);
         beta  = min_int(beta, VALUE_MATE - ply - 1);
         if (alpha >= beta)
@@ -483,10 +509,12 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     }
     if (ply >= MAX_PLY - 1)
     {
-        return evaluate(pos);
+        return evaluate(pos); // out of ply stack — return the static eval rather than recursing further
     }
     if (depth <= 0)
     {
+        // Horizon reached: resolve captures/checks with quiescence search instead of returning a raw eval,
+        // so the score is not blind to a hanging queen on the last searched move.
         return qsearch(searcher, pos, alpha, beta, ply);
     }
 
@@ -509,6 +537,12 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         }
     }
 
+    // Transposition table probe. A stored entry carries a score bound (EXACT / LOWER = failed high /
+    // UPPER = failed low) from a search of at least `tt_entry.depth`; when that depth covers ours and the
+    // bound is decisive against the current window, return it without searching. Cutoffs are skipped in PV
+    // nodes (they must produce a full PV line, not a bound) and during a singular exclusion search (the TT
+    // entry describes the position WITH the excluded move). Even without a cutoff, the entry contributes its
+    // move (ordering anchor) and static eval.
     TTData     tt_entry  = {0};
     const bool is_tt_hit = tt_probe(pos->key, &tt_entry);
     const int  tt_score  = is_tt_hit ? score_from_tt((int)tt_entry.score, ply) : VALUE_NONE;
@@ -528,7 +562,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     }
 
     // Raw static eval (stored in the TT); the corrected eval drives pruning/reductions. Keep them separate
-    // so re-reading the TT eval never double-applies the correction.
+    // so re-reading the TT eval never double-applies the correction. The correction history is a running
+    // average of (search result - static eval) keyed by pawn structure — it nudges the eval toward what
+    // deeper searches of similar structures actually returned. In check there is no meaningful static eval.
     const int raw_eval =
         is_in_check ? VALUE_NONE : (is_tt_hit && tt_entry.eval != VALUE_NONE ? (int)tt_entry.eval : evaluate(pos));
     int eval = raw_eval;
@@ -538,19 +574,25 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         eval = clamp_int(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
     }
 
-    // Reverse futility pruning (static null move).
+    // Reverse futility pruning (static null move): if the static eval beats beta by a depth-scaled safety
+    // margin, the opponent's previous move was almost certainly a blunder we don't need a search to refute —
+    // fail high on the eval alone. Shallow depths only (the margin models how much can change per ply).
     if (!is_pv_node && !is_in_check && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfp_margin * depth >= beta)
     {
         return eval;
     }
 
-    // Null-move pruning.
+    // Null-move pruning: give the opponent a free extra move (we "pass"); if a reduced-depth search STILL
+    // fails high, the position is so good that a real move can only be better — fail high without searching
+    // our moves. The reduction grows with depth and with how far eval already exceeds beta. Unsound in
+    // zugzwang, where passing is the best "move" — hence the non-pawn-material guard (zugzwang is essentially
+    // a pawn/king-endgame phenomenon), and unproven mate scores from the reduced search are clamped to beta.
     if (!is_pv_node && !is_in_check && depth >= 3 && eval >= beta &&
         position_has_non_pawn_material(pos, pos->color_to_move))
     {
         const int reduction  = 3 + depth / 3 + min_int((eval - beta) / g_params.nmp_divisor, 3);
         Position  null_child = *pos;
-        position_make_null(&null_child);
+        position_make_null(&null_child); // flips side to move (and clears ep); board unchanged
         searcher_hist_push(searcher, pos->key);
         const int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
                                    MOVE_NONE, MOVE_NONE);
@@ -565,11 +607,19 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         }
     }
 
-    Move      moves[MAX_MOVES];
-    const int count = generate_pseudo(pos, moves, false); // legality is filtered in the loop via a single make_move
-    const Bitboard pinned = position_pinned_to_king(pos); // for the copy-free legality test in the move loop
+    Move           moves[MAX_MOVES];
+    const int      count  = generate_pseudo(pos, moves, false); // legality is filtered in the loop, copy-free
+    const Bitboard pinned = position_pinned_to_king(pos);       // for the copy-free legality test in the move loop
 
-    // Score moves: TT move, captures (MVV-LVA), killers, history.
+    // Score every move for ordering. Good ordering is what makes alpha-beta cut: searching the best move
+    // first makes every later move a cheap null-window refutation. Tiers, best first:
+    //   2000000000  TT move — the best move of a previous (usually shallower) search of this node
+    //      1000000+ captures by MVV-LVA (most valuable victim first, least valuable attacker as tiebreak)
+    //       900000+ non-capture promotions (queen first)
+    //   800k / 700k killers — quiets that caused a beta cutoff at this ply in a sibling subtree
+    //       650000  countermove — the quiet that historically refutes prev_move specifically
+    //         else  history: butterfly [side][from][to] plus 1-ply continuation history, both fed by
+    //               beta-cutoff bonuses/penalties below (typical magnitude well under the named tiers)
     int scores[MAX_MOVES];
     for (int index = 0; index < count; index++)
     {
@@ -612,13 +662,16 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
     int       best_score = -VALUE_INF;
     Move      best_move  = MOVE_NONE;
-    const int orig_alpha = alpha;
-    int       move_count = 0;
-    Move      quiets[64];
+    const int orig_alpha = alpha; // remembered to classify the final TT bound (did anything raise alpha?)
+    int       move_count = 0;     // LEGAL moves searched so far (drives LMP/LMR move-count rules)
+    Move      quiets[64];         // quiets already searched, so a later cutoff can penalize their history
     int       quiet_count = 0;
 
     for (int index = 0; index < count; index++)
     {
+        // Incremental selection sort: swap the highest-scored remaining move to the front. Sorting lazily —
+        // one selection per iteration instead of a full sort up front — means a node that cuts off after a
+        // few moves (the common case) never pays to order the rest.
         int best_index = index;
         for (int other = index + 1; other < count; other++)
         {
@@ -649,21 +702,24 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         const bool is_quiet = move_is_quiet(move);
         move_count++;
 
-        // Late-move pruning: at low depth, stop trying quiet moves once deep into the ordered list.
+        // Late-move pruning: at low depth, once this deep into a well-ordered move list, the remaining quiet
+        // moves are so unlikely to be best that they are skipped outright (the quota grows with depth^2).
         if (!is_pv_node && !is_in_check && is_quiet && depth <= 8 && move_count > g_params.lmp_base + depth * depth &&
             !is_mate_score(best_score))
         {
             continue;
         }
 
-        // Futility pruning: at low depth, skip quiet moves that a margin cannot lift to alpha.
+        // Futility pruning: at low depth, if the static eval plus an optimistic depth-scaled margin still
+        // cannot reach alpha, a quiet move has no realistic way to matter — skip it without searching.
         if (!is_root && !is_pv_node && !is_in_check && is_quiet && depth <= 6 && move_count > 1 &&
             !is_mate_score(best_score) && eval + g_params.futility_base + g_params.futility_margin * depth <= alpha)
         {
             continue;
         }
 
-        // SEE pruning of clearly-losing captures at low depth.
+        // SEE pruning: skip captures that static exchange evaluation shows lose material beyond a
+        // depth-scaled tolerance (deeper search keeps more marginal captures for tactical safety).
         if (!is_root && depth <= 6 && move_is_capture(move) && !is_mate_score(best_score) &&
             static_exchange_eval(pos, move) < -g_params.see_capture_margin * depth)
         {
@@ -674,11 +730,17 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         Position child = *pos;
         position_make_move(&child, move);
         tt_prefetch(child.key); // slot loads while we finish this node before recursing into the child
+
+        // Check extension: search checking moves one ply deeper — forcing sequences resolve instead of
+        // being pushed past the horizon, and evasions are never the last searched ply.
         const bool is_child_in_check = position_is_in_check(&child);
         int        extension         = is_child_in_check ? 1 : 0;
 
-        // Singular extension: if the TT move is much better than every alternative — an exclusion search
-        // (this position without the TT move) at reduced depth fails low below a margin — extend it.
+        // Singular extension: if the TT move is much better than every alternative, this node hinges on one
+        // move and deserves a deeper look. Test by re-searching this SAME position at reduced depth with the
+        // TT move excluded, against a window just below the TT score: if even the best alternative fails low
+        // of that margin, the TT move is "singular" — extend it. Requires a trustworthy TT entry (adequate
+        // depth, lower/exact bound); skipped inside an exclusion search (no recursive singularity testing).
         if (!is_root && move == tt_move && move_is_none(excluded) && depth >= 8 && is_tt_hit &&
             (int)tt_entry.depth >= depth - 3 && (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) &&
             !is_mate_score(tt_score))
@@ -694,14 +756,23 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
         const int new_depth = depth - 1 + extension;
 
+        // The current key joins the repetition history for the child's is_draw scans (copy-make has no
+        // undo stack, so this push/pop pair is what threads the game line through the recursion).
         searcher_hist_push(searcher, pos->key);
         int score;
         if (move_count == 1)
         {
+            // PVS stage 1: the first (best-ordered) move gets the full (alpha, beta) window — it is expected
+            // to become the PV move, and its exact score is what the null-window tests below compare against.
             score = -negamax(searcher, &child, new_depth, -beta, -alpha, ply + 1, false, move, MOVE_NONE);
         }
         else
         {
+            // Late move reductions: with good ordering, late quiet moves almost never beat the first move,
+            // so probe them at a reduced depth first. The base reduction grows ~log(depth) * log(move_count)
+            // (the precomputed table), searched a bit deeper in PV nodes and a bit shallower at expected
+            // cutnodes. A reduced search that beats alpha is re-searched at full depth below — a reduction
+            // can cost a re-search but never a missed best move.
             int reduction = 0;
             if (depth >= 3 && move_count >= 4 && is_quiet && !is_in_check)
             {
@@ -716,29 +787,37 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                 }
                 reduction = clamp_int(reduction, 0, new_depth - 1);
             }
+            // PVS stage 2: null-window (alpha, alpha+1) scout at the (possibly reduced) depth — a cheap
+            // yes/no "can this move beat alpha?". Most moves answer no and are done.
             score =
                 -negamax(searcher, &child, new_depth - reduction, -alpha - 1, -alpha, ply + 1, true, move, MOVE_NONE);
             if (score > alpha && reduction > 0)
             {
+                // The reduced scout failed high: re-run the scout at full depth before trusting it.
                 score =
                     -negamax(searcher, &child, new_depth, -alpha - 1, -alpha, ply + 1, !is_cutnode, move, MOVE_NONE);
             }
             if (score > alpha && score < beta)
             {
+                // PVS stage 3: the move genuinely beats alpha inside an open window — it is a new PV
+                // candidate, so re-search with the full window for its exact score.
                 score = -negamax(searcher, &child, new_depth, -beta, -alpha, ply + 1, false, move, MOVE_NONE);
             }
         }
         searcher_hist_pop(searcher);
         if (g_stop)
         {
-            return 0;
+            return 0; // aborted mid-move: the partial score is garbage; iterative deepening keeps the last full result
         }
 
         if (is_quiet && quiet_count < 64)
         {
-            quiets[quiet_count++] = move;
+            quiets[quiet_count++] = move; // remember for the history penalty applied on a later beta cutoff
         }
 
+        // Score bookkeeping: best_score tracks the true best (fail-soft — it may stay below alpha); alpha
+        // rises only when a move beats it, and a score reaching beta refutes the opponent's previous move,
+        // ending the node (beta cutoff).
         if (score > best_score)
         {
             best_score = score;
@@ -748,7 +827,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                 alpha = score;
                 if (is_pv_node)
                 {
-                    update_pv(searcher, ply, move);
+                    update_pv(searcher, ply, move); // extend this ply's PV line with the new best move
                 }
                 if (score >= beta)
                 {
@@ -799,9 +878,15 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
     if (move_count == 0)
     {
-        return is_in_check ? -VALUE_MATE + ply : draw_value(); // no legal move: checkmate or stalemate
+        // No legal move: in check it is checkmate — scored as "mated in ply" so nearer mates score worse
+        // (and wins prefer the shortest mate) — otherwise stalemate.
+        return is_in_check ? -VALUE_MATE + ply : draw_value();
     }
 
+    // Classify the result for the TT: a score at/above beta only proves a lower bound (the search stopped
+    // early at the cutoff); if nothing raised alpha, best_score is only an upper bound (every move might be
+    // even worse than reported under fail-soft); in between, the score is exact. Nothing is stored from an
+    // exclusion search — those scores describe an artificial position (a move pretended away).
     const Bound bound = best_score >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
     if (move_is_none(excluded))
     {
