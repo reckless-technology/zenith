@@ -52,7 +52,7 @@ static void join_search(UciSession *session)
 {
     if (session->is_search_thread_running)
     {
-        g_stop = true;
+        atomic_store_explicit(&session->engine->search.stop, true, memory_order_relaxed);
         zen_thread_join(&session->search_thread);
         session->is_search_thread_running = false;
     }
@@ -260,7 +260,7 @@ static int go_thread_main(void *raw)
         pool[thread_index].hist_count    = args->hist_count;
         pool[thread_index].move_overhead = session->move_overhead;
     }
-    g_stop = false;
+    atomic_store_explicit(&session->engine->search.stop, false, memory_order_relaxed);
     zen_thread_t helpers[256];
     HelperArgs   helper_args[256];
     for (int thread_index = 1; thread_index < active_threads; thread_index++)
@@ -270,7 +270,7 @@ static int go_thread_main(void *raw)
         zen_thread_create(&helpers[thread_index], helper_thread_main, &helper_args[thread_index]);
     }
     const Move best = searcher_go(&pool[0], args->root, &args->limits, true); // main thread manages time + prints info
-    g_stop          = true; // make sure any still-deepening helper stops
+    atomic_store_explicit(&session->engine->search.stop, true, memory_order_relaxed); // stop any deepening helper
     for (int thread_index = 1; thread_index < active_threads; thread_index++)
     {
         zen_thread_join(&helpers[thread_index]);
@@ -491,7 +491,7 @@ static void set_option(UciSession *session, char **save_ptr)
         const long parsed  = strtol(value, &end_ptr, 10);
         if (end_ptr != value)
         {
-            set_search_param(name, (int)parsed);
+            set_search_param(&session->engine->search, name, (int)parsed);
         }
     }
     // Ponder accepted and ignored.
@@ -527,17 +527,27 @@ void uci_loop(Engine *engine)
             printf("option name OwnBook type check default false\n");
             printf("option name BookFile type string default <none>\n");
             // Tunable search parameters (SPSA); defaults reproduce the shipped engine.
-            printf("option name RfpMargin type spin default %d min 20 max 200\n", g_params.rfp_margin);
-            printf("option name NmpDivisor type spin default %d min 50 max 600\n", g_params.nmp_divisor);
-            printf("option name LmpBase type spin default %d min 1 max 10\n", g_params.lmp_base);
-            printf("option name FutilityBase type spin default %d min 0 max 300\n", g_params.futility_base);
-            printf("option name FutilityMargin type spin default %d min 30 max 200\n", g_params.futility_margin);
-            printf("option name SeeCaptureMargin type spin default %d min 20 max 300\n", g_params.see_capture_margin);
-            printf("option name LmrBase type spin default %d min 0 max 200\n", g_params.lmr_base_x100);
-            printf("option name LmrDivisor type spin default %d min 100 max 400\n", g_params.lmr_divisor_x100);
-            printf("option name SingularMargin type spin default %d min 1 max 8\n", g_params.singular_margin);
-            printf("option name AspirationDelta type spin default %d min 5 max 60\n", g_params.aspiration_delta);
-            printf("option name HistoryMax type spin default %d min 100 max 1200\n", g_params.history_max);
+            printf("option name RfpMargin type spin default %d min 20 max 200\n",
+                   session.engine->search.params.rfp_margin);
+            printf("option name NmpDivisor type spin default %d min 50 max 600\n",
+                   session.engine->search.params.nmp_divisor);
+            printf("option name LmpBase type spin default %d min 1 max 10\n", session.engine->search.params.lmp_base);
+            printf("option name FutilityBase type spin default %d min 0 max 300\n",
+                   session.engine->search.params.futility_base);
+            printf("option name FutilityMargin type spin default %d min 30 max 200\n",
+                   session.engine->search.params.futility_margin);
+            printf("option name SeeCaptureMargin type spin default %d min 20 max 300\n",
+                   session.engine->search.params.see_capture_margin);
+            printf("option name LmrBase type spin default %d min 0 max 200\n",
+                   session.engine->search.params.lmr_base_x100);
+            printf("option name LmrDivisor type spin default %d min 100 max 400\n",
+                   session.engine->search.params.lmr_divisor_x100);
+            printf("option name SingularMargin type spin default %d min 1 max 8\n",
+                   session.engine->search.params.singular_margin);
+            printf("option name AspirationDelta type spin default %d min 5 max 60\n",
+                   session.engine->search.params.aspiration_delta);
+            printf("option name HistoryMax type spin default %d min 100 max 1200\n",
+                   session.engine->search.params.history_max);
             printf("uciok\n");
             fflush(stdout);
         }
@@ -563,7 +573,7 @@ void uci_loop(Engine *engine)
         }
         else if (strcmp(token, "stop") == 0)
         {
-            g_stop = true;
+            atomic_store_explicit(&session.engine->search.stop, true, memory_order_relaxed);
         }
         else if (strcmp(token, "setoption") == 0)
         {

@@ -9,26 +9,11 @@
 #include "eval.h"
 #include "nnue.h"
 #include "platform.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-atomic_bool  g_stop   = false;
-SearchParams g_params = {
-    .rfp_margin         = 62,
-    .nmp_divisor        = 202,
-    .lmp_base           = 4,
-    .futility_base      = 102,
-    .futility_margin    = 96,
-    .see_capture_margin = 102,
-    .lmr_base_x100      = 86,
-    .lmr_divisor_x100   = 229,
-    .singular_margin    = 3,
-    .aspiration_delta   = 21,
-    .history_max        = 418,
-};
-
-static int       Reductions[MAX_PLY][64];
 static const int SeeValue[NUM_PIECES] = {0, 100, 320, 330, 500, 900, 10000}; // indexed by Piece
 
 /**
@@ -190,51 +175,71 @@ static double portable_log(double x)
     return 2.0 * sum + (double)k * ln2;
 }
 
-void init_search(void)
+/** @brief (Re)build @p shared's LMR reduction table from its current LmrBase/LmrDivisor parameters. */
+static void build_reductions(SearchShared *shared)
 {
-    const double lmr_base    = g_params.lmr_base_x100 / 100.0;
-    const double lmr_divisor = g_params.lmr_divisor_x100 / 100.0;
+    const double lmr_base    = shared->params.lmr_base_x100 / 100.0;
+    const double lmr_divisor = shared->params.lmr_divisor_x100 / 100.0;
     for (int depth = 1; depth < MAX_PLY; depth++)
     {
         for (int move_number = 1; move_number < 64; move_number++)
         {
-            Reductions[depth][move_number] =
+            shared->reductions[depth][move_number] =
                 (int)(lmr_base + portable_log(depth) * portable_log(move_number) / lmr_divisor);
         }
     }
 }
 
-bool set_search_param(const char *name, const int value)
+void search_shared_init(SearchShared *shared)
+{
+    memset(shared, 0, sizeof *shared);
+    shared->params = (SearchParams){
+        .rfp_margin         = 62,
+        .nmp_divisor        = 202,
+        .lmp_base           = 4,
+        .futility_base      = 102,
+        .futility_margin    = 96,
+        .see_capture_margin = 102,
+        .lmr_base_x100      = 86,
+        .lmr_divisor_x100   = 229,
+        .singular_margin    = 3,
+        .aspiration_delta   = 21,
+        .history_max        = 418,
+    };
+    build_reductions(shared);
+}
+
+bool set_search_param(SearchShared *shared, const char *name, const int value)
 {
     // One row per tunable: its UCI name and the field it writes. The two LMR params also rebuild the
     // precomputed reduction table (init_search reads them), flagged by rebuilds_lmr_table.
     static const struct
     {
         const char *name;
-        int        *field;
+        size_t      offset; ///< field offset in SearchParams (keeps the table static const)
         bool        rebuilds_lmr_table;
     } params[] = {
-        {"RfpMargin", &g_params.rfp_margin, false},
-        {"NmpDivisor", &g_params.nmp_divisor, false},
-        {"LmpBase", &g_params.lmp_base, false},
-        {"FutilityBase", &g_params.futility_base, false},
-        {"FutilityMargin", &g_params.futility_margin, false},
-        {"SeeCaptureMargin", &g_params.see_capture_margin, false},
-        {"SingularMargin", &g_params.singular_margin, false},
-        {"AspirationDelta", &g_params.aspiration_delta, false},
-        {"HistoryMax", &g_params.history_max, false},
-        {"LmrBase", &g_params.lmr_base_x100, true},
-        {"LmrDivisor", &g_params.lmr_divisor_x100, true},
+        {"RfpMargin", offsetof(SearchParams, rfp_margin), false},
+        {"NmpDivisor", offsetof(SearchParams, nmp_divisor), false},
+        {"LmpBase", offsetof(SearchParams, lmp_base), false},
+        {"FutilityBase", offsetof(SearchParams, futility_base), false},
+        {"FutilityMargin", offsetof(SearchParams, futility_margin), false},
+        {"SeeCaptureMargin", offsetof(SearchParams, see_capture_margin), false},
+        {"SingularMargin", offsetof(SearchParams, singular_margin), false},
+        {"AspirationDelta", offsetof(SearchParams, aspiration_delta), false},
+        {"HistoryMax", offsetof(SearchParams, history_max), false},
+        {"LmrBase", offsetof(SearchParams, lmr_base_x100), true},
+        {"LmrDivisor", offsetof(SearchParams, lmr_divisor_x100), true},
     };
 
     for (size_t i = 0; i < sizeof params / sizeof params[0]; i++)
     {
         if (strcmp(name, params[i].name) == 0)
         {
-            *params[i].field = value;
+            *(int *)((char *)&shared->params + params[i].offset) = value;
             if (params[i].rebuilds_lmr_table)
             {
-                init_search();
+                build_reductions(shared);
             }
             return true;
         }
@@ -247,18 +252,18 @@ static int64_t elapsed(const Searcher *searcher)
     return platform_now_ms() - searcher->start_ms;
 }
 
-/** @brief Whether the search must stop now (g_stop set, or the main thread hit its node/time budget). */
+/** @brief Whether the search must stop now (shared stop set, or the main thread hit its node/time budget). */
 static bool is_time_up(const Searcher *searcher)
 {
-    if (atomic_load_explicit(&g_stop, memory_order_relaxed))
+    if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
     {
         return true;
     }
-    // Only the main thread owns the time/node budget; when it runs out it sets g_stop so helpers stop too.
+    // Only the main thread owns the time/node budget; when it runs out it sets the shared stop so helpers stop too.
     if (searcher->is_main && ((searcher->node_limit && searcher->nodes >= (uint64_t)searcher->node_limit) ||
                               (searcher->is_time_limited && elapsed(searcher) >= searcher->hard_ms)))
     {
-        atomic_store_explicit(&g_stop, true, memory_order_relaxed);
+        atomic_store_explicit(&searcher->engine->search.stop, true, memory_order_relaxed);
         return true;
     }
     return false;
@@ -342,7 +347,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
 {
     if (is_time_up(searcher))
     {
-        return 0; // is_time_up() already set g_stop for the main thread
+        return 0; // is_time_up() already set the shared stop for the main thread
     }
     searcher->nodes++;
     if (ply > searcher->seldepth)
@@ -427,7 +432,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         position_make_move(&child, move);
         tt_prefetch(&searcher->engine->tt, child.key); // slot loads during the recursive-call setup
         const int score = -qsearch(searcher, &child, -beta, -alpha, ply + 1);
-        if (g_stop)
+        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
         {
             return 0;
         }
@@ -483,7 +488,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 {
     if (is_time_up(searcher))
     {
-        return 0; // is_time_up() already set g_stop for the main thread
+        return 0; // is_time_up() already set the shared stop for the main thread
     }
     const bool is_root = ply == 0;
     // A PV node was given a real window by its parent (first move, or a re-search); everything searched with
@@ -577,7 +582,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     // Reverse futility pruning (static null move): if the static eval beats beta by a depth-scaled safety
     // margin, the opponent's previous move was almost certainly a blunder we don't need a search to refute —
     // fail high on the eval alone. Shallow depths only (the margin models how much can change per ply).
-    if (!is_pv_node && !is_in_check && depth <= 8 && !is_mate_score(beta) && eval - g_params.rfp_margin * depth >= beta)
+    if (!is_pv_node && !is_in_check && depth <= 8 && !is_mate_score(beta) &&
+        eval - searcher->engine->search.params.rfp_margin * depth >= beta)
     {
         return eval;
     }
@@ -590,14 +596,14 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     if (!is_pv_node && !is_in_check && depth >= 3 && eval >= beta &&
         position_has_non_pawn_material(pos, pos->color_to_move))
     {
-        const int reduction  = 3 + depth / 3 + min_int((eval - beta) / g_params.nmp_divisor, 3);
+        const int reduction  = 3 + depth / 3 + min_int((eval - beta) / searcher->engine->search.params.nmp_divisor, 3);
         Position  null_child = *pos;
         position_make_null(&null_child); // flips side to move (and clears ep); board unchanged
         searcher_hist_push(searcher, pos->key);
         const int score = -negamax(searcher, &null_child, depth - reduction, -beta, -beta + 1, ply + 1, !is_cutnode,
                                    MOVE_NONE, MOVE_NONE);
         searcher_hist_pop(searcher);
-        if (g_stop)
+        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
         {
             return 0;
         }
@@ -704,8 +710,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
         // Late-move pruning: at low depth, once this deep into a well-ordered move list, the remaining quiet
         // moves are so unlikely to be best that they are skipped outright (the quota grows with depth^2).
-        if (!is_pv_node && !is_in_check && is_quiet && depth <= 8 && move_count > g_params.lmp_base + depth * depth &&
-            !is_mate_score(best_score))
+        if (!is_pv_node && !is_in_check && is_quiet && depth <= 8 &&
+            move_count > searcher->engine->search.params.lmp_base + depth * depth && !is_mate_score(best_score))
         {
             continue;
         }
@@ -713,7 +719,10 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // Futility pruning: at low depth, if the static eval plus an optimistic depth-scaled margin still
         // cannot reach alpha, a quiet move has no realistic way to matter — skip it without searching.
         if (!is_root && !is_pv_node && !is_in_check && is_quiet && depth <= 6 && move_count > 1 &&
-            !is_mate_score(best_score) && eval + g_params.futility_base + g_params.futility_margin * depth <= alpha)
+            !is_mate_score(best_score) &&
+            eval + searcher->engine->search.params.futility_base +
+                    searcher->engine->search.params.futility_margin * depth <=
+                alpha)
         {
             continue;
         }
@@ -721,7 +730,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // SEE pruning: skip captures that static exchange evaluation shows lose material beyond a
         // depth-scaled tolerance (deeper search keeps more marginal captures for tactical safety).
         if (!is_root && depth <= 6 && move_is_capture(move) && !is_mate_score(best_score) &&
-            static_exchange_eval(pos, move) < -g_params.see_capture_margin * depth)
+            static_exchange_eval(pos, move) < -searcher->engine->search.params.see_capture_margin * depth)
         {
             continue;
         }
@@ -746,7 +755,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             (int)tt_entry.depth >= depth - 3 && (tt_entry.bound == BOUND_LOWER || tt_entry.bound == BOUND_EXACT) &&
             !is_mate_score(tt_score))
         {
-            const int singular_beta  = tt_score - g_params.singular_margin * depth;
+            const int singular_beta  = tt_score - searcher->engine->search.params.singular_margin * depth;
             const int singular_score = negamax(searcher, pos, (depth - 1) / 2, singular_beta - 1, singular_beta, ply,
                                                is_cutnode, prev_move, tt_move);
             if (singular_score < singular_beta)
@@ -777,7 +786,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             int reduction = 0;
             if (depth >= 3 && move_count >= 4 && is_quiet && !is_in_check)
             {
-                reduction = Reductions[min_int(depth, MAX_PLY - 1)][min_int(move_count, 63)];
+                reduction = searcher->engine->search.reductions[min_int(depth, MAX_PLY - 1)][min_int(move_count, 63)];
                 if (is_pv_node)
                 {
                     reduction--;
@@ -806,7 +815,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             }
         }
         searcher_hist_pop(searcher);
-        if (g_stop)
+        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
         {
             return 0; // aborted mid-move: the partial score is garbage; iterative deepening keeps the last full result
         }
@@ -845,7 +854,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                         {
                             searcher->counter_moves[prev_piece_to] = move;
                         }
-                        const int bonus = min_int(depth * depth, g_params.history_max);
+                        const int bonus = min_int(depth * depth, searcher->engine->search.params.history_max);
                         const int current_piece_to =
                             (pos->color_to_move * 6 + pos->board[move_from(move)] - 1) * 64 + move_to(move);
                         apply_gravity(&searcher->history[pos->color_to_move][move_from(move)][move_to(move)], bonus);
@@ -918,7 +927,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     searcher->is_main = is_main_thread;
     if (searcher->is_main)
     {
-        g_stop = false; // clear the shared stop before a new search (helpers are launched after this)
+        atomic_store_explicit(&searcher->engine->search.stop, false, memory_order_relaxed);
+        // ^ clear the shared stop before a new search (helpers are launched after this)
     }
     searcher->nodes    = 0;
     searcher->seldepth = 0;
@@ -946,7 +956,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     for (int depth = 1; depth <= max_depth; depth++)
     {
         // Aspiration windows once we have a score to trust.
-        int alpha = -VALUE_INF, beta = VALUE_INF, delta = g_params.aspiration_delta;
+        int alpha = -VALUE_INF, beta = VALUE_INF, delta = searcher->engine->search.params.aspiration_delta;
         if (depth >= 4)
         {
             alpha = max_int(-VALUE_INF, score - delta);
@@ -955,7 +965,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
         while (true)
         {
             const int window_score = negamax(searcher, &root, depth, alpha, beta, 0, false, MOVE_NONE, MOVE_NONE);
-            if (g_stop)
+            if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
             {
                 break;
             }
@@ -976,7 +986,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
                 break;
             }
         }
-        if (g_stop && best != MOVE_NONE)
+        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed) && best != MOVE_NONE)
         {
             break;
         }
@@ -1009,7 +1019,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
             fflush(stdout);
         }
 
-        if (g_stop)
+        if (atomic_load_explicit(&searcher->engine->search.stop, memory_order_relaxed))
         {
             break;
         }
@@ -1026,7 +1036,7 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
     }
     if (searcher->is_main)
     {
-        g_stop = true; // release the helper threads
+        atomic_store_explicit(&searcher->engine->search.stop, true, memory_order_relaxed); // release the helpers
     }
     searcher->root_score = score;
     return move_is_none(best) ? searcher->root_best : best;

@@ -32,39 +32,6 @@ static inline void search_limits_init(SearchLimits *limits)
     memset(limits, 0, sizeof *limits);
 }
 
-/** @brief Build the LMR reduction table. Call once at startup and whenever an LMR param changes. */
-void init_search(void);
-
-/**
- * @brief Tunable search parameters, exposed as UCI spin options for SPSA tuning.
- *
- * Defaults reproduce the shipped engine exactly, so the bench signature is unchanged. After tuning, the
- * winning values are baked back here. Current defaults are SPSA-tuned (800 iterations self-play, +26.5 Elo
- * SPRT vs the pre-tune values).
- */
-typedef struct SearchParams
-{
-    int rfp_margin;         ///< reverse-futility margin per depth
-    int nmp_divisor;        ///< null-move reduction: +min((eval-beta)/nmp_divisor, 3)
-    int lmp_base;           ///< late-move-pruning count: base + depth*depth
-    int futility_base;      ///< futility margin base
-    int futility_margin;    ///< futility margin per depth
-    int see_capture_margin; ///< SEE capture-pruning threshold per depth
-    int lmr_base_x100;      ///< LMR base (x100): reduction = lmr_base/100 + ln(d)*ln(m)/(lmr_divisor/100)
-    int lmr_divisor_x100;   ///< LMR divisor (x100)
-    int singular_margin;    ///< singular-extension beta margin per depth
-    int aspiration_delta;   ///< initial aspiration half-window
-    int history_max;        ///< history bonus cap (min(depth*depth, history_max))
-} SearchParams;
-
-extern SearchParams g_params; ///< the live tunable search parameters
-
-/**
- * @brief Set a tunable param by UCI option name (e.g. "RfpMargin").
- * @return true if the name matched. Recomputes the LMR table when an LMR param changes.
- */
-bool set_search_param(const char *name, int value);
-
 /**
  * @brief Static Exchange Evaluation of a capture: net material after the optimal capture sequence on the
  *        move's target square. Exposed for the `seecheck` unit test.
@@ -73,14 +40,6 @@ bool set_search_param(const char *name, int value);
  * @return the material swing in centipawns (positive = good for the side to move).
  */
 int static_exchange_eval(const Position *pos, Move move);
-
-/**
- * @brief The shared stop flag across all Lazy-SMP search threads.
- *
- * The main thread (or a UCI "stop") sets it and every thread exits. A single global keeps Searcher copyable
- * so a thread pool can live in one flat allocation.
- */
-extern atomic_bool g_stop;
 
 /**
  * @brief Repetition/50-move context capacity.

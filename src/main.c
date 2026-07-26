@@ -24,9 +24,9 @@ int main(int argc, char **argv)
     init_bitboards();
     init_zobrist();
     init_eval();
-    init_search();
 
     Engine engine = {0}; // the one engine instance, owned here; every entry point below borrows it
+    search_shared_init(&engine.search);
     tt_resize(&engine.tt, 64);
 
     if (argc > 1)
