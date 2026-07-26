@@ -33,7 +33,7 @@ make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
 make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
 make tables          # regenerate the committed constant tables (src/*.inc: Zobrist, PeSTO, Q28 ln,
-                     #   bitboard geometry) — a
+                     #   bitboard geometry, magic multipliers) — a
                      #   deliberate step, never a build side effect; the bench signature guards the values
 make format          # clang-format all sources in place (src/*.{c,h})
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
@@ -71,8 +71,9 @@ aggregate (`engine.h` — the transposition table, the shared search state, the 
 NNUE net), owned by `main()`'s stack and passed explicitly; UCI session state is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
 are generated compile-time constants (`tools/generate_tables.py` → `src/*.inc`). The one exception is
-`bitboard.c`'s magic sliding-attack tables, written once by `init_bitboards()` — main's only startup
-call — before any thread exists.
+`bitboard.c`'s ~850KB magic sliding-attack tables, deterministically filled from generated constant
+multipliers by `init_bitboards()` — main's only startup call, with no search or PRNG — before any thread
+exists.
 
 | File | Contains |
 |---|---|
@@ -104,7 +105,8 @@ call — before any thread exists.
   accumulator is embedded in `Position` and updated incrementally by the same primitives, so the copy
   carries a ready-to-use accumulator. (An in-place make/unmake was measured *slower*: the accumulator's
   feature-column reads dominate, and unmake would double them to save a cheap copy.)
-- **Sliding attacks** via **magic bitboards** generated at startup — portable. `make pext`
+- **Sliding attacks** via **magic bitboards**: the multipliers are generated offline (`make tables`) and
+  the attack tables filled deterministically at startup — portable, instant init. `make pext`
   (`ZENITH_USE_PEXT`) swaps in a BMI2 `_pext_u64` index instead: bit-identical output, ~2% faster on Intel
   Haswell+/AMD Zen3+, but microcoded-slow on AMD Zen1/2 — so magic is the portable default and PEXT is
   opt-in for fast-BMI2 release builds.

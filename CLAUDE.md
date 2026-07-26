@@ -31,7 +31,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
 tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
-make tables            # regenerate src/*.inc (Zobrist/PeSTO/ln/bitboard-geometry constants) — deliberate, never automatic
+make tables            # regenerate src/*.inc (Zobrist/PeSTO/ln/geometry/magic constants) — deliberate, never automatic
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
@@ -66,16 +66,18 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
 (pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/*.inc`, from
-`tools/generate_tables.py`). The ONE exception: `bitboard.c`'s magic sliding-attack tables —
-written once by `init_bitboards()` (main's only startup call) before any thread exists, read-only after;
-kept file-scope because they sit on the hottest loads (see `bitboard.h`).
+`tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:
+`bitboard.c`'s ~850KB magic sliding-attack tables — deterministically filled from the constant multipliers
+by `init_bitboards()` (main's only startup call; no search, no PRNG) before any thread exists, read-only
+after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
 
 - **types.h** — `Color` (with `enemy_of`) and `Piece` — the one piece type, `NO_PIECE=0`, `PAWN=1` … `KING=6`
   (the mailbox stores it directly; color comes from the `colors` bitboards via `position_color_on`). Packed
   16-bit `Move` (from|to|flag, CPW flag encoding), value scale (`VALUE_MATE=32000`, `MAX_PLY=128`), and all
   the `<bit>`-based bitboard helpers (`lsb`/`pop_lsb`/per-direction `shift`/file+rank masks).
-- **bitboard.\*** — precomputed pawn/knight/king attacks + `BetweenBB`; sliding attacks via **magic
-  bitboards generated at startup** (`bishop_attacks`/`rook_attacks`). Portable. A `ZENITH_USE_PEXT` compile
+- **bitboard.\*** — generated-const pawn/knight/king attacks + `BetweenBB`/`LineBB`; sliding attacks via
+  **magic bitboards** (`bishop_attacks`/`rook_attacks`) whose multipliers are generated offline and whose
+  tables are filled deterministically at startup. Portable. A `ZENITH_USE_PEXT` compile
   switch (`make pext`) swaps the magic multiply-shift index for a BMI2 `_pext_u64` — bit-identical output
   (same bench signature), ~2% faster perft on Intel Haswell+/AMD Zen3+, but microcoded-slow on AMD Zen1/2,
   so magic stays the portable default and PEXT is opt-in for the fast-BMI2 microarch release variants.

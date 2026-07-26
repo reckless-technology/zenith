@@ -4,10 +4,11 @@
  * @file
  * @brief Precomputed attack tables and magic-bitboard sliding attacks.
  *
- * The leaper and geometry tables (pawn/knight/king attacks, BetweenBB/LineBB) are generated compile-time
- * constants — pure square geometry, emitted by tools/generate_tables.py. The MAGIC sliding-attack tables are
- * the engine's ONE remaining piece of mutable file-scope state: init_bitboards() writes them exactly once at
- * startup — before any thread exists — and they are read-only ever after. They stay file-scope rather than
+ * The leaper/geometry tables (pawn/knight/king attacks, BetweenBB/LineBB) and the 128 magic MULTIPLIERS are
+ * generated compile-time constants (tools/generate_tables.py). The magic sliding-attack tables themselves are
+ * the engine's ONE remaining piece of mutable file-scope state: init_bitboards() fills them deterministically
+ * from the constant multipliers exactly once at startup — no search, no PRNG — before any thread exists, and
+ * they are read-only ever after. They stay file-scope rather than
  * living in the Engine because the magic lookups are the hottest loads in the engine, and threading a
  * context pointer through them would tax every sliding-attack call for zero practical benefit; at ~850KB
  * they are also impractical to bake into source (unlike these geometry tables).
@@ -68,5 +69,5 @@ static inline Bitboard line_bb(int from, int to)
     return LineBB[from][to];
 }
 
-/** @brief Fill every precomputed attack table and generate the magic-bitboard tables. Call once at startup. */
+/** @brief Fill the magic sliding-attack tables from the generated multipliers. Call once at startup. */
 void init_bitboards(void);
