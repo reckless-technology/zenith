@@ -18,23 +18,18 @@ Bitboard BetweenBB[64][64];
 Bitboard LineBB[64][64];
 
 #ifndef ZENITH_USE_PEXT
-// Deterministic sparse PRNG for magic search (xorshift64*), seeded once. Unused with PEXT indexing.
-typedef struct PRNG
+// Deterministic sparse PRNG for the magic search (xorshift64*); state is a single uint64_t. Unused with PEXT.
+static uint64_t prng_next(uint64_t *state)
 {
-    uint64_t state;
-} PRNG;
-
-static uint64_t prng_next(PRNG *prng)
-{
-    prng->state ^= prng->state >> 12;
-    prng->state ^= prng->state << 25;
-    prng->state ^= prng->state >> 27;
-    return prng->state * 0x2545F4914F6CDD1DULL;
+    *state ^= *state >> 12;
+    *state ^= *state << 25;
+    *state ^= *state >> 27;
+    return *state * 0x2545F4914F6CDD1DULL;
 }
 
-static uint64_t prng_sparse(PRNG *prng)
+static uint64_t prng_sparse(uint64_t *state)
 {
-    return prng_next(prng) & prng_next(prng) & prng_next(prng); // few set bits -> good magic candidates
+    return prng_next(state) & prng_next(state) & prng_next(state); // few set bits -> good magic candidates
 }
 #endif
 
@@ -144,7 +139,7 @@ static void init_magics(const bool is_rook, Bitboard *table, Magic magics[64], c
             subset = (subset - mask) & mask;
         } while (subset);
 
-        PRNG prng = {0x9E3779B97F4A7C15ULL ^ ((uint64_t)square * 0xBF58476D1CE4E5B9ULL) ^ (is_rook ? 1 : 2)};
+        uint64_t prng = 0x9E3779B97F4A7C15ULL ^ ((uint64_t)square * 0xBF58476D1CE4E5B9ULL) ^ (is_rook ? 1 : 2);
         for (int subset_index = 0; subset_index < subset_count;)
         {
             magics[square].magic = 0;
