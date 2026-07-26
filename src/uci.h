@@ -8,6 +8,9 @@
 #include "engine.h"
 /** @brief Run the interactive UCI protocol loop, reading commands from stdin until "quit"/EOF. */
 void uci_loop(Engine *engine);
+/** @brief The process entry body: dispatch a CLI subcommand (bench/perft/gates/datagen/...) if one was
+ *  given, else run the UCI loop. @return the process exit status. */
+int uci_run(Engine *engine, int argc, char **argv);
 /** @brief Fixed-depth benchmark over a canonical FEN set; a [PASS]/[FAIL] node-signature gate at the pinned
  *  depth (informational at any other depth). @return 0 if every checked position matched, non-zero on mismatch. */
 int run_bench(Engine *engine, int depth);
