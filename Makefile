@@ -17,22 +17,25 @@ CFLAGS    = $(STD) $(OPT) $(WARN) $(VERSION)
 LDLIBS    = -lm -pthread
 SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
+# Generated constant tables (committed; rebuilt only by an explicit `make tables`). They are #included by
+# .c files, so every binary must depend on them or edits leave a stale build.
+INCS      = $(wildcard src/*.inc)
 # All build outputs land in ./build (created on demand); `make clean` just removes it.
 BUILD_DIR = build
 BIN       = $(BUILD_DIR)/zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables
 
 all: $(BIN)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BIN): $(SRCS) $(HDRS) | $(BUILD_DIR)
+$(BIN): $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SRCS) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
-debug: $(SRCS) $(HDRS) | $(BUILD_DIR)
+debug: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
 
 # PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./build/zenith-pext. Output is bit-identical
@@ -40,7 +43,7 @@ debug: $(SRCS) $(HDRS) | $(BUILD_DIR)
 # AMD Zen3+, but MUCH slower on AMD Zen1/Zen2 (microcoded pext) — so it is opt-in and magic stays the
 # portable default. Needs a BMI2 target (the default -march=native provides it; a real release enables it
 # only for the x86-64-v3+ microarch variants).
-pext: $(SRCS) $(HDRS) | $(BUILD_DIR)
+pext: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) -o $(BIN)-pext $(LDLIBS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
 
@@ -69,6 +72,12 @@ check: $(BIN)
 	@echo "== bookcheck ==";   ./$(BIN) bookcheck
 	@echo "== nnuecheck ==";   if [ -f $(NET) ]; then ./$(BIN) nnuecheck $(NET); else echo "  SKIP (no $(NET))"; fi
 	@echo "make check: all gates passed"
+
+# Regenerate the committed constant tables (Zobrist keys, PeSTO tables, Q28 ln table). Deliberately manual —
+# these constants are part of the engine's identity (the bench signature depends on every value), so they
+# change only on an explicit run of this target, never as a build side effect. Needs python3.
+tables:
+	python3 tools/generate_tables.py
 
 # Format all C sources in place with the repo .clang-format.
 format:

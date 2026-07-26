@@ -31,6 +31,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
 tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
+make tables            # regenerate src/*.inc (Zobrist/PeSTO/ln constants) — deliberate, never automatic
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
