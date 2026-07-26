@@ -98,6 +98,10 @@ static void put(Position *pos, const Color color, const Piece piece, const int s
     {
         pos->pawn_key ^= ZobristPiece[color][piece][square];
     }
+    else if (piece == KING)
+    {
+        pos->king_location[color] = (uint8_t)square;
+    }
     if (nnue_is_loaded())
     {
         nnue_add_feature(&pos->accumulator, color, piece, square);
@@ -142,6 +146,10 @@ static void move_piece(Position *pos, const int from, const int to)
     }
     pos->board[to]   = (uint8_t)piece;
     pos->board[from] = NO_PIECE;
+    if (piece == KING)
+    {
+        pos->king_location[color] = (uint8_t)to;
+    }
     if (nnue_is_loaded())
     {
         nnue_move_feature(&pos->accumulator, color, piece, from, to);
@@ -159,6 +167,13 @@ Bitboard position_attackers_to(const Position *pos, const int square, const Colo
     attackers |=
         rook_attacks(square, occupancy) & (position_pieces(pos, color, ROOK) | position_pieces(pos, color, QUEEN));
     return attackers;
+}
+
+/** @brief Recompute the cached set of pieces checking the side-to-move's king (0 iff not in check). */
+static void update_checkers(Position *pos)
+{
+    const Color side = pos->color_to_move;
+    pos->checkers    = position_attackers_to(pos, position_king_sq(pos, side), enemy_of(side), position_occupied(pos));
 }
 
 /** @brief Apply @p move to @p pos in place (copy-make: the caller copied @p pos first — there is no unmake). */
@@ -244,6 +259,7 @@ void position_make_move(Position *pos, const Move move)
     pos->color_to_move = opponent;
     pos->key ^= ZobristSide;
     pos->ply++;
+    update_checkers(pos); // for the new side to move
 }
 
 void position_make_null(Position *pos)
@@ -257,6 +273,7 @@ void position_make_null(Position *pos)
     pos->key ^= ZobristSide;
     pos->halfmove++;
     pos->ply++;
+    update_checkers(pos); // null move only made when not in check, but the new stm's checkers must be current
 }
 
 bool position_is_legal(const Position *pos, const Move move)
@@ -608,11 +625,16 @@ bool position_set_fen(Position *pos, const char *fen)
     {
         pos->key ^= ZobristEp[pos->ep_square];
     }
-    // A legal position has exactly one king per side. Reject anything else: a kingless side would make
-    // position_king_sq() do lsb(0) (ctz of zero is UB) and then read the attack tables out of bounds during
-    // search. Callers handling untrusted input (UCI `position fen`, datagen openings) must honour `false`.
+    // A legal position has exactly one king per side. Reject anything else: the search and movegen assume both
+    // kings exist (attack lookups on a bogus king square). Callers handling untrusted input (UCI `position fen`,
+    // datagen openings) must honour `false`.
     bool is_valid = !is_malformed && popcount(position_pieces(pos, WHITE, KING)) == 1 &&
                     popcount(position_pieces(pos, BLACK, KING)) == 1;
+
+    if (is_valid)
+    {
+        update_checkers(pos); // seed the cached checkers for the root position (make_move maintains it thereafter)
+    }
 
     // Authoritative accumulator rebuild (put() updated it incrementally from an uninitialised state above).
     if (nnue_is_loaded())

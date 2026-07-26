@@ -874,8 +874,7 @@ static void legal_check_walk(const Position *pos, const int depth)
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
-    const Bitboard checkers          = position_attackers_to(pos, position_king_sq(pos, pos->color_to_move),
-                                                             enemy_of(pos->color_to_move), position_occupied(pos));
+    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via is_legal_fast
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
     const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->color_to_move));

@@ -37,6 +37,9 @@ typedef struct Position
     Bitboard pieces[NUM_PIECES];
     uint64_t key;      ///< incremental Zobrist key of the whole position
     uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
+    /// Pieces giving check to the side to move — recomputed once per make_move/make_null/set_fen, so the
+    /// search and movegen read it instead of recomputing attackers-to-king. 0 iff the side to move is not in check.
+    Bitboard checkers;
     /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Color is not stored here — read it from
     /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[NUM_SQUARES];
@@ -48,6 +51,9 @@ typedef struct Position
     int16_t ply;             ///< plies from the search root (for mate scoring / repetition window)
     uint8_t color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
     uint8_t castling_rights; ///< castling-rights bitmask (CR_*)
+    /// King square per color, maintained incrementally by put/move_piece — so position_king_sq is a load,
+    /// not an lsb, and is well-defined (0) even for a kingless side rather than lsb(0).
+    uint8_t king_location[NUM_COLORS];
 
     /// NNUE accumulator, maintained incrementally in put/remove/move_piece (only when a net is loaded).
     /// Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
@@ -85,10 +91,10 @@ static inline Bitboard position_pieces_type(const Position *pos, Piece piece)
     return pos->pieces[piece];
 }
 
-/** @brief Square of @p color's king (undefined if that side has no king). */
+/** @brief Square of @p color's king (the incrementally-maintained king_location; 0 if that side has no king). */
 static inline int position_king_sq(const Position *pos, Color color)
 {
-    return lsb(position_pieces(pos, color, KING));
+    return pos->king_location[color];
 }
 
 /** @brief The piece type on @p square, or NO_PIECE if empty. */
@@ -118,10 +124,10 @@ static inline bool position_is_attacked_by(const Position *pos, int square, Colo
     return position_attackers_to(pos, square, color, position_occupied(pos)) != 0;
 }
 
-/** @brief Whether the side to move is in check. */
+/** @brief Whether the side to move is in check (reads the cached @ref Position::checkers). */
 static inline bool position_is_in_check(const Position *pos)
 {
-    return position_is_attacked_by(pos, position_king_sq(pos, pos->color_to_move), enemy_of(pos->color_to_move));
+    return pos->checkers != 0;
 }
 
 /// @}

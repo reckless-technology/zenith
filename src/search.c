@@ -335,8 +335,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         return evaluate(pos);
     }
 
-    const Bitboard checkers    = position_attackers_to(pos, position_king_sq(pos, pos->color_to_move),
-                                                       enemy_of(pos->color_to_move), position_occupied(pos));
+    const Bitboard checkers    = pos->checkers; // cached: recomputed once per make_move
     const bool     is_in_check = checkers != 0;
     int            best        = -VALUE_INF;
     if (!is_in_check)
@@ -473,11 +472,10 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     }
 
     searcher->nodes++;
-    // Checkers once per node (drives IIR / reverse-futility / null-move / in-check logic below). The pinned
-    // bitboard the legality test also needs is computed later, just before the move loop, so the frequent
-    // TT / RFP / null-move cutoffs above it never pay for the pin scan.
-    const Bitboard checkers    = position_attackers_to(pos, position_king_sq(pos, pos->color_to_move),
-                                                       enemy_of(pos->color_to_move), position_occupied(pos));
+    // Checkers drive the IIR / reverse-futility / null-move / in-check logic below; read the cached set
+    // (make_move computed it for this node). The pinned bitboard the legality test also needs is computed
+    // later, just before the move loop, so the frequent TT / RFP / null-move cutoffs never pay for the pin scan.
+    const Bitboard checkers    = pos->checkers;
     const bool     is_in_check = checkers != 0;
 
     // Continuation-history / countermove key = the (piece, to-square) of the move that reached this node.
