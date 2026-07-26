@@ -5,11 +5,14 @@
  * @brief Engine construction and destruction (see engine.h for the aggregate itself).
  */
 #include "engine.h"
+#include "bitboard.h"
 #include "nnue.h"
 #include <stdlib.h>
 
 Engine *engine_new(void)
 {
+    init_bitboards(); // idempotent: the attack tables are process-wide and filled on first construction
+
     Engine *const engine = calloc(1, sizeof(Engine));
     if (engine == NULL)
     {

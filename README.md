@@ -73,8 +73,8 @@ everywhere; UCI session state is a `UciSession` on `uci_loop`'s stack. The Zobri
 are generated compile-time constants (`tools/generate_tables.py` → `src/generated/*.inc`). The one
 exception is
 `bitboard.c`'s ~850KB magic sliding-attack tables, deterministically filled from generated constant
-multipliers by `init_bitboards()` — main's only startup call, with no search or PRNG — before any thread
-exists.
+multipliers by `init_bitboards()` — idempotent, called lazily by `engine_new()`, with no search or
+PRNG — before any thread exists.
 
 | File | Contains |
 |---|---|

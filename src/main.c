@@ -2,18 +2,15 @@
 // Copyright (C) 2026 Jonny Reckless
 /**
  * @file
- * @brief Program entry point: one-time table init, engine construction, then uci_run.
+ * @brief Program entry point: construct the engine, run, release.
  */
-#include "bitboard.h"
 #include "engine.h"
 #include "uci.h"
 #include <stdio.h>
 
-/** @brief Program entry: fill the magic tables, build the one Engine, run, release. */
+/** @brief Program entry: build the one Engine (which performs all initialization), run, release. */
 int main(int argc, char **argv)
 {
-    init_bitboards(); // the magic sliding-attack tables — the one remaining startup init
-
     Engine *const engine = engine_new(); // the one engine instance; everything else borrows it
     if (engine == NULL)
     {

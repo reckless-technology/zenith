@@ -69,5 +69,6 @@ static inline Bitboard line_bb(int from, int to)
     return LineBB[from][to];
 }
 
-/** @brief Fill the magic sliding-attack tables from the generated multipliers. Call once at startup. */
+/** @brief Fill the magic sliding-attack tables from the generated multipliers. Idempotent; called
+ *  lazily by engine_new(), so no caller needs an explicit startup step. */
 void init_bitboards(void);

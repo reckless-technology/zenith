@@ -68,7 +68,7 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 (pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/generated/*.inc`, from
 `tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:
 `bitboard.c`'s ~850KB magic sliding-attack tables — deterministically filled from the constant multipliers
-by `init_bitboards()` (main's only startup call; no search, no PRNG) before any thread exists, read-only
+by `init_bitboards()` (idempotent, called lazily by `engine_new()`; no search, no PRNG) before any thread exists, read-only
 after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
 
 - **types.h** — `Color` (with `enemy_of`) and `Piece` — the one piece type, `NO_PIECE=0`, `PAWN=1` … `KING=6`

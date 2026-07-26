@@ -138,6 +138,15 @@ Bitboard rook_attacks(const int square, const Bitboard occupancy)
 
 void init_bitboards(void)
 {
+    // Idempotent: engine_new() calls this lazily, and constructing several engines must not refill the
+    // tables. Not thread-safe on FIRST call — the first engine must be constructed before any concurrent
+    // engine_new (in this program: main builds the one engine before any thread exists).
+    static bool is_initialized = false;
+    if (is_initialized)
+    {
+        return;
+    }
+    is_initialized = true;
 #ifdef ZENITH_USE_PEXT
     init_magics(NULL, BishopTable, BishopMagics, BishopDirs);
     init_magics(NULL, RookTable, RookMagics, RookDirs);
