@@ -82,9 +82,7 @@ static int run(Engine *engine, int argc, char **argv)
 /** @brief Program entry: initialise subsystems (order matters), build the one Engine, run, release. */
 int main(int argc, char **argv)
 {
-    init_bitboards();
-    init_zobrist();
-    init_eval();
+    init_bitboards(); // the magic sliding-attack tables — the one remaining startup init
 
     Engine engine = {0}; // the one engine instance, owned here; everything else borrows it
     search_shared_init(&engine.search);

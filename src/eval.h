@@ -25,8 +25,6 @@ void eval_cache_init(EvalCache *cache);
 /** @brief Release @p cache's table (safe on an unallocated cache). */
 void eval_cache_free(EvalCache *cache);
 
-/** @brief Initialise the evaluation PST tables. Call once at startup. */
-void init_eval(void);
 /**
  * @brief Static evaluation from the side-to-move's perspective (centipawns).
  *

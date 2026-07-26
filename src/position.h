@@ -10,18 +10,6 @@
 
 #include <string.h>
 
-/// @name Zobrist keys (filled by init_zobrist()).
-/// @{
-extern uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES]
-                            [NUM_SQUARES]; ///< per (color, piece type, square); [*][NO_PIECE][*] unused
-extern uint64_t ZobristCastle[16];         ///< per castling-rights mask
-extern uint64_t ZobristEp[NUM_SQUARES];    ///< per en-passant target square (non-zero only on ranks 3 and 6)
-extern uint64_t ZobristSide;               ///< XOR-ed in when Black is to move
-/// @}
-
-/** @brief Fill the Zobrist key tables. Call once at startup (after init_bitboards). */
-void init_zobrist(void);
-
 /**
  * @brief The board, a value type used with copy-make.
  *

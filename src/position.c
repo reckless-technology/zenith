@@ -12,49 +12,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-uint64_t ZobristPiece[NUM_COLORS][NUM_PIECES][64];
-uint64_t ZobristCastle[16];
-uint64_t ZobristEp[64];
-uint64_t ZobristSide;
-
-static uint64_t zobrist_next(uint64_t *state)
-{
-    *state ^= *state >> 12;
-    *state ^= *state << 25;
-    *state ^= *state >> 27;
-    return *state * 0x2545F4914F6CDD1DULL;
-}
-
-void init_zobrist(void)
-{
-    // The PRNG draw ORDER is part of the engine's identity: every (color, type, square) must receive the
-    // same key across layout changes, or all position keys — and with them TT behaviour and the bench node
-    // signature — silently shift. Values are drawn in the historical order: 12 (color,type) piece blocks of
-    // 64 squares, 16 castling masks, 8 en-passant files, then the side key.
-    uint64_t state = 0x9E3779B97F4A7C15ULL;
-    for (int code = 0; code < 12; code++)
-    {
-        const Color color = (Color)(code / 6);
-        const Piece type  = (Piece)(code % 6 + 1); // codes are 0-based; Piece is 1-based
-        for (int square = 0; square < 64; square++)
-        {
-            ZobristPiece[color][type][square] = zobrist_next(&state);
-        }
-    }
-    for (int castle_rights = 0; castle_rights < 16; castle_rights++)
-    {
-        ZobristCastle[castle_rights] = zobrist_next(&state);
-    }
-    // One key per file, replicated onto that file's two possible en-passant target squares (rank 3 for a
-    // White double push, rank 6 for Black); every other square's entry stays zero.
-    for (int file = 0; file < 8; file++)
-    {
-        const uint64_t key              = zobrist_next(&state);
-        ZobristEp[make_square(file, 2)] = key;
-        ZobristEp[make_square(file, 5)] = key;
-    }
-    ZobristSide = zobrist_next(&state);
-}
+// The Zobrist keys are compile-time constants, generated once by tools/generate_tables.py from the
+// engine's historical xorshift64* draw order (seed 0x9E3779B97F4A7C15): 12 (color,type) piece blocks of 64
+// squares, 16 castling masks, 8 en-passant files (each key replicated onto that file's rank-3/rank-6 target
+// squares), then the side key. The draw ORDER is part of the engine's identity — every position key, the TT
+// behaviour, and the bench node signature depend on these exact values.
+#include "zobrist_tables.inc"
 
 // clang-format off
 // CastleMask[sq]: rights to KEEP when a piece leaves or arrives on sq (AND-ed into castling).
