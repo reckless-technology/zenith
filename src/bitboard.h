@@ -3,6 +3,13 @@
 /**
  * @file
  * @brief Precomputed attack tables and magic-bitboard sliding attacks.
+ *
+ * These tables are the engine's ONE sanctioned piece of file-scope state: init_bitboards() writes them
+ * exactly once at startup — before any thread exists — and they are read-only ever after (immutable in
+ * every sense that matters: thread-safe, instance-independent). They stay file-scope rather than living in
+ * the Engine because the magic lookups are the hottest loads in the engine, and threading a context pointer
+ * through them would tax every sliding-attack call for zero practical benefit; the ~850KB magic tables are
+ * also impractical to bake into source as constants (unlike the generated Zobrist/PeSTO tables).
  */
 #pragma once
 #include "types.h"

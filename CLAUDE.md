@@ -57,8 +57,16 @@ real verdict on whether a change gains Elo.
 ## Architecture
 
 Single translation unit per file, flat `src/`. Threads and the monotonic clock go through `platform.h`
-(C11 `threads.h` with a pthread fallback for Apple/`__STDC_NO_THREADS__`). Init order in `main.c` matters:
-`init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `TT.resize()`.
+(C11 `threads.h` with a pthread fallback for Apple/`__STDC_NO_THREADS__`).
+
+**No globals.** All mutable engine state lives in an `Engine` aggregate (`engine.h`: the TT, a
+`SearchShared` with the stop flag/params/LMR table, the eval cache, and the loaded NNUE net) owned by
+`main()`'s stack and passed explicitly (`uci_loop`/`run_bench`/`run_datagen` take `Engine *`; every
+`Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
+`uci_loop`'s stack. Zobrist keys and the PeSTO tables are generated compile-time constants
+(`src/*.inc`, from `tools/generate_tables.py`). The ONE exception: `bitboard.c`'s magic attack tables —
+written once by `init_bitboards()` (main's only startup call) before any thread exists, read-only after;
+kept file-scope because they sit on the hottest loads (see `bitboard.h`).
 
 - **types.h** — `Color` (with `enemy_of`) and `Piece` — the one piece type, `NO_PIECE=0`, `PAWN=1` … `KING=6`
   (the mailbox stores it directly; color comes from the `colors` bitboards via `position_color_on`). Packed
