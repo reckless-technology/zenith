@@ -774,7 +774,7 @@ static bool perft_report_case(const char *fen, const int depth, const uint64_t e
     *total_nodes += nodes;
     *total_secs += secs;
     char nbuf[27];
-    test_result(is_pass, "perft  depth %2d  %15s nodes  %8.3fs  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf), secs,
+    test_result(is_pass, "perft  depth %2d  %15s nodes  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf),
                 secs > 0.0 ? nodes / secs / 1e6 : 0.0, fen);
     return is_pass;
 }

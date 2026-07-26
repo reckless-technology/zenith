@@ -57,8 +57,7 @@ baseline: $(BIN)
 # nnuecheck runs only if the shipped net is present (nets/ is gitignored).
 NET = nets/zenith-kb3.nnue
 check: $(BIN)
-	@echo "== perft ==";      ./$(BIN) perft | tail -1
-	@./$(BIN) perft >/dev/null 2>&1 || { echo "perft FAILED"; exit 1; }
+	@echo "== perft ==";      ./$(BIN) perft || { echo "perft FAILED"; exit 1; }
 	@echo "== bench signature =="; \
 	  sig=`./$(BIN) bench 13 | tail -1 | grep -oE '^[0-9]+'`; \
 	  if [ "$$sig" = "3065743" ]; then echo "  $$sig PASS"; else echo "  $$sig FAIL (want 3065743)"; exit 1; fi
