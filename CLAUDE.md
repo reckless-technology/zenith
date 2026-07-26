@@ -61,9 +61,9 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 (C11 `threads.h` with a pthread fallback for Apple/`__STDC_NO_THREADS__`).
 
 **No globals.** All mutable engine state lives in an `Engine` aggregate (`engine.h`: the TT, a
-`SearchShared` with the stop flag/params/LMR table, the eval cache, and the loaded NNUE net) owned by
-`main()`'s stack and passed explicitly (`uci_loop`/`run_bench`/`run_datagen` take `Engine *`; every
-`Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
+`SearchShared` with the stop flag/params/LMR table, the eval cache, and the loaded NNUE net), created by
+`engine_new()` / destroyed by `engine_delete()` in `main` and passed explicitly (`uci_loop`/`run_bench`/
+`run_datagen` take `Engine *`; every `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
 (pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/generated/*.inc`, from
 `tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:

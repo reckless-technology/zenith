@@ -84,12 +84,13 @@ int main(int argc, char **argv)
 {
     init_bitboards(); // the magic sliding-attack tables — the one remaining startup init
 
-    Engine engine = {0}; // the one engine instance, owned here; everything else borrows it
-    search_shared_init(&engine.search);
-    eval_cache_init(&engine.eval_cache);
-    tt_resize(&engine.tt, 64);
-
-    const int status = run(&engine, argc, argv);
-    engine_free(&engine);
+    Engine *const engine = engine_new(); // the one engine instance; everything else borrows it
+    if (engine == NULL)
+    {
+        fprintf(stderr, "failed to initialise engine (out of memory)\n");
+        return 1;
+    }
+    const int status = run(engine, argc, argv);
+    engine_delete(engine);
     return status;
 }

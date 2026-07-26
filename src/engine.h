@@ -61,8 +61,8 @@ void search_shared_init(SearchShared *shared);
  */
 bool set_search_param(SearchShared *shared, const char *name, int value);
 
-/** @brief One engine instance: the state shared by all of its search threads. Zero-initialize, then size the
- *  TT with tt_resize and call search_shared_init before searching. */
+/** @brief One engine instance: the state shared by all of its search threads. Create with engine_new and
+ *  destroy with engine_delete. */
 typedef struct Engine
 {
     TranspositionTable tt;         ///< the shared lockless transposition table
@@ -71,14 +71,18 @@ typedef struct Engine
     const NnueNetwork *net;        ///< the loaded NNUE net (owned; NULL = HCE evaluation)
 } Engine;
 
-const NnueNetwork *nnue_load(const char *path); // (full API in nnue.h; declared here so engine_free stays inline)
-void               nnue_free(const NnueNetwork *net);
-
-/** @brief Release everything @p engine owns (TT, eval cache, net). Call once, after all searching is done. */
-static inline void engine_free(Engine *engine)
+enum
 {
-    tt_free(&engine->tt);
-    eval_cache_free(&engine->eval_cache);
-    nnue_free(engine->net);
-    engine->net = NULL;
-}
+    ENGINE_DEFAULT_HASH_MB = 64 ///< TT size a fresh engine starts with (the UCI Hash option resizes it)
+};
+
+/**
+ * @brief Allocate, construct, and fully initialize a new Engine: default search parameters + LMR table,
+ * eval cache, and a ENGINE_DEFAULT_HASH_MB transposition table. No net is loaded (HCE) until the caller
+ * sets one. @return the ready-to-search engine, or NULL on allocation failure (nothing leaked).
+ */
+Engine *engine_new(void);
+
+/** @brief Destroy an engine from engine_new: release everything it owns (TT, eval cache, net) and free it.
+ *  Safe on NULL. No search thread may still be running against it. */
+void engine_delete(Engine *engine);

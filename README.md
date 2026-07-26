@@ -68,8 +68,8 @@ change that *does* alter the signature is actually a strength gain — no streng
 
 One translation unit per file, flat `src/`. **No globals:** all mutable engine state lives in an `Engine`
 aggregate (`engine.h` — the transposition table, the shared search state, the eval cache, and the loaded
-NNUE net), owned by `main()`'s stack and passed explicitly; UCI session state is a `UciSession` on
-`uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
+NNUE net), built by `engine_new()` and released by `engine_delete()` in `main`, passed explicitly
+everywhere; UCI session state is a `UciSession` on `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
 are generated compile-time constants (`tools/generate_tables.py` → `src/generated/*.inc`). The one
 exception is
 `bitboard.c`'s ~850KB magic sliding-attack tables, deterministically filled from generated constant
@@ -83,7 +83,7 @@ exists.
 `src/bitboard.*`   | precomputed pawn/knight/king attacks, BetweenBB/LineBB, rook/bishop MAGIC bitboards
 `src/position.*`   | bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
 `src/movegen.*`    | one masked setwise generator: pseudo-legal + single-pass legal instantiations
-`src/engine.h`     | the Engine aggregate: TT + shared search state + eval cache + NNUE net, owned by main
+`src/engine.*`     | the Engine aggregate (TT + shared search state + eval cache + NNUE net) + its new/delete
 `src/eval.*`       | evaluate(): NNUE when a net is loaded, else a tapered HCE; shared eval cache
 `src/nnue.*`       | king-bucketed quantised NNUE: loader, feature indexing, AVX2 forward, finny refresh cache
 `src/book.*`       | Polyglot opening book: key computation, probing, weighted move choice
