@@ -14,9 +14,9 @@
 
 // The leaper/geometry tables are generated constants (see tools/generate_tables.py); only the magic
 // sliding-attack tables below are runtime-FILLED (their multipliers are generated constants too).
-#include "bitboard_tables.inc"
+#include "generated/bitboard_tables.inc"
 #ifndef ZENITH_USE_PEXT
-#include "magic_tables.inc"
+#include "generated/magic_tables.inc"
 #endif
 
 /** @brief Ray-walk sliding attacks from @p square (used to build masks and to fill the magic tables). */

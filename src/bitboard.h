@@ -16,7 +16,7 @@
 #pragma once
 #include "types.h"
 
-// Generated compile-time constants (tools/generate_tables.py -> src/bitboard_tables.inc).
+// Generated compile-time constants (tools/generate_tables.py -> src/generated/bitboard_tables.inc).
 extern const Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [color][square]
 extern const Bitboard KnightAttacks[64];           ///< knight attacks by square
 extern const Bitboard KingAttacks[64];             ///< king attacks by square

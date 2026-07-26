@@ -31,7 +31,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
 tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
-make tables            # regenerate src/*.inc (Zobrist/PeSTO/ln/geometry/magic constants) — deliberate, never automatic
+make tables            # regenerate src/generated/*.inc (Zobrist/PeSTO/ln/geometry/magic constants) — deliberate
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
@@ -65,7 +65,7 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 `main()`'s stack and passed explicitly (`uci_loop`/`run_bench`/`run_datagen` take `Engine *`; every
 `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
-(pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/*.inc`, from
+(pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/generated/*.inc`, from
 `tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:
 `bitboard.c`'s ~850KB magic sliding-attack tables — deterministically filled from the constant multipliers
 by `init_bitboards()` (main's only startup call; no search, no PRNG) before any thread exists, read-only

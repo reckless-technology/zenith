@@ -17,7 +17,7 @@
 // squares, 16 castling masks, 8 en-passant files (each key replicated onto that file's rank-3/rank-6 target
 // squares), then the side key. The draw ORDER is part of the engine's identity — every position key, the TT
 // behaviour, and the bench node signature depend on these exact values.
-#include "zobrist_tables.inc"
+#include "generated/zobrist_tables.inc"
 
 // clang-format off
 // CastleMask[sq]: rights to KEEP when a piece leaves or arrives on sq (AND-ed into castling).

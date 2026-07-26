@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Jonny Reckless
-"""Generate the engine's compile-time constant tables (src/*.inc).
+"""Generate the engine's compile-time constant tables (src/generated/*.inc).
 
 Emits:
-  src/zobrist_tables.inc — the Zobrist keys, drawn from the xorshift64* PRNG in the engine's historical
+  src/generated/zobrist_tables.inc — the Zobrist keys, drawn from the xorshift64* PRNG in the engine's historical
                            order (seed 0x9E3779B97F4A7C15). The draw ORDER is part of the engine's identity:
                            any change shifts every position key, the TT behaviour, and the bench signature.
-  src/eval_tables.inc    — the PeSTO piece-square tables combined with material values, exactly as the old
+  src/generated/eval_tables.inc    — the PeSTO piece-square tables combined with material values, exactly as the old
                            init_eval() computed them at startup.
-  src/ln_tables.inc      — ln(n) for n = 1..127 in Q28 fixed point (round(ln(n) * 2^28)), for the LMR
+  src/generated/ln_tables.inc      — ln(n) for n = 1..127 in Q28 fixed point (round(ln(n) * 2^28)), for the LMR
                            reduction table: the search then needs no floating point at all, so the bench
                            node signature is reproducible on every platform/compiler by construction.
-  src/bitboard_tables.inc— the leaper attack tables (pawn/knight/king) and the BetweenBB/LineBB geometry
+  src/generated/bitboard_tables.inc— the leaper attack tables (pawn/knight/king) and the BetweenBB/LineBB geometry
                            tables: pure functions of square geometry, mirrored exactly from the historical
                            init_bitboards() construction.
-  src/magic_tables.inc   — the 64 rook + 64 bishop magic multipliers, found by replicating the engine's
+  src/generated/magic_tables.inc   — the 64 rook + 64 bishop magic multipliers, found by replicating the engine's
                            historical startup search bit-for-bit (same xorshift64* seeds, same sparse
                            candidates, same acceptance test), so startup just fills the attack tables with
                            known-good magics instead of searching (only that fill remains runtime work).
@@ -25,7 +25,7 @@ The tables are true constants, so generating them once (and committing the outpu
 the PST data or the Zobrist scheme deliberately changes; the bench node signature will catch any accidental
 difference (it depends on every one of these values).
 
-Usage: python3 tools/generate_tables.py   (writes the two .inc files in place)
+Usage: python3 tools/generate_tables.py   (writes the five .inc files in place)
 """
 import pathlib
 
@@ -254,7 +254,7 @@ def emit_zobrist(piece, castle, ep, side):
     out.append(f"static const uint64_t ZobristSide = 0x{side:016x}ULL;")
     out.append("// clang-format on")
     out.append("")
-    (ROOT / "src" / "zobrist_tables.inc").write_text("\n".join(out))
+    (ROOT / "src" / "generated" / "zobrist_tables.inc").write_text("\n".join(out))
 
 
 def emit_pesto(mg, eg):
@@ -270,7 +270,7 @@ def emit_pesto(mg, eg):
         out.append("")
     out.append("// clang-format on")
     out.append("")
-    (ROOT / "src" / "eval_tables.inc").write_text("\n".join(out))
+    (ROOT / "src" / "generated" / "eval_tables.inc").write_text("\n".join(out))
 
 
 # ---- bitboard geometry tables (leapers + between/line), mirroring the historical init_bitboards ----
@@ -374,7 +374,7 @@ def emit_bitboard_tables():
         out.append("")
     out.append("// clang-format on")
     out.append("")
-    (ROOT / "src" / "bitboard_tables.inc").write_text("\n".join(out))
+    (ROOT / "src" / "generated" / "bitboard_tables.inc").write_text("\n".join(out))
 
 
 # ---- magic multipliers: replicate the engine's historical startup search exactly ----
@@ -461,7 +461,7 @@ def emit_magics():
         out.append("")
     out.append("// clang-format on")
     out.append("")
-    (ROOT / "src" / "magic_tables.inc").write_text("\n".join(out))
+    (ROOT / "src" / "generated" / "magic_tables.inc").write_text("\n".join(out))
 
 
 def emit_ln():
@@ -476,7 +476,7 @@ def emit_ln():
     out.append("};")
     out.append("// clang-format on")
     out.append("")
-    (ROOT / "src" / "ln_tables.inc").write_text("\n".join(out))
+    (ROOT / "src" / "generated" / "ln_tables.inc").write_text("\n".join(out))
 
 
 def main():
@@ -487,7 +487,7 @@ def main():
     emit_ln()
     emit_bitboard_tables()
     emit_magics()
-    print("wrote src/{zobrist,eval,ln,bitboard,magic}_tables.inc")
+    print("wrote src/generated/{zobrist,eval,ln,bitboard,magic}_tables.inc")
 
 
 if __name__ == "__main__":

@@ -32,8 +32,8 @@ make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
 make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
-make tables          # regenerate the committed constant tables (src/*.inc: Zobrist, PeSTO, Q28 ln,
-                     #   bitboard geometry, magic multipliers) — a
+make tables          # regenerate the committed constant tables (src/generated/*.inc: Zobrist, PeSTO,
+                     #   Q28 ln, bitboard geometry, magic multipliers) — a
                      #   deliberate step, never a build side effect; the bench signature guards the values
 make format          # clang-format all sources in place (src/*.{c,h})
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
@@ -70,7 +70,8 @@ One translation unit per file, flat `src/`. **No globals:** all mutable engine s
 aggregate (`engine.h` — the transposition table, the shared search state, the eval cache, and the loaded
 NNUE net), owned by `main()`'s stack and passed explicitly; UCI session state is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
-are generated compile-time constants (`tools/generate_tables.py` → `src/*.inc`). The one exception is
+are generated compile-time constants (`tools/generate_tables.py` → `src/generated/*.inc`). The one
+exception is
 `bitboard.c`'s ~850KB magic sliding-attack tables, deterministically filled from generated constant
 multipliers by `init_bitboards()` — main's only startup call, with no search or PRNG — before any thread
 exists.

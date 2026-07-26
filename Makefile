@@ -19,7 +19,7 @@ SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 # Generated constant tables (committed; rebuilt only by an explicit `make tables`). They are #included by
 # .c files, so every binary must depend on them or edits leave a stale build.
-INCS      = $(wildcard src/*.inc)
+INCS      = $(wildcard src/generated/*.inc)
 # All build outputs land in ./build (created on demand); `make clean` just removes it.
 BUILD_DIR = build
 BIN       = $(BUILD_DIR)/zenith
@@ -75,7 +75,8 @@ check: $(BIN)
 
 # Regenerate the committed constant tables (Zobrist keys, PeSTO tables, Q28 ln table). Deliberately manual —
 # these constants are part of the engine's identity (the bench signature depends on every value), so they
-# change only on an explicit run of this target, never as a build side effect. Needs python3.
+# change only on an explicit run of this target, never as a build side effect. Needs only a system
+# python3 (the generator is stdlib-only — the training .venv is NOT required).
 tables:
 	python3 tools/generate_tables.py
 
