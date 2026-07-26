@@ -5,6 +5,7 @@
  * @brief Magic-bitboard construction (the leaper/geometry tables are generated compile-time constants).
  */
 #include "bitboard.h"
+#include <assert.h>
 #include <stdlib.h>
 
 #ifdef ZENITH_USE_PEXT
@@ -12,23 +13,10 @@
 #endif
 
 // The leaper/geometry tables are generated constants (see tools/generate_tables.py); only the magic
-// sliding-attack tables below are runtime-built.
+// sliding-attack tables below are runtime-FILLED (their multipliers are generated constants too).
 #include "bitboard_tables.inc"
-
 #ifndef ZENITH_USE_PEXT
-// Deterministic sparse PRNG for the magic search (xorshift64*); state is a single uint64_t. Unused with PEXT.
-static uint64_t prng_next(uint64_t *state)
-{
-    *state ^= *state >> 12;
-    *state ^= *state << 25;
-    *state ^= *state >> 27;
-    return *state * 0x2545F4914F6CDD1DULL;
-}
-
-static uint64_t prng_sparse(uint64_t *state)
-{
-    return prng_next(state) & prng_next(state) & prng_next(state); // few set bits -> good magic candidates
-}
+#include "magic_tables.inc"
 #endif
 
 /** @brief Ray-walk sliding attacks from @p square (used to build masks and to fill the magic tables). */
@@ -96,13 +84,8 @@ static Bitboard BishopTable[0x1480]; // 5248
  * then search sparse random magics until one maps every subset to a collision-free index (an epoch counter
  * distinguishes "not yet written this attempt" from a real collision).
  */
-static void init_magics(const bool is_rook, Bitboard *table, Magic magics[64], const int deltas[4])
+static void init_magics(const Bitboard magic_numbers[64], Bitboard *table, Magic magics[64], const int deltas[4])
 {
-#ifndef ZENITH_USE_PEXT
-    Bitboard occupancy[4096], reference[4096];
-    int      epoch[4096]   = {0};
-    int      epoch_counter = 0;
-#endif
     Bitboard *attack_base = table;
 
     for (int square = 0; square < 64; square++)
@@ -114,55 +97,29 @@ static void init_magics(const bool is_rook, Bitboard *table, Magic magics[64], c
         magics[square].mask          = mask;
         magics[square].shift         = 64 - relevant_bits;
         magics[square].attacks       = attack_base;
+#ifdef ZENITH_USE_PEXT
+        magics[square].magic = 0; // unused with PEXT indexing
+        (void)magic_numbers;
+#else
+        // The multiplier is a generated constant (tools/generate_tables.py replicates the historical
+        // search bit-for-bit), so startup just fills the table — no search, no PRNG.
+        magics[square].magic = magic_numbers[square];
+#endif
 
+        // Enumerate every subset of mask (Carry-Rippler) and fill its slot with the true attack set. The
+        // debug build asserts the generated magic is collision-free (a bad table would corrupt the fill).
         Bitboard subset       = 0;
         int      subset_count = 0;
-#ifdef ZENITH_USE_PEXT
-        // PEXT: pext(subset, mask) is already a dense index in [0, 2^relevant_bits) — no magic search.
-        // Fill the table directly; the same per-square layout as the magic path (attack_base advances by count).
-        magics[square].magic = 0; // unused with PEXT indexing
         do
         {
-            attack_base[(unsigned)_pext_u64(subset, mask)] = sliding_attack(square, subset, deltas);
-            subset_count++;
-            subset = (subset - mask) & mask;
-        } while (subset);
-#else
-        // Enumerate every subset of mask (Carry-Rippler), recording its true attack set.
-        do
-        {
-            occupancy[subset_count] = subset;
-            reference[subset_count] = sliding_attack(square, subset, deltas);
+            const Bitboard attacks     = sliding_attack(square, subset, deltas);
+            const unsigned table_index = magic_index(&magics[square], subset);
+            assert(attack_base[table_index] == 0 || attack_base[table_index] == attacks);
+            attack_base[table_index] = attacks;
             subset_count++;
             subset = (subset - mask) & mask;
         } while (subset);
 
-        uint64_t prng = 0x9E3779B97F4A7C15ULL ^ ((uint64_t)square * 0xBF58476D1CE4E5B9ULL) ^ (is_rook ? 1 : 2);
-        for (int subset_index = 0; subset_index < subset_count;)
-        {
-            magics[square].magic = 0;
-            // Require the top byte of (mask*magic) to be well-spread, else the magic is poor.
-            while (popcount((mask * magics[square].magic) >> 56) < 6)
-            {
-                magics[square].magic = prng_sparse(&prng);
-            }
-
-            epoch_counter++;
-            for (subset_index = 0; subset_index < subset_count; subset_index++)
-            {
-                const unsigned table_index = magic_index(&magics[square], occupancy[subset_index]);
-                if (epoch[table_index] < epoch_counter)
-                {
-                    epoch[table_index]       = epoch_counter;
-                    attack_base[table_index] = reference[subset_index];
-                }
-                else if (attack_base[table_index] != reference[subset_index])
-                {
-                    break; // index collision with a different attack set -> reject this magic
-                }
-            }
-        }
-#endif
         attack_base += subset_count;
     }
 }
@@ -181,6 +138,11 @@ Bitboard rook_attacks(const int square, const Bitboard occupancy)
 
 void init_bitboards(void)
 {
-    init_magics(false, BishopTable, BishopMagics, BishopDirs);
-    init_magics(true, RookTable, RookMagics, RookDirs);
+#ifdef ZENITH_USE_PEXT
+    init_magics(NULL, BishopTable, BishopMagics, BishopDirs);
+    init_magics(NULL, RookTable, RookMagics, RookDirs);
+#else
+    init_magics(BishopMagicNumbers, BishopTable, BishopMagics, BishopDirs);
+    init_magics(RookMagicNumbers, RookTable, RookMagics, RookDirs);
+#endif
 }

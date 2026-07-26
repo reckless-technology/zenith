@@ -14,8 +14,11 @@ Emits:
                            node signature is reproducible on every platform/compiler by construction.
   src/bitboard_tables.inc— the leaper attack tables (pawn/knight/king) and the BetweenBB/LineBB geometry
                            tables: pure functions of square geometry, mirrored exactly from the historical
-                           init_bitboards() construction (only the magic sliding-attack tables remain
-                           runtime-built).
+                           init_bitboards() construction.
+  src/magic_tables.inc   — the 64 rook + 64 bishop magic multipliers, found by replicating the engine's
+                           historical startup search bit-for-bit (same xorshift64* seeds, same sparse
+                           candidates, same acceptance test), so startup just fills the attack tables with
+                           known-good magics instead of searching (only that fill remains runtime work).
 
 The tables are true constants, so generating them once (and committing the output) makes them `static const`
 — thread-safe by construction, no init-order dependency — instead of write-once globals. Regenerate only if
@@ -374,6 +377,93 @@ def emit_bitboard_tables():
     (ROOT / "src" / "bitboard_tables.inc").write_text("\n".join(out))
 
 
+# ---- magic multipliers: replicate the engine's historical startup search exactly ----
+
+RANK_1 = 0xFF
+RANK_8 = RANK_1 << 56
+
+
+def rank_bb(square):
+    return (RANK_1 << (8 * (square >> 3))) & FULL
+
+
+def file_bb(square):
+    return (FILE_A << (square & 7)) & FULL
+
+
+def prng_next(state):
+    state ^= state >> 12
+    state ^= (state << 25) & FULL
+    state ^= state >> 27
+    return state, (state * 0x2545F4914F6CDD1D) & FULL
+
+
+def prng_sparse(state):
+    state, a = prng_next(state)
+    state, b = prng_next(state)
+    state, c = prng_next(state)
+    return state, a & b & c
+
+
+def find_magics(is_rook, deltas):
+    """Bit-for-bit mirror of init_magics' search (seeds, candidate stream, acceptance)."""
+    magics = []
+    for square in range(64):
+        edges = ((RANK_1 | RANK_8) & ~rank_bb(square)) | (((FILE_A | FILE_H) & FULL) & ~file_bb(square))
+        mask = sliding_attack(square, 0, deltas) & ~edges
+        relevant_bits = bin(mask).count("1")
+        shift = 64 - relevant_bits
+
+        subsets, references = [], []
+        subset = 0
+        while True:
+            subsets.append(subset)
+            references.append(sliding_attack(square, subset, deltas))
+            subset = (subset - mask) & mask & FULL
+            if subset == 0:
+                break
+
+        state = (0x9E3779B97F4A7C15 ^ ((square * 0xBF58476D1CE4E5B9) & FULL) ^ (1 if is_rook else 2)) & FULL
+        epoch = {}
+        epoch_counter = 0
+        table = {}
+        while True:
+            magic = 0
+            while bin(((mask * magic) & FULL) >> 56).count("1") < 6:
+                state, magic = prng_sparse(state)
+            epoch_counter += 1
+            ok = True
+            for occ, ref in zip(subsets, references):
+                index = (((occ & mask) * magic & FULL) >> shift)
+                if epoch.get(index, 0) < epoch_counter:
+                    epoch[index] = epoch_counter
+                    table[index] = ref
+                elif table[index] != ref:
+                    ok = False
+                    break
+            if ok:
+                magics.append(magic)
+                break
+    return magics
+
+
+def emit_magics():
+    rook = find_magics(True, ROOK_DIRS)
+    bishop = find_magics(False, BISHOP_DIRS)
+    out = [HEADER]
+    out.append("// The magic multipliers the engine's historical startup search would find (replicated bit-for-bit),")
+    out.append("// so init_magics only fills the attack tables. Unused by the PEXT build.")
+    out.append("// clang-format off")
+    for name, values in (("RookMagicNumbers", rook), ("BishopMagicNumbers", bishop)):
+        out.append(f"static const Bitboard {name}[64] = {{")
+        out.append(fmt_u64_rows(values))
+        out.append("};")
+        out.append("")
+    out.append("// clang-format on")
+    out.append("")
+    (ROOT / "src" / "magic_tables.inc").write_text("\n".join(out))
+
+
 def emit_ln():
     import math
     out = [HEADER]
@@ -396,7 +486,8 @@ def main():
     emit_pesto(mg, eg)
     emit_ln()
     emit_bitboard_tables()
-    print("wrote src/zobrist_tables.inc, src/eval_tables.inc, src/ln_tables.inc, and src/bitboard_tables.inc")
+    emit_magics()
+    print("wrote src/{zobrist,eval,ln,bitboard,magic}_tables.inc")
 
 
 if __name__ == "__main__":
