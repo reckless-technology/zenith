@@ -549,32 +549,61 @@ void uci_loop(void)
 
 // --- CLI: bench (fixed-depth node signature) and perft suite ---
 
-static const char *BenchFens[] = {
-    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-    "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
-    "2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1",
-    "8/8/8/8/8/8/6k1/4K2R w K - 0 1",
-    "rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1",
-    "r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1",
+#define BENCH_DEPTH 13 ///< the fixed depth at which the per-position node counts below are pinned
+
+/**
+ * @brief A bench position and its deterministic search node count at BENCH_DEPTH.
+ *
+ * The node counts are the signature components: their sum (3,065,743) is the bench node signature that guards
+ * search determinism. They are reproducible on every platform — the fixed-depth search is all-integer except
+ * the LMR reduction table, which is now seeded by our own portable_log (not libm), so the counts no longer
+ * depend on a platform's math library. If a search/eval change intentionally moves the signature, re-run
+ * `./zenith bench` and update these counts.
+ */
+typedef struct
+{
+    const char *fen;
+    uint64_t    expected; ///< searcher node count at BENCH_DEPTH
+} BenchCase;
+
+static const BenchCase BenchCases[] = {
+    {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 265353},
+    {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 1033087},
+    {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 121528},
+    {"r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", 385875},
+    {"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1", 360723},
+    {"8/8/8/8/8/8/6k1/4K2R w K - 0 1", 60442},
+    {"rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1", 566162},
+    {"r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1", 272573},
 };
 
-void run_bench(int depth)
+/**
+ * @brief Fixed-depth search over the bench positions: one uniform result line per position, then a summary.
+ *
+ * At BENCH_DEPTH each position's node count is checked against its pinned value — a [PASS]/[FAIL] determinism
+ * gate like perft, self-contained (no external signature grep). At any other depth there is no reference, so
+ * the lines are informational (node count + nps, no verdict).
+ * @return 0 if every checked position matched (or the depth has no reference), 1 on any mismatch.
+ */
+int run_bench(int depth)
 {
     if (depth <= 0)
     {
-        depth = 13;
+        depth = BENCH_DEPTH;
     }
+    const bool   has_reference = depth == BENCH_DEPTH; // node counts are pinned only at BENCH_DEPTH
+    const size_t count         = sizeof BenchCases / sizeof BenchCases[0];
+
+    Searcher *const searcher   = malloc(sizeof(Searcher)); // ~2.4MB — heap, not stack
     uint64_t        total      = 0;
     double          total_secs = 0.0;
-    Searcher *const searcher   = malloc(sizeof(Searcher)); // ~2.4MB — heap, not stack
-    for (size_t fen_index = 0; fen_index < sizeof(BenchFens) / sizeof(BenchFens[0]); fen_index++)
+    int             passed     = 0;
+    for (size_t i = 0; i < count; i++)
     {
         tt_clear();
         Position pos;
         position_init(&pos);
-        position_set_fen(&pos, BenchFens[fen_index]);
+        position_set_fen(&pos, BenchCases[i].fen);
         searcher_init(searcher);        // fresh search state per position
         searcher->is_silent     = true; // suppress per-iteration info; print one clean per-position line below
         searcher->move_overhead = 0;
@@ -583,18 +612,39 @@ void run_bench(int depth)
         limits.depth           = depth;
         const int64_t start_ms = platform_now_ms();
         searcher_go(searcher, pos, &limits, true);
-        const double secs = (platform_now_ms() - start_ms) / 1000.0;
-        total += searcher->nodes;
+        const double   secs  = (platform_now_ms() - start_ms) / 1000.0;
+        const uint64_t nodes = searcher->nodes;
+        total += nodes;
         total_secs += secs;
-        char nbuf[27];
-        printf("bench  depth %2d  %13s nodes  %8.3fs  %6.2f Mnps  %s\n", depth, u64_commas(searcher->nodes, nbuf), secs,
-               secs > 0.0 ? searcher->nodes / secs / 1e6 : 0.0, BenchFens[fen_index]);
+        const double mnps = secs > 0.0 ? nodes / secs / 1e6 : 0.0;
+        char         nbuf[27];
+        if (has_reference)
+        {
+            const bool is_pass = nodes == BenchCases[i].expected;
+            passed += is_pass;
+            test_result(is_pass, "bench  depth %2d  %15s nodes  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf), mnps,
+                        BenchCases[i].fen);
+        }
+        else
+        {
+            printf("bench  depth %2d  %15s nodes  %6.1f Mnps  %s\n", depth, u64_commas(nodes, nbuf), mnps,
+                   BenchCases[i].fen);
+        }
     }
     free(searcher);
-    // Final line = node signature + mean nps. Kept leading-digit greppable ('^[0-9]+'): make check and CI
-    // extract the signature from `bench 13 | tail -1`. A benchmark, not a [PASS]/[FAIL] gate — the harness judges.
-    printf("%llu nodes %.0f nps  (signature; mean over %zu positions)\n", (unsigned long long)total,
-           total / (total_secs > 0 ? total_secs : 1), sizeof(BenchFens) / sizeof(BenchFens[0]));
+
+    const double mean_mnps = total_secs > 0.0 ? total / total_secs / 1e6 : 0.0;
+    char         tbuf[27];
+    if (has_reference)
+    {
+        const bool is_all_pass = passed == (int)count;
+        test_result(is_all_pass, "bench  %d/%zu positions pass  signature %s  %8.3fs  mean %.1f Mnps", passed, count,
+                    u64_commas(total, tbuf), total_secs, mean_mnps);
+        return is_all_pass ? 0 : 1;
+    }
+    printf("bench  %zu positions  signature %s  %8.3fs  mean %.1f Mnps  (depth %d — no reference)\n", count,
+           u64_commas(total, tbuf), total_secs, mean_mnps, depth);
+    return 0;
 }
 
 /** @brief One perft test case: a position and its known leaf count at a given depth. */

@@ -7,8 +7,9 @@
 #pragma once
 /** @brief Run the interactive UCI protocol loop, reading commands from stdin until "quit"/EOF. */
 void uci_loop(void);
-/** @brief Fixed-depth benchmark over a canonical FEN set; prints the deterministic node signature and nps. */
-void run_bench(int depth);
+/** @brief Fixed-depth benchmark over a canonical FEN set; a [PASS]/[FAIL] node-signature gate at the pinned
+ *  depth (informational at any other depth). @return 0 if every checked position matched, non-zero on mismatch. */
+int run_bench(int depth);
 /** @brief Run the perft suite (canonical + edge-case catchers + Ethereal 128) against known counts.
  *  @return 0 if every position matches, non-zero on any mismatch. */
 int run_perft_suite(void);

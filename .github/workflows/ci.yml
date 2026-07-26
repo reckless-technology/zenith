@@ -9,10 +9,10 @@ on:
 jobs:
   # Build + run the correctness gates on all three desktop platforms, and upload the binary as an artifact.
   # Windows builds with the MSYS2 CLANG64 toolchain (a POSIX-ish clang: strtok_r, winpthreads, lld/LTO);
-  # macOS uses Apple clang with no -march (Apple-silicon arm64 has no -march=native). The perft / legality /
-  # SEE / book / fuzz gates are exact-integer and identical on every platform. The bench node signature is
-  # asserted only on Linux — the LMR reduction table is seeded via log(), whose rounding is libm-dependent,
-  # so the exact node count is a Linux-reference guarantee, not a cross-platform one.
+  # macOS uses Apple clang with no -march (Apple-silicon arm64 has no -march=native). Every gate — perft /
+  # legality / SEE / book / fuzz and now the bench node signature — is exact-integer and identical on all
+  # platforms: the fixed-depth search is all-integer except the LMR table, which is seeded by our own
+  # portable_log (see src/search.c), not libm, so the signature is reproducible everywhere.
   build-and-test:
     name: build-and-test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
@@ -75,17 +75,12 @@ jobs:
       - name: Adversarial-input hardening (malformed FEN/UCI)
         run: ./${{ matrix.bin }} fuzzcheck
 
-      - name: Bench (fixed-depth node signature — asserted on Linux, the reference platform)
-        if: matrix.label == 'linux'
-        run: |
-          # Keep this expected value in sync with `make check` in the Makefile.
-          signature=$(./${{ matrix.bin }} bench 13 | tail -1 | grep -oE '^[0-9]+')
-          echo "bench 13 node signature: $signature (expected 3065743)"
-          test "$signature" = "3065743" || { echo "::error::bench signature changed — if intentional, update the expected value in ci.yml AND the Makefile"; exit 1; }
-
-      - name: Bench (informational; nps + node count — no cross-platform signature assertion)
-        if: matrix.label != 'linux'
-        run: ./${{ matrix.bin }} bench 13 | tail -1
+      - name: Bench (fixed-depth node-signature gate — reproducible on every platform)
+        # bench self-checks each position's node count against the values pinned in src/uci.c (BenchCases) and
+        # exits non-zero on any mismatch — no external signature to keep in sync. A divergence here would mean a
+        # non-portable computation crept into the search; if a change moves the signature intentionally, re-run
+        # `./zenith bench` and update BenchCases in src/uci.c.
+        run: ./${{ matrix.bin }} bench
 
       - name: Name the binary with the build version
         run: cp "${{ matrix.bin }}" "zenith-${{ steps.ver.outputs.version }}-${{ matrix.platform }}${{ matrix.binext }}"

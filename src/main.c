@@ -30,8 +30,7 @@ int main(int argc, char **argv)
     {
         if (!strcmp(argv[1], "bench"))
         {
-            run_bench(argc > 2 ? atoi(argv[2]) : 13);
-            return 0;
+            return run_bench(argc > 2 ? atoi(argv[2]) : 0); // 0 => the pinned default depth; exit code = pass/fail
         }
         if (!strcmp(argv[1], "perft"))
         {
