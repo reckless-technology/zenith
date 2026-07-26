@@ -93,15 +93,18 @@ kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   ~550 Mnps perft, at parity with pawnstar). The search uses `generate_pseudo` and filters with
   `position_is_legal` *before* pruning/make (the +66 Elo prune-before-make change); `generate_legal` serves
   perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
-- **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
-  when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
-  tempo). This single call site is the NNUE seam.
+- **eval.\*** — `evaluate(pos, cache)` returns centipawns from side-to-move POV (memoised in the engine's
+  shared lockless `EvalCache`; NULL = uncached). Dispatches to the NNUE forward when the position is bound
+  to a net (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility, tempo). This
+  single call site is the NNUE seam.
 - **nnue.\*** — quantised **king-bucketed** (768×8 → 512) SCReLU perspective net: loader (`ZNNUE3` magic),
   feature indexing, and the integer forward. The perspective's own king square selects one of **8 king-input
   buckets** (4 file-pairs × 2 board-halves) offsetting its 768 block. The accumulator is maintained
   **incrementally** (embedded in `Position`); a king move that changes a side's bucket triggers
-  `refresh_perspective`, accelerated by a thread-local **finny refresh cache** (per (perspective,bucket)
-  cached accumulator + the board it was built from; rebuild applies only piece-diffs, net-generation-guarded).
+  `refresh_perspective`, accelerated by a per-thread **finny refresh cache** (owned by each `Searcher`, bound
+  into its root position; per (perspective,bucket) cached accumulator + the board it was built from; rebuild
+  applies only piece-diffs, per-entry net-pointer-guarded). The accumulator carries its net binding
+  (`position_init(pos, net)`; NULL = HCE) — the net itself is heap-loaded and owned by the `Engine`.
   `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
 - **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
   emits `fen;stm_score_cp;wdl` records (one per quiet position). Fan out with `tools/datagen_parallel.sh`.
