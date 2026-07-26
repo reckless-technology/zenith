@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Jonny Reckless
 /**
  * @file
- * @brief Attack-table construction: leaper tables and startup-generated magic bitboards.
+ * @brief Magic-bitboard construction (the leaper/geometry tables are generated compile-time constants).
  */
 #include "bitboard.h"
 #include <stdlib.h>
@@ -11,11 +11,9 @@
 #include <immintrin.h> // _pext_u64 (BMI2)
 #endif
 
-Bitboard PawnAttacks[NUM_COLORS][64];
-Bitboard KnightAttacks[64];
-Bitboard KingAttacks[64];
-Bitboard BetweenBB[64][64];
-Bitboard LineBB[64][64];
+// The leaper/geometry tables are generated constants (see tools/generate_tables.py); only the magic
+// sliding-attack tables below are runtime-built.
+#include "bitboard_tables.inc"
 
 #ifndef ZENITH_USE_PEXT
 // Deterministic sparse PRNG for the magic search (xorshift64*); state is a single uint64_t. Unused with PEXT.
@@ -183,61 +181,6 @@ Bitboard rook_attacks(const int square, const Bitboard occupancy)
 
 void init_bitboards(void)
 {
-    for (int square = 0; square < 64; square++)
-    {
-        const Bitboard square_bit  = sq_bb(square);
-        PawnAttacks[WHITE][square] = shift_northeast(square_bit) | shift_northwest(square_bit);
-        PawnAttacks[BLACK][square] = shift_southeast(square_bit) | shift_southwest(square_bit);
-
-        // Knight: all (±1,±2)/(±2,±1) offsets, rejecting wraps by file/rank distance.
-        Bitboard  knight_attack = 0, king_attack = 0;
-        const int file = file_of(square), rank = rank_of(square);
-        const int knight_file[8] = {1, 2, 2, 1, -1, -2, -2, -1};
-        const int knight_rank[8] = {2, 1, -1, -2, -2, -1, 1, 2};
-        const int king_file[8]   = {0, 1, 1, 1, 0, -1, -1, -1};
-        const int king_rank[8]   = {1, 1, 0, -1, -1, -1, 0, 1};
-        for (int offset = 0; offset < 8; offset++)
-        {
-            int target_file = file + knight_file[offset], target_rank = rank + knight_rank[offset];
-            if (target_file >= 0 && target_file < 8 && target_rank >= 0 && target_rank < 8)
-            {
-                knight_attack |= sq_bb(make_square(target_file, target_rank));
-            }
-            target_file = file + king_file[offset], target_rank = rank + king_rank[offset];
-            if (target_file >= 0 && target_file < 8 && target_rank >= 0 && target_rank < 8)
-            {
-                king_attack |= sq_bb(make_square(target_file, target_rank));
-            }
-        }
-        KnightAttacks[square] = knight_attack;
-        KingAttacks[square]   = king_attack;
-    }
-
     init_magics(false, BishopTable, BishopMagics, BishopDirs);
     init_magics(true, RookTable, RookMagics, RookDirs);
-
-    // BetweenBB: squares strictly between a and b when they share a rank/file/diagonal.
-    // LineBB: the whole rank/file/diagonal through a and b (endpoints included), 0 if not aligned.
-    Bitboard (*const attackers[2])(int, Bitboard) = {rook_attacks, bishop_attacks};
-    for (int from = 0; from < 64; from++)
-    {
-        for (int to = 0; to < 64; to++)
-        {
-            BetweenBB[from][to] = 0;
-            LineBB[from][to]    = 0;
-            if (from == to)
-            {
-                continue;
-            }
-            for (int slider = 0; slider < 2; slider++)
-            {
-                Bitboard (*const attacker)(int, Bitboard) = attackers[slider];
-                if (attacker(from, 0) & sq_bb(to))
-                {
-                    BetweenBB[from][to] = attacker(from, sq_bb(to)) & attacker(to, sq_bb(from));
-                    LineBB[from][to]    = (sq_bb(from) | attacker(from, 0)) & (sq_bb(to) | attacker(to, 0));
-                }
-            }
-        }
-    }
 }

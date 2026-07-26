@@ -4,21 +4,23 @@
  * @file
  * @brief Precomputed attack tables and magic-bitboard sliding attacks.
  *
- * These tables are the engine's ONE sanctioned piece of file-scope state: init_bitboards() writes them
- * exactly once at startup — before any thread exists — and they are read-only ever after (immutable in
- * every sense that matters: thread-safe, instance-independent). They stay file-scope rather than living in
- * the Engine because the magic lookups are the hottest loads in the engine, and threading a context pointer
- * through them would tax every sliding-attack call for zero practical benefit; the ~850KB magic tables are
- * also impractical to bake into source as constants (unlike the generated Zobrist/PeSTO tables).
+ * The leaper and geometry tables (pawn/knight/king attacks, BetweenBB/LineBB) are generated compile-time
+ * constants — pure square geometry, emitted by tools/generate_tables.py. The MAGIC sliding-attack tables are
+ * the engine's ONE remaining piece of mutable file-scope state: init_bitboards() writes them exactly once at
+ * startup — before any thread exists — and they are read-only ever after. They stay file-scope rather than
+ * living in the Engine because the magic lookups are the hottest loads in the engine, and threading a
+ * context pointer through them would tax every sliding-attack call for zero practical benefit; at ~850KB
+ * they are also impractical to bake into source (unlike these geometry tables).
  */
 #pragma once
 #include "types.h"
 
-extern Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [color][square]
-extern Bitboard KnightAttacks[64];           ///< knight attacks by square
-extern Bitboard KingAttacks[64];             ///< king attacks by square
-extern Bitboard BetweenBB[64][64];           ///< squares strictly between two aligned squares (exclusive), else 0
-extern Bitboard LineBB[64][64];              ///< the whole rank/file/diagonal through two aligned squares, else 0
+// Generated compile-time constants (tools/generate_tables.py -> src/bitboard_tables.inc).
+extern const Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [color][square]
+extern const Bitboard KnightAttacks[64];           ///< knight attacks by square
+extern const Bitboard KingAttacks[64];             ///< king attacks by square
+extern const Bitboard BetweenBB[64][64];           ///< squares strictly between two aligned squares (exclusive), else 0
+extern const Bitboard LineBB[64][64];              ///< the whole rank/file/diagonal through two aligned squares, else 0
 
 /** @brief Bishop sliding attacks from @p square given @p occupancy (magic-bitboard lookup). */
 Bitboard bishop_attacks(int square, Bitboard occupancy);

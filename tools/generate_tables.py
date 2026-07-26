@@ -12,6 +12,10 @@ Emits:
   src/ln_tables.inc      — ln(n) for n = 1..127 in Q28 fixed point (round(ln(n) * 2^28)), for the LMR
                            reduction table: the search then needs no floating point at all, so the bench
                            node signature is reproducible on every platform/compiler by construction.
+  src/bitboard_tables.inc— the leaper attack tables (pawn/knight/king) and the BetweenBB/LineBB geometry
+                           tables: pure functions of square geometry, mirrored exactly from the historical
+                           init_bitboards() construction (only the magic sliding-attack tables remain
+                           runtime-built).
 
 The tables are true constants, so generating them once (and committing the output) makes them `static const`
 — thread-safe by construction, no init-order dependency — instead of write-once globals. Regenerate only if
@@ -266,6 +270,110 @@ def emit_pesto(mg, eg):
     (ROOT / "src" / "eval_tables.inc").write_text("\n".join(out))
 
 
+# ---- bitboard geometry tables (leapers + between/line), mirroring the historical init_bitboards ----
+
+FULL = (1 << 64) - 1
+
+
+def sq_bb(square):
+    return 1 << square
+
+
+def shift(bb, delta, avoid_file_mask):
+    bb &= ~avoid_file_mask & FULL
+    return ((bb << delta) if delta > 0 else (bb >> -delta)) & FULL
+
+
+FILE_A = sum(1 << (8 * r) for r in range(8))
+FILE_H = FILE_A << 7
+
+
+def sliding_attack(square, occupancy, deltas):
+    """Exact mirror of bitboard.c's ray walk (file-wrap rejected by per-step file distance)."""
+    attacks = 0
+    for delta in deltas:
+        current = square
+        while True:
+            previous_file = current & 7
+            nxt = current + delta
+            if nxt < 0 or nxt >= 64 or abs((nxt & 7) - previous_file) > 1:
+                break
+            attacks |= sq_bb(nxt)
+            if occupancy & sq_bb(nxt):
+                break
+            current = nxt
+    return attacks
+
+
+ROOK_DIRS = [8, -8, 1, -1]
+BISHOP_DIRS = [9, 7, -7, -9]
+
+
+def generate_bitboard_tables():
+    pawn = [[0] * 64 for _ in range(2)]
+    knight = [0] * 64
+    king = [0] * 64
+    for square in range(64):
+        bb = sq_bb(square)
+        pawn[0][square] = (shift(bb, 9, FILE_H) | shift(bb, 7, FILE_A))    # white: NE | NW
+        pawn[1][square] = (shift(bb, -7, FILE_H) | shift(bb, -9, FILE_A))  # black: SE | SW
+        file, rank = square & 7, square >> 3
+        for df, dr in [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]:
+            if 0 <= file + df < 8 and 0 <= rank + dr < 8:
+                knight[square] |= sq_bb((rank + dr) * 8 + file + df)
+        for df, dr in [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]:
+            if 0 <= file + df < 8 and 0 <= rank + dr < 8:
+                king[square] |= sq_bb((rank + dr) * 8 + file + df)
+
+    between = [[0] * 64 for _ in range(64)]
+    line = [[0] * 64 for _ in range(64)]
+    for frm in range(64):
+        for to in range(64):
+            if frm == to:
+                continue
+            for dirs in (ROOK_DIRS, BISHOP_DIRS):
+                if sliding_attack(frm, 0, dirs) & sq_bb(to):
+                    between[frm][to] = sliding_attack(frm, sq_bb(to), dirs) & sliding_attack(to, sq_bb(frm), dirs)
+                    line[frm][to] = ((sq_bb(frm) | sliding_attack(frm, 0, dirs)) &
+                                     (sq_bb(to) | sliding_attack(to, 0, dirs)))
+    return pawn, knight, king, between, line
+
+
+def emit_bitboard_tables():
+    pawn, knight, king, between, line = generate_bitboard_tables()
+    out = [HEADER]
+    out.append("// clang-format off")
+
+    def emit_1d(name, values, dim):
+        out.append(f"const Bitboard {name}[{dim}] = {{")
+        out.append(fmt_u64_rows(values))
+        out.append("};")
+        out.append("")
+
+    out.append("const Bitboard PawnAttacks[NUM_COLORS][64] = {")
+    for color in range(2):
+        out.append("    {")
+        for i in range(0, 64, 4):
+            out.append("        " + ", ".join(f"0x{v:016x}ULL" for v in pawn[color][i:i + 4]) + ",")
+        out.append("    },")
+    out.append("};")
+    out.append("")
+    emit_1d("KnightAttacks", knight, 64)
+    emit_1d("KingAttacks", king, 64)
+    for name, table in (("BetweenBB", between), ("LineBB", line)):
+        out.append(f"const Bitboard {name}[64][64] = {{")
+        for row in table:
+            out.append("    {")
+            for i in range(0, 64, 4):
+                out.append("        " + ", ".join(f"0x{v:016x}ULL" for v in row[i:i + 4]) + ",")
+            out.append("    },")
+        out.append("};")
+        out.append("")
+    out.append("// clang-format on")
+    out.append("")
+    (ROOT / "src" / "bitboard_tables.inc").write_text("\n".join(out))
+
+
 def emit_ln():
     import math
     out = [HEADER]
@@ -287,7 +395,8 @@ def main():
     mg, eg = generate_pesto(PST)
     emit_pesto(mg, eg)
     emit_ln()
-    print("wrote src/zobrist_tables.inc, src/eval_tables.inc, and src/ln_tables.inc")
+    emit_bitboard_tables()
+    print("wrote src/zobrist_tables.inc, src/eval_tables.inc, src/ln_tables.inc, and src/bitboard_tables.inc")
 
 
 if __name__ == "__main__":
