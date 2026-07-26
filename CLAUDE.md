@@ -37,6 +37,10 @@ make hooks             # enable the clang-format pre-commit hook (once per clone
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
 ```
 
+`main` is protected (ruleset: PR required, all five CI checks green, no force pushes; the release
+version-bump deploy key is the only bypass). Land changes via branch → `gh pr create` →
+`gh pr merge --auto`; direct pushes to main are rejected.
+
 A versioned pre-commit hook (`.githooks/pre-commit`, enabled via `make hooks`) rejects commits whose staged
 `src/*.{c,h}` are not clang-format-clean — always keep sources formatted (run `make format`).
 

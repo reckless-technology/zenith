@@ -59,6 +59,9 @@ make check                          # build + run every gate below
 ./build/zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
 ```
 
+`main` is protected: changes land via pull request with all CI checks green (the release workflow's
+version-bump commit is the one sanctioned exception, via a scoped deploy key).
+
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
 so any unintended change to search behaviour shows up immediately, and a pure-speed change is proven safe
 by leaving it identical. `tools/sprt.sh` runs a self-play SPRT (via **fastchess**) to decide whether a
