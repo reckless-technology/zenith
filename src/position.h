@@ -148,25 +148,28 @@ char *position_fen(const Position *pos, char *buf);
 void position_make_move(Position *pos, Move move);
 /** @brief The side to move passes (for null-move pruning). */
 void position_make_null(Position *pos);
-/** @brief Whether a pseudo-legal @p move is legal, tested via copy-make. */
-bool position_is_legal(const Position *pos, Move move);
+/** @brief Whether a pseudo-legal @p move is legal, tested via copy-make — the slow reference oracle (ground
+ *  truth for the `legalcheck` gate). Prefer position_is_legal, the copy-free path movegen and the search use. */
+bool position_is_legal_slow(const Position *pos, Move move);
 
 /**
  * @brief Our pieces pinned to our own king.
  *
- * Part of the fast, copy-free legality path: with this and the node's checkers, position_is_legal_fast can
- * prune before paying make_move. It must agree with position_is_legal on every pseudo-legal move
+ * Part of the fast, copy-free legality path: with this and the node's checkers, position_is_legal can
+ * prune before paying make_move. It must agree with position_is_legal_slow on every pseudo-legal move
  * (validated by the `legalcheck` differential test).
  */
 Bitboard position_pinned_to_king(const Position *pos);
 /**
- * @brief Copy-free legality test for a pseudo-legal @p move.
+ * @brief Copy-free legality test for a pseudo-legal @p move — the primary legality filter (movegen's
+ * generate_legal and the search both use it; position_is_legal_slow is the copy-make oracle it is validated
+ * against). Passing the precomputed @p checkers / @p pinned makes it O(1) per move — no make_move.
  * @param pos the position.
  * @param move the pseudo-legal move to test.
  * @param checkers pieces giving check to the side to move (precomputed once per node).
  * @param pinned our pieces pinned to our king (see position_pinned_to_king).
  */
-bool position_is_legal_fast(const Position *pos, Move move, Bitboard checkers, Bitboard pinned);
+bool position_is_legal(const Position *pos, Move move, Bitboard checkers, Bitboard pinned);
 
 /**
  * @brief Our pieces that could discover check by moving off a ray between one of our sliders and the enemy king.

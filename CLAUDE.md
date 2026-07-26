@@ -74,14 +74,16 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental
   **Zobrist** `key` (`ZobristPiece[color][piece][sq]`, `ZobristEp[sq]`) + pawn-only `pawn_key`; the NNUE
   accumulator is embedded and updated
-  in the put/remove/move primitives. Copy-free oracles for the search: `is_legal_fast` (checkers+pins),
+  in the put/remove/move primitives. Copy-free oracles for the search: `position_is_legal` (checkers+pins;
+  the copy-make `position_is_legal_slow` is the reference oracle it is validated against),
   `pinned_to_king`, `gives_check_fast`/`discovered_check_candidates` — all differentially validated by
   `legalcheck`. FEN I/O.
 - **movegen.\*** — `generate_pseudo` emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]`
   buffer, terminated with a `MOVE_NONE` sentinel and returning the move count (so callers needing a length
   never re-scan);
-  the search filters with `is_legal_fast` *before* pruning/make (the +66 Elo prune-before-make change).
-  `generate_legal` (pseudo + filter) serves perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
+  the search filters with `position_is_legal` *before* pruning/make (the +66 Elo prune-before-make change).
+  `generate_legal` (pseudo + the same copy-free filter) serves perft/datagen/UCI parsing.
+  `noisy_only` = captures+promotions.
 - **eval.\*** — `evaluate(pos)` returns centipawns from side-to-move POV. Returns `nnue::evaluate(pos)`
   when a net is loaded (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility,
   tempo). This single call site is the NNUE seam.

@@ -50,7 +50,7 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "legalcheck"))
         {
-            return run_legal_check(); // is_legal_fast == is_legal over a perft-like walk
+            return run_legal_check(); // position_is_legal == position_is_legal_slow over a perft-like walk
         }
         if (!strcmp(argv[1], "datagen"))
         {

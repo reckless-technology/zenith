@@ -914,35 +914,36 @@ int run_perft_suite(void)
     return is_all_pass ? 0 : 1;
 }
 
-// --- CLI: legalcheck — the copy-free is_legal_fast must agree with is_legal on every pseudo-legal move ---
+// --- CLI: legalcheck — the copy-free position_is_legal must agree with position_is_legal_slow on every pseudo-legal
+// move ---
 static uint64_t g_legal_nodes = 0, g_legal_mismatches = 0;
 
-/** @brief Recurse to @p depth checking is_legal_fast / gives_check_fast against copy-make ground truth. */
+/** @brief Recurse to @p depth checking position_is_legal / gives_check_fast against copy-make ground truth. */
 static void legal_check_walk(const Position *pos, const int depth)
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
-    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via is_legal_fast
+    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via position_is_legal
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
     const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->color_to_move));
     for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
         const Move move = pseudo[index];
-        if (position_is_legal_fast(pos, move, checkers, pinned) != position_is_legal(pos, move))
+        if (position_is_legal(pos, move, checkers, pinned) != position_is_legal_slow(pos, move))
         {
             if (g_legal_mismatches < 8)
             {
                 char fen_buf[128];
                 printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
-                       position_is_legal_fast(pos, move, checkers, pinned), position_is_legal(pos, move),
+                       position_is_legal(pos, move, checkers, pinned), position_is_legal_slow(pos, move),
                        move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
             }
             g_legal_mismatches++;
         }
         // gives_check_fast: for legal QUIET non-castle moves it must equal the copy-make ground truth
         // (castling is allowed to conservatively report true — it is only a pruning guard).
-        if (move_is_quiet(move) && !move_is_castle(move) && position_is_legal(pos, move))
+        if (move_is_quiet(move) && !move_is_castle(move) && position_is_legal_slow(pos, move))
         {
             Position child = *pos;
             position_make_move(&child, move);
@@ -978,7 +979,7 @@ static void legal_check_walk(const Position *pos, const int depth)
 int run_legal_check(void)
 {
     // Positions chosen to hammer pins, checks, king moves, castling and en passant (incl. the EP discovered-
-    // check case that is_legal_fast defers to the slow path).
+    // check case that position_is_legal defers to the slow path).
     const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
@@ -1010,7 +1011,7 @@ int run_legal_check(void)
     }
     char nbuf[27];
     test_result(total_mismatches == 0,
-                "legal  %s nodes, %llu mismatches  %8.3fs  %6.1f Mnps  (is_legal_fast == is_legal)",
+                "legal  %s nodes, %llu mismatches  %8.3fs  %6.1f Mnps  (position_is_legal == position_is_legal_slow)",
                 u64_commas(total_nodes, nbuf), (unsigned long long)total_mismatches, total_secs,
                 total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0);
     return total_mismatches ? 1 : 0;

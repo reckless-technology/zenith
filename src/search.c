@@ -412,7 +412,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         const Move move      = moves[index];
 
         // Copy-free legality first, then SEE pruning, so only searched moves pay make_move.
-        if (!position_is_legal_fast(pos, move, checkers, pinned))
+        if (!position_is_legal(pos, move, checkers, pinned))
         {
             continue;
         }
@@ -642,7 +642,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // Copy-free legality: skip illegal pseudo-legal moves BEFORE any make_move, so the LMP/futility/SEE
         // pruning below runs first and only searched moves pay the ~2KB copy. Skipping before move_count++
         // keeps legal-move ordering/pruning identical to a legal generator.
-        if (!position_is_legal_fast(pos, move, checkers, pinned))
+        if (!position_is_legal(pos, move, checkers, pinned))
         {
             continue;
         }
