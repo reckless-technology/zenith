@@ -48,6 +48,7 @@ jobs:
             mingw-w64-clang-x86_64-lld
             make
             git
+            python
 
       - name: Resolve build version (major.minor.commit-count -> e.g. 1.0.101)
         id: ver
@@ -82,6 +83,24 @@ jobs:
         # `./build/zenith bench` and update BenchCases in src/uci.c.
         run: ./${{ matrix.bin }} bench
 
+      - name: UCI smoke (coordinator thread + Lazy SMP helpers + time management)
+        # bench exercises the search inline on the calling thread; this is the only step that spawns the
+        # coordinator + helper threads (the platform.h shim — winpthreads on Windows) and drives the real
+        # GUI-facing path: options, position/moves replay, fixed-depth and clocked searches, bestmove.
+        run: |
+          printf 'uci\nisready\nsetoption name Threads value 2\nposition startpos moves e2e4 e7e5\ngo depth 10\nucinewgame\nposition startpos\ngo movetime 200\nquit\n' | ./${{ matrix.bin }} > uci_smoke.out
+          test "$(grep -c '^bestmove ' uci_smoke.out)" = "2" || { echo '::error::UCI smoke expected 2 bestmove lines'; cat uci_smoke.out; exit 1; }
+
+      - name: NNUE gates on a synthetic net (loader + incremental accumulator + finny cache + EvalFile search)
+        # nets/ is gitignored, so CI generates a valid-format random-weight net: the nnuecheck gate
+        # (incremental == refresh) and the loader are weight-agnostic, so this exercises the whole NNUE
+        # path without committing a 6.3MB network.
+        run: |
+          python3 tools/make_test_net.py test_net.nnue
+          ./${{ matrix.bin }} nnuecheck test_net.nnue
+          echo "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" | ./${{ matrix.bin }} nnueeval test_net.nnue
+          printf 'setoption name EvalFile value test_net.nnue\nsetoption name Threads value 2\nposition startpos\ngo depth 8\nquit\n' | ./${{ matrix.bin }} | grep -q '^bestmove ' || { echo '::error::EvalFile search produced no bestmove'; exit 1; }
+
       - name: Name the binary with the build version
         run: cp "${{ matrix.bin }}" "zenith-${{ steps.ver.outputs.version }}-${{ matrix.platform }}${{ matrix.binext }}"
 
@@ -108,6 +127,14 @@ jobs:
         run: ./build/zenith-debug legalcheck
       - name: Adversarial-input fuzz under ASan/UBSan (memory-safety gate)
         run: ./build/zenith-debug fuzzcheck
+      - name: UCI smoke under ASan/UBSan (threaded search: coordinator + Lazy SMP helper)
+        run: |
+          printf 'setoption name Threads value 2\nposition startpos\ngo depth 9\nquit\n' | ./build/zenith-debug > uci_smoke.out
+          grep -q '^bestmove ' uci_smoke.out || { echo '::error::no bestmove under ASan'; cat uci_smoke.out; exit 1; }
+      - name: NNUE gate on a synthetic net under ASan/UBSan
+        run: |
+          python3 tools/make_test_net.py test_net.nnue
+          ./build/zenith-debug nnuecheck test_net.nnue
 
   format-check:
     runs-on: ubuntu-latest
