@@ -1,8 +1,11 @@
 ---
 name: search-speed-levers
-description: What actually moves Zenith's nps/strength — copy-make cost is the dominant per-node lever
-metadata:
+description: "What actually moves Zenith's nps/strength — copy-make cost is the dominant per-node lever"
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 221925ef-3c7d-4275-96ac-0cd7362cb511
+  modified: 2026-07-26T00:11:50.243Z
 ---
 
 Zenith uses **copy-make** (Position is a value type; search does `Position child = pos; child.make_move(m)`),
@@ -16,6 +19,14 @@ misses).** So the biggest per-node lever is avoiding the *whole* make_move (copy
   with the net loaded** — unmake re-reads the FT columns (reverse deltas), doubling the expensive part to save a
   cheap memcpy. Accumulator-stack (option b) wouldn't help either: it still pays copy(2KB)+forward FT reads.
   Design/notes: `scratchpad/make_unmake_design.md`. Don't retry unless the FT shrinks / cache behaviour changes.
+- **Lazy / deferred accumulator (dirty-piece) was tried and REVERTED (negative result, 2026-07-25): ~19% SLOWER
+  with the net loaded** (2.65M→2.15M nps, identical node count; nnuecheck 0-mismatch + identical NNUE search
+  node counts confirmed it was bit-exact). Recording feature deltas in a pending list and applying them only at
+  eval time saves the FT reads only for nodes that never eval — but Zenith's search computes a static eval at
+  *most* nodes (RFP/futility/NMP/qsearch stand-pat), so they materialise anyway, and the per-node overhead
+  (delta recording + a bigger copy-make + the materialise indirection) hits EVERY node. Same root cause as
+  make/unmake: the FT reads are unavoidable once you eval, and nearly every node evals. Don't retry unless a
+  large fraction of nodes can be made to skip eval.
 
 Wins realised (both SPRT-gated):
 - **Copy-free legality oracle + prune-before-make: +66 Elo** (2026-07-21, commit 4183763). The move loop used to
@@ -28,6 +39,8 @@ Wins realised (both SPRT-gated):
   by `./zenith legalcheck` (differential is_legal_fast==is_legal over a perft walk, 0 mismatch) + perft + ASan.
 - Earlier: removing is_legal's redundant per-move copy-make (pseudo-legal + filter-in-search) was +126 Elo — same
   root cause (the 2KB accumulator copy).
+
+- **TT prefetch: pure-speed win** (2026-07-25, commit 0aefd74). `tt_prefetch(key)` = `__builtin_prefetch(&TT.table[key & mask])`, called right after each `make_move` in negamax/qsearch so the slot loads while the node finishes (extensions, hist push, reduction) before the recursive probe. Bench signature 3065743 unchanged (pure speed); ~+4-7% bench nps. Cheap, low-risk latency hiding on the memory-bound lockless TT.
 
 More wins realised (2026-07-24, from the independent-review speed pass):
 - **AVX2-vectorized NNUE forward pass: +8.5 ± 5.8 Elo** (commit 851bb83). `nnue_evaluate`'s SCReLU dot was a
