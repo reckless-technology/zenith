@@ -137,7 +137,9 @@ static inline bool position_is_in_check(const Position *pos)
 /// @{
 /**
  * @brief Parse a FEN into @p pos.
- * @return false (leaving @p pos unusable) if the FEN is malformed or lacks exactly one king per side.
+ * @return false (leaving @p pos unusable) if the FEN is malformed, lacks exactly one king per side, or has
+ * more than 16 pieces of either color (impossible in chess; the cap is also what makes MAX_MOVES provably
+ * sufficient for unchecked move emission — see movegen.h).
  *
  * Parsing never writes out of bounds regardless of input. Untrusted-input callers must check the result.
  */

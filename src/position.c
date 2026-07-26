@@ -622,11 +622,14 @@ bool position_set_fen(Position *pos, const char *fen)
     {
         pos->key ^= ZobristEp[pos->ep_square];
     }
-    // A legal position has exactly one king per side. Reject anything else: the search and movegen assume both
-    // kings exist (attack lookups on a bogus king square). Callers handling untrusted input (UCI `position fen`,
-    // datagen openings) must honour `false`.
+    // A legal position has exactly one king per side and at most 16 pieces per side (promotion converts a
+    // pawn, it never adds a piece). Reject anything else: the search and movegen assume both kings exist
+    // (attack lookups on a bogus king square), and the 16-per-side cap is what makes MAX_MOVES provably
+    // sufficient so the generators write unchecked (see movegen.h). Callers handling untrusted input
+    // (UCI `position fen`, datagen openings) must honour `false`.
     bool is_valid = !is_malformed && popcount(position_pieces(pos, WHITE, KING)) == 1 &&
-                    popcount(position_pieces(pos, BLACK, KING)) == 1;
+                    popcount(position_pieces(pos, BLACK, KING)) == 1 && popcount(pos->colors[WHITE]) <= 16 &&
+                    popcount(pos->colors[BLACK]) <= 16;
 
     if (is_valid)
     {

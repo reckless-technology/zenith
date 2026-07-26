@@ -8,15 +8,14 @@
 #include "position.h"
 
 /**
- * @brief Move-buffer capacity.
+ * @brief Move-buffer capacity — provably sufficient, so the generators write unchecked.
  *
- * A legal chess position has at most 218 moves; 256 covers that with margin and leaves room for the
- * MOVE_NONE terminator. Illegal positions (reachable only via a hand-crafted FEN — e.g. a board full of
- * queens) can exceed it, so the generators stop at MAX_MOVES-1 and drop the overflow rather than writing
- * past the array. Legal positions never hit the cap, so search behaviour (and the bench signature) is
- * unchanged. Callers declare `Move moves[MAX_MOVES]`.
+ * position_set_fen rejects boards with more than 16 pieces per side (no chess position has more), and any
+ * single origin square yields at most 27 moves (a queen on an empty board; a promoting pawn 3 targets x 4
+ * pieces = 12; a king 8 + 2 castles = 10). So the side to move emits at most 15 x 27 + 10 = 415 moves; one
+ * more slot holds the MOVE_NONE terminator. Callers declare `Move moves[MAX_MOVES]`.
  */
-#define MAX_MOVES 256
+#define MAX_MOVES 416
 
 /**
  * @brief Generate fully legal moves from @p pos into @p moves (a MAX_MOVES buffer), MOVE_NONE-terminated.

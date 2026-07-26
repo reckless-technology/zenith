@@ -1056,22 +1056,24 @@ int run_fuzz_check(void)
 {
     // Malformed FENs that MUST be rejected (return false) without any out-of-bounds access.
     static const char *const reject_fens[] = {
-        "pppppppppppppppppppp/8/8/8/8/8/8/8 w - - 0 1", // over-long rank
-        "8/8/8/8/8/8/8/8/8/8/Q7 w - - 0 1",             // too many ranks
-        "8/8/8/8/8/8/8/8 w - - 0 1",                    // no kings
-        "4k3/8/8/8/8/8/8/8 w - - 0 1",                  // only a black king
-        "4K3/8/8/8/8/8/8/8 w - - 0 1",                  // only a white king
-        "zzzz w - - 0 1",                               // garbage board
-        "",                                             // empty
-        "8",                                            // truncated
-        "rnbqkbnr/pppppppp w - - 0 1",                  // too few ranks (no kings placed)
+        "pppppppppppppppppppp/8/8/8/8/8/8/8 w - - 0 1",           // over-long rank
+        "8/8/8/8/8/8/8/8/8/8/Q7 w - - 0 1",                       // too many ranks
+        "8/8/8/8/8/8/8/8 w - - 0 1",                              // no kings
+        "4k3/8/8/8/8/8/8/8 w - - 0 1",                            // only a black king
+        "4K3/8/8/8/8/8/8/8 w - - 0 1",                            // only a white king
+        "zzzz w - - 0 1",                                         // garbage board
+        "",                                                       // empty
+        "8",                                                      // truncated
+        "rnbqkbnr/pppppppp w - - 0 1",                            // too few ranks (no kings placed)
+        "QQQ2QQ1/3Q4/1Q4QQ/Q3Q2Q/Q6Q/Q6Q/Q5Q1/KQQQQQQk w - - 0 1" // 24 queens: > 16 pieces per side
     };
     // Legal (or leniently-accepted) positions that MUST be accepted and safely searched. The last two carry a
-    // malformed ep field, which the parser safely ignores (position otherwise valid → no-ep). The queen swarm
-    // has one king per side (so it is accepted) yet generates > 256 pseudo-legal moves — movegen must cap.
+    // malformed ep field, which the parser safely ignores (position otherwise valid → no-ep). The 14-queen
+    // spread is the movegen stress case: 16 white pieces (the set_fen cap) at near-maximal mobility, checking
+    // that the unchecked emission stays inside the MAX_MOVES bound (the ASan/debug build asserts it).
     static const char *const accept_fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",  "8/5pk1/6p1/3K4/8/5PP1/8/8 w - - 0 1",
-        "QQQ2QQ1/3Q4/1Q4QQ/Q3Q2Q/Q6Q/Q6Q/Q5Q1/KQQQQQQk w - - 0 1",
+        "Q6Q/1Q4Q1/2Q2Q2/3QQ3/3QQ3/2Q2Q2/1Q4Q1/KQ5k w - - 0 1",
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq z9 0 1", // bad ep, safely ignored
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq !5 0 1", // bad ep char, safely ignored
     };

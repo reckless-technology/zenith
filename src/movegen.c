@@ -10,31 +10,24 @@
  * generation and no per-move filter pass is needed (king moves get a per-destination safety test; en passant,
  * the one case masks cannot express, gets the full copy-free test). Both instantiations are inlined wrappers,
  * so the compiler constant-folds the mode flag and the pseudo path costs nothing extra.
+ *
+ * Emission is a plain unchecked cursor (`*out++ = move`): MAX_MOVES is provably sufficient for any position
+ * position_set_fen accepts (see movegen.h), which the debug build re-checks with an assert.
  */
 #include "movegen.h"
 #include "bitboard.h"
-
-/**
- * @brief Append @p move to the buffer at *@p count, capping at MAX_MOVES-1 so the MOVE_NONE terminator
- * slot is always in bounds (legal positions never approach the cap; a crafted illegal FEN can).
- */
-static inline void emit(Move *moves, int *count, const Move move)
-{
-    if (*count < MAX_MOVES - 1)
-    {
-        moves[(*count)++] = move;
-    }
-}
+#include <assert.h>
 
 /** @brief Emit all four promotions for a pawn reaching the last rank (queen first for move ordering). */
-static void add_promotions(Move *moves, int *count, const int from, const int to, const bool is_capture)
+static inline Move *add_promotions(Move *out, const int from, const int to, const bool is_capture)
 {
     const unsigned base = is_capture ? FLAG_PROMOTION_KNIGHT_CAPTURE : FLAG_PROMOTION_KNIGHT;
     // Queen first (best for move ordering), then knight/rook/bishop.
-    emit(moves, count, move_make(from, to, base + (QUEEN - KNIGHT)));
-    emit(moves, count, move_make(from, to, base + (KNIGHT - KNIGHT)));
-    emit(moves, count, move_make(from, to, base + (ROOK - KNIGHT)));
-    emit(moves, count, move_make(from, to, base + (BISHOP - KNIGHT)));
+    *out++ = move_make(from, to, base + (QUEEN - KNIGHT));
+    *out++ = move_make(from, to, base + (KNIGHT - KNIGHT));
+    *out++ = move_make(from, to, base + (ROOK - KNIGHT));
+    *out++ = move_make(from, to, base + (BISHOP - KNIGHT));
+    return out;
 }
 
 /**
@@ -44,9 +37,9 @@ static void add_promotions(Move *moves, int *count, const int from, const int to
  * through it and the king). With permissive masks (check_mask = ~0, pinned = 0) this is the plain pseudo-legal
  * emission.
  */
-static void slider_moves(Move *moves, int *count, Bitboard slider_pieces, Bitboard (*attack_fn)(int, Bitboard),
-                         const Bitboard own, const Bitboard enemy, const Bitboard occupancy, const bool is_noisy_only,
-                         const Bitboard check_mask, const Bitboard pinned, const int king_square)
+static Move *slider_moves(Move *out, Bitboard slider_pieces, Bitboard (*attack_fn)(int, Bitboard), const Bitboard own,
+                          const Bitboard enemy, const Bitboard occupancy, const bool is_noisy_only,
+                          const Bitboard check_mask, const Bitboard pinned, const int king_square)
 {
     while (slider_pieces)
     {
@@ -63,9 +56,10 @@ static void slider_moves(Move *moves, int *count, Bitboard slider_pieces, Bitboa
         while (targets)
         {
             const int to = pop_lsb(&targets);
-            emit(moves, count, move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+            *out++       = move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET);
         }
     }
+    return out;
 }
 
 /**
@@ -86,7 +80,7 @@ static void slider_moves(Move *moves, int *count, Bitboard slider_pieces, Bitboa
 static inline int generate_moves(const Position *pos, Move *moves, const bool is_noisy_only, const bool is_legal_mode,
                                  const Bitboard check_mask, const Bitboard pinned)
 {
-    int count = 0;
+    Move *out = moves;
 
     const Color    side = pos->color_to_move, opponent = enemy_of(side);
     const Bitboard occupancy   = position_occupied(pos);
@@ -113,25 +107,25 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
     while (east_promos)
     {
         const int to = pop_lsb(&east_promos);
-        add_promotions(moves, &count, to - east_delta, to, true);
+        out          = add_promotions(out, to - east_delta, to, true);
     }
     Bitboard east_captures = east_targets & ~promo_rank;
     while (east_captures)
     {
         const int to = pop_lsb(&east_captures);
-        emit(moves, &count, move_make(to - east_delta, to, FLAG_CAPTURE));
+        *out++       = move_make(to - east_delta, to, FLAG_CAPTURE);
     }
     Bitboard west_promos = west_targets & promo_rank;
     while (west_promos)
     {
         const int to = pop_lsb(&west_promos);
-        add_promotions(moves, &count, to - west_delta, to, true);
+        out          = add_promotions(out, to - west_delta, to, true);
     }
     Bitboard west_captures = west_targets & ~promo_rank;
     while (west_captures)
     {
         const int to = pop_lsb(&west_captures);
-        emit(moves, &count, move_make(to - west_delta, to, FLAG_CAPTURE));
+        *out++       = move_make(to - west_delta, to, FLAG_CAPTURE);
     }
 
     // En passant: the pawns attacking the ep square are exactly the squares an enemy pawn there would attack.
@@ -149,7 +143,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
             {
                 continue;
             }
-            emit(moves, &count, ep_move);
+            *out++ = ep_move;
         }
     }
 
@@ -163,7 +157,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
     while (push_promos)
     {
         const int to = pop_lsb(&push_promos);
-        add_promotions(moves, &count, to - forward, to, false);
+        out          = add_promotions(out, to - forward, to, false);
     }
     if (!is_noisy_only)
     {
@@ -171,7 +165,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         while (single_pushes)
         {
             const int to = pop_lsb(&single_pushes);
-            emit(moves, &count, move_make(to - forward, to, FLAG_QUIET));
+            *out++       = move_make(to - forward, to, FLAG_QUIET);
         }
         // Double pushes: shift the single-push set once more and keep only the double-push landing rank
         // (rank 4 / rank 5) — that restricts them to pawns that started on the home rank with a clear path.
@@ -181,7 +175,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         while (double_pushes)
         {
             const int to = pop_lsb(&double_pushes);
-            emit(moves, &count, move_make(to - 2 * forward, to, FLAG_PAWN_DOUBLE_PUSH));
+            *out++       = move_make(to - 2 * forward, to, FLAG_PAWN_DOUBLE_PUSH);
         }
     }
 
@@ -199,29 +193,29 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
             const int to = pop_lsb(&captures);
             if (promo_rank & sq_bb(to))
             {
-                add_promotions(moves, &count, from, to, true);
+                out = add_promotions(out, from, to, true);
             }
             else
             {
-                emit(moves, &count, move_make(from, to, FLAG_CAPTURE));
+                *out++ = move_make(from, to, FLAG_CAPTURE);
             }
         }
 
         const Bitboard single = (side == WHITE ? shift_north(sq_bb(from)) : shift_south(sq_bb(from))) & empty;
         if (single & promo_rank & allowed)
         {
-            add_promotions(moves, &count, from, from + forward, false);
+            out = add_promotions(out, from, from + forward, false);
         }
         if (!is_noisy_only)
         {
             if (single & ~promo_rank & allowed)
             {
-                emit(moves, &count, move_make(from, from + forward, FLAG_QUIET));
+                *out++ = move_make(from, from + forward, FLAG_QUIET);
             }
             const Bitboard double_rank = side == WHITE ? RANK_4 : RANK_5;
             if ((side == WHITE ? shift_north(single) : shift_south(single)) & empty & double_rank & allowed)
             {
-                emit(moves, &count, move_make(from, from + 2 * forward, FLAG_PAWN_DOUBLE_PUSH));
+                *out++ = move_make(from, from + 2 * forward, FLAG_PAWN_DOUBLE_PUSH);
             }
         }
     }
@@ -239,7 +233,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         while (targets)
         {
             const int to = pop_lsb(&targets);
-            emit(moves, &count, move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+            *out++       = move_make(square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET);
         }
     }
 
@@ -258,17 +252,17 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
             {
                 continue;
             }
-            emit(moves, &count, move_make(king_square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET));
+            *out++ = move_make(king_square, to, (enemy & sq_bb(to)) ? FLAG_CAPTURE : FLAG_QUIET);
         }
     }
 
     // --- Sliders ---
-    slider_moves(moves, &count, position_pieces(pos, side, BISHOP), bishop_attacks, own, enemy, occupancy,
-                 is_noisy_only, check_mask, pinned, king_square);
-    slider_moves(moves, &count, position_pieces(pos, side, ROOK), rook_attacks, own, enemy, occupancy, is_noisy_only,
-                 check_mask, pinned, king_square);
-    slider_moves(moves, &count, position_pieces(pos, side, QUEEN), queen_attacks, own, enemy, occupancy, is_noisy_only,
-                 check_mask, pinned, king_square);
+    out = slider_moves(out, position_pieces(pos, side, BISHOP), bishop_attacks, own, enemy, occupancy, is_noisy_only,
+                       check_mask, pinned, king_square);
+    out = slider_moves(out, position_pieces(pos, side, ROOK), rook_attacks, own, enemy, occupancy, is_noisy_only,
+                       check_mask, pinned, king_square);
+    out = slider_moves(out, position_pieces(pos, side, QUEEN), queen_attacks, own, enemy, occupancy, is_noisy_only,
+                       check_mask, pinned, king_square);
 
     // --- Castling (fully legal in both modes: not in check, path empty and unattacked). The cached checkers
     // set is exactly "attackers to our king", so the not-in-check gate is a single load. ---
@@ -282,18 +276,19 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         if ((pos->castling_rights & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
             !position_is_attacked_by(pos, f_square, opponent) && !position_is_attacked_by(pos, g_square, opponent))
         {
-            emit(moves, &count, move_make(e_square, g_square, FLAG_CASTLE_KINGSIDE));
+            *out++ = move_make(e_square, g_square, FLAG_CASTLE_KINGSIDE);
         }
         if ((pos->castling_rights & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
             (empty & sq_bb(b_square)) && !position_is_attacked_by(pos, d_square, opponent) &&
             !position_is_attacked_by(pos, c_square, opponent))
         {
-            emit(moves, &count, move_make(e_square, c_square, FLAG_CASTLE_QUEENSIDE));
+            *out++ = move_make(e_square, c_square, FLAG_CASTLE_QUEENSIDE);
         }
     }
 
-    moves[count] = MOVE_NONE; // sentinel terminator
-    return count;
+    assert(out - moves < MAX_MOVES); // the movegen.h bound: <= 415 moves + the terminator slot
+    *out = MOVE_NONE;                // sentinel terminator
+    return (int)(out - moves);
 }
 
 /**
