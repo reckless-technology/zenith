@@ -43,13 +43,15 @@ typedef struct Position
     /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Color is not stored here — read it from
     /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[NUM_SQUARES];
-    // Scalars packed widest-first. halfmove/fullmove stay 32-bit (a FEN may specify large values, and a
-    // narrow type would silently truncate); ep_square (0..NUM_SQUARES), stm and castling are small.
-    int32_t halfmove;        ///< 50-move clock (plies)
-    int32_t fullmove;        ///< full-move number (FEN output only)
-    int16_t ep_square;       ///< en-passant TARGET square, only set when a capture is actually possible
-    uint8_t color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
-    uint8_t castling_rights; ///< castling-rights bitmask (CR_*)
+    // Scalars, widest-first. The move counters are bounded by the draw rules — halfmove (50-move clock in
+    // plies) never exceeds ~150 under the 75-move rule, and fullmove fits any real game in 16 bits — so they
+    // use narrow types. An absurd FEN beyond the range would truncate, which is harmless: halfmove only feeds
+    // the >=100 draw test + the repetition window, and fullmove is FEN-output only.
+    uint16_t fullmove;        ///< full-move number (FEN output only)
+    uint8_t  halfmove;        ///< 50-move clock (plies); resets on a pawn move or capture
+    uint8_t  ep_square;       ///< en-passant TARGET square (0..63), or NO_SQUARE (64) when no ep capture is possible
+    uint8_t  color_to_move;   ///< side to move (Color; stored narrow — values are 0/1)
+    uint8_t  castling_rights; ///< castling-rights bitmask (CR_*)
     /// King square per color, maintained incrementally by put/move_piece — so position_king_sq is a load,
     /// not an lsb, and is well-defined (0) even for a kingless side rather than lsb(0).
     uint8_t king_location[NUM_COLORS];
