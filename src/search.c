@@ -170,57 +170,40 @@ void init_search(void)
 
 bool set_search_param(const char *name, const int value)
 {
-    if (strcmp(name, "RfpMargin") == 0)
+    // One row per tunable: its UCI name and the field it writes. The two LMR params also rebuild the
+    // precomputed reduction table (init_search reads them), flagged by rebuilds_lmr_table.
+    static const struct
     {
-        g_params.rfp_margin = value;
-    }
-    else if (strcmp(name, "NmpDivisor") == 0)
+        const char *name;
+        int        *field;
+        bool        rebuilds_lmr_table;
+    } params[] = {
+        {"RfpMargin", &g_params.rfp_margin, false},
+        {"NmpDivisor", &g_params.nmp_divisor, false},
+        {"LmpBase", &g_params.lmp_base, false},
+        {"FutilityBase", &g_params.futility_base, false},
+        {"FutilityMargin", &g_params.futility_margin, false},
+        {"SeeCaptureMargin", &g_params.see_capture_margin, false},
+        {"SingularMargin", &g_params.singular_margin, false},
+        {"AspirationDelta", &g_params.aspiration_delta, false},
+        {"HistoryMax", &g_params.history_max, false},
+        {"LmrBase", &g_params.lmr_base_x100, true},
+        {"LmrDivisor", &g_params.lmr_divisor_x100, true},
+    };
+
+    for (size_t i = 0; i < sizeof params / sizeof params[0]; i++)
     {
-        g_params.nmp_divisor = value;
+        if (strcmp(name, params[i].name) == 0)
+        {
+            *params[i].field = value;
+            if (params[i].rebuilds_lmr_table)
+            {
+                init_search();
+            }
+            return true;
+        }
     }
-    else if (strcmp(name, "LmpBase") == 0)
-    {
-        g_params.lmp_base = value;
-    }
-    else if (strcmp(name, "FutilityBase") == 0)
-    {
-        g_params.futility_base = value;
-    }
-    else if (strcmp(name, "FutilityMargin") == 0)
-    {
-        g_params.futility_margin = value;
-    }
-    else if (strcmp(name, "SeeCaptureMargin") == 0)
-    {
-        g_params.see_capture_margin = value;
-    }
-    else if (strcmp(name, "SingularMargin") == 0)
-    {
-        g_params.singular_margin = value;
-    }
-    else if (strcmp(name, "AspirationDelta") == 0)
-    {
-        g_params.aspiration_delta = value;
-    }
-    else if (strcmp(name, "HistoryMax") == 0)
-    {
-        g_params.history_max = value;
-    }
-    else if (strcmp(name, "LmrBase") == 0)
-    {
-        g_params.lmr_base_x100 = value;
-        init_search(); // LMR table depends on this
-    }
-    else if (strcmp(name, "LmrDivisor") == 0)
-    {
-        g_params.lmr_divisor_x100 = value;
-        init_search();
-    }
-    else
-    {
-        return false;
-    }
-    return true;
+    return false;
 }
 
 static int64_t elapsed(const Searcher *searcher)
