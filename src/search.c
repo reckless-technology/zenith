@@ -155,7 +155,12 @@ int static_exchange_eval(const Position *pos, const Move move)
  */
 static double portable_log(double x)
 {
+    // Contraction control: clang honors the standard pragma; gcc does not implement it (and would fail
+    // -Werror on it), so the one contractible expression below is also split across statements — ISO C only
+    // licenses contraction within a single expression, which both compilers honor under -std=c17.
+#if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
+#endif
     int k = 0;
     while (x >= 2.0)
     {
@@ -171,8 +176,10 @@ static double portable_log(double x)
         sum += term / (double)(2 * i + 1);
         term *= s2;
     }
-    const double ln2 = 0.69314718055994530942; // nearest double to ln 2
-    return 2.0 * sum + (double)k * ln2;
+    const double ln2          = 0.69314718055994530942; // nearest double to ln 2
+    const double mantissa_log = 2.0 * sum;
+    const double exponent_log = (double)k * ln2;
+    return mantissa_log + exponent_log; // separate statements: no a*b+c for either compiler to fuse
 }
 
 /** @brief (Re)build @p shared's LMR reduction table from its current LmrBase/LmrDivisor parameters. */

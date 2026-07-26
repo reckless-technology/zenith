@@ -17,7 +17,8 @@ Goals for the project were:
 
 ## Build
 
-Requires a C17 compiler (clang 18 recommended; gcc 13+ works). Threads use C11 `threads.h` with a
+Requires a C17 compiler (clang 18 recommended; gcc 13+ builds warning-clean and produces the identical
+bench node signature). Threads use C11 `threads.h` with a
 pthread fallback (`src/platform.h`) for platforms without it (e.g. macOS). Magic bitboards keep the code
 portable; `-march=native` is for local dev — a release build would fan out per microarchitecture.
 
@@ -40,8 +41,9 @@ make clean           # remove build outputs (binaries + doc/html)
 
 ## Verify
 
-Every correctness property has an executable gate. `make check` runs them all (and mirrors CI); any
-failure aborts non-zero.
+Every correctness property has an executable gate. `make check` runs them all; CI runs the same gates on
+Linux, macOS, and Windows (asserting the bench signature on each), plus a threaded UCI smoke and the NNUE
+gates against a synthetic net. Any failure aborts non-zero.
 
 ```bash
 make check                          # build + run every gate below
@@ -61,8 +63,12 @@ change that *does* alter the signature is actually a strength gain — no streng
 
 ## Architecture
 
-One translation unit per file, flat `src/`. Startup initialisation order (`main.c`) matters:
-`init_bitboards()` → `init_zobrist()` → `init_eval()` → `init_search()` → `tt_resize()`.
+One translation unit per file, flat `src/`. **No globals:** all mutable engine state lives in an `Engine`
+aggregate (`engine.h` — the transposition table, the shared search state, the eval cache, and the loaded
+NNUE net), owned by `main()`'s stack and passed explicitly; UCI session state is a `UciSession` on
+`uci_loop`'s stack. Zobrist keys and the PeSTO tables are generated compile-time constants
+(`tools/generate_tables.py` → `src/*.inc`). The one exception is `bitboard.c`'s magic attack tables,
+written once by `init_bitboards()` — main's only startup call — before any thread exists.
 
 | File | Contains |
 |---|---|
@@ -70,7 +76,8 @@ One translation unit per file, flat `src/`. Startup initialisation order (`main.
 `src/platform.h`   | C11 threads.h / pthread thread shim + a monotonic clock
 `src/bitboard.*`   | precomputed pawn/knight/king attacks, BetweenBB/LineBB, rook/bishop MAGIC bitboards
 `src/position.*`   | bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
-`src/movegen.*`    | pseudo-legal generation (+ a legal wrapper for perft/datagen/UCI)
+`src/movegen.*`    | one masked setwise generator: pseudo-legal + single-pass legal instantiations
+`src/engine.h`     | the Engine aggregate: TT + shared search state + eval cache + NNUE net, owned by main
 `src/eval.*`       | evaluate(): NNUE when a net is loaded, else a tapered HCE; shared eval cache
 `src/nnue.*`       | king-bucketed quantised NNUE: loader, feature indexing, AVX2 forward, finny refresh cache
 `src/book.*`       | Polyglot opening book: key computation, probing, weighted move choice
@@ -100,25 +107,29 @@ One translation unit per file, flat `src/`. Startup initialisation order (`main.
 
 ### Move generation
 
-`generate_pseudo` emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]` buffer terminated by a
-`MOVE_NONE` sentinel. Rather than legalise up front, the
-search filters each move with a copy-free legality oracle — `is_legal_fast(move, checkers, pinned)`,
-built on precomputed pins and checkers — *before* it pays for `make_move`, so illegal and pruned moves
-never cost a copy. `generate_legal` (pseudo-legal + the same filter) backs perft, datagen, and UCI move
-parsing. The oracles (`is_legal_fast`, `pinned_to_king`, `gives_check_fast`,
-`discovered_check_candidates`) are differentially validated against copy-make ground truth by the
-`legalcheck` gate.
+One masked setwise generator (`generate_moves`) is instantiated twice. `generate_pseudo` uses permissive
+masks and emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]` buffer terminated by a
+`MOVE_NONE` sentinel; the search then filters each move with the copy-free legality oracle —
+`position_is_legal(move, checkers, pinned)`, built on precomputed pins and checkers — *before* it pays for
+`make_move`, so illegal and pruned moves never cost a copy. `generate_legal` instantiates the same skeleton
+with real check-evasion and pin-ray masks baked into the target sets (per-destination king safety; a full
+test only for en passant), producing fully legal moves in a single pass with no filter — this backs perft
+(~550 Mnps), datagen, and UCI move parsing. The oracles (`position_is_legal`, `pinned_to_king`,
+`gives_check_fast`, `discovered_check_candidates`) are differentially validated against the copy-make
+ground truth (`position_is_legal_slow`) by the `legalcheck` gate.
 
 ### Evaluation
 
-A single seam — `int evaluate(const Position *)`, centipawns from the side-to-move's perspective — is the
-one call site the network replaces.
+A single seam — `evaluate(const Position *, EvalCache *)`, centipawns from the side-to-move's
+perspective — is the one call site the network replaces.
 
 - **NNUE (primary):** a king-bucketed **768×8 → 512** SCReLU perspective network. The perspective's own
   king square selects one of 8 input buckets (4 file-pairs × 2 board-halves), offsetting its 768-feature
-  block. The accumulator is maintained **incrementally** inside `Position`; a king move that changes a
-  side's bucket triggers a refresh accelerated by a thread-local **finny cache** (a per-(perspective,
-  bucket) cached accumulator plus the board it was built from, so a rebuild applies only piece diffs). The
+  block. The accumulator is maintained **incrementally** inside `Position` and carries its net binding
+  (`position_init(pos, net)`; the net itself is heap-loaded and owned by the `Engine`). A king move that
+  changes a side's bucket triggers a refresh accelerated by a per-thread **finny cache** (owned by each
+  `Searcher`, bound into its root position: a per-(perspective, bucket) cached accumulator plus the board
+  it was built from, so a rebuild applies only piece diffs). The
   integer forward pass is AVX2-vectorised, and a shared lockless **eval cache** memoises results (its
   biggest win is qsearch stand-pat). The `nnuecheck` gate proves the incremental accumulator is
   bit-identical to a full refresh.
@@ -132,8 +143,8 @@ Fail-soft **principal-variation search** inside iterative deepening with **aspir
 - **Transposition table** — lockless for Lazy SMP: 16-byte `{key ^ data, data}` slots with an XOR
   torn-read guard, relaxed atomics, and a bit-field payload; depth-preferred replacement with generation
   aging. Mate scores cross the boundary as distance-from-node.
-- **Move ordering** — TT move → captures (MVV-LVA) → killers → countermove → butterfly + continuation
-  history, with SEE separating winning from losing captures.
+- **Move ordering** — TT move → captures (MVV-LVA) → promotions → killers → countermove → butterfly +
+  continuation history; clearly losing captures are pruned by SEE rather than ordered late.
 - **Quiescence** — captures and promotions only, SEE-pruned, with stand-pat.
 - **Pruning & reductions** — null-move (adaptive reduction), reverse futility, futility, late-move
   pruning, late-move reductions (log-based table), SEE pruning, internal iterative reductions, and a

@@ -39,7 +39,7 @@ struct NnueNetwork
     int32_t output_bias;                    ///< output bias
 };
 
-_Static_assert(NNUE_KING_BUCKETS == NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
+_Static_assert((int)NNUE_KING_BUCKETS == (int)NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
 
 /**
  * @brief King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
