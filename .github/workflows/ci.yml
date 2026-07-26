@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: zenith,     binext: "",     platform: linux-x86-64 }
-          - { label: macos,   os: macos-latest,   shell: bash,        arch: "",        bin: zenith,     binext: "",     platform: macos-arm64 }
-          - { label: windows, os: windows-latest, shell: "msys2 {0}", arch: x86-64-v2, bin: zenith.exe, binext: ".exe", platform: windows-x86-64 }
+          - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
+          - { label: macos,   os: macos-latest,   shell: bash,        arch: "",        bin: build/zenith,     binext: "",     platform: macos-arm64 }
+          - { label: windows, os: windows-latest, shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
     defaults:
       run:
         shell: ${{ matrix.shell }}
@@ -79,7 +79,7 @@ jobs:
         # bench self-checks each position's node count against the values pinned in src/uci.c (BenchCases) and
         # exits non-zero on any mismatch — no external signature to keep in sync. A divergence here would mean a
         # non-portable computation crept into the search; if a change moves the signature intentionally, re-run
-        # `./zenith bench` and update BenchCases in src/uci.c.
+        # `./build/zenith bench` and update BenchCases in src/uci.c.
         run: ./${{ matrix.bin }} bench
 
       - name: Name the binary with the build version
@@ -103,11 +103,11 @@ jobs:
       - name: Build with AddressSanitizer + UndefinedBehaviorSanitizer
         run: make debug
       - name: Perft under ASan/UBSan
-        run: ./zenith-debug perft
+        run: ./build/zenith-debug perft
       - name: Legality oracle under ASan/UBSan
-        run: ./zenith-debug legalcheck
+        run: ./build/zenith-debug legalcheck
       - name: Adversarial-input fuzz under ASan/UBSan (memory-safety gate)
-        run: ./zenith-debug fuzzcheck
+        run: ./build/zenith-debug fuzzcheck
 
   format-check:
     runs-on: ubuntu-latest

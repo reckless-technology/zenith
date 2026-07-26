@@ -558,7 +558,7 @@ void uci_loop(void)
  * search determinism. They are reproducible on every platform — the fixed-depth search is all-integer except
  * the LMR reduction table, which is now seeded by our own portable_log (not libm), so the counts no longer
  * depend on a platform's math library. If a search/eval change intentionally moves the signature, re-run
- * `./zenith bench` and update these counts.
+ * `./build/zenith bench` and update these counts.
  */
 typedef struct
 {

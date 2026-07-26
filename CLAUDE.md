@@ -13,24 +13,24 @@ tested configuration. Read [README.md](README.md) for the architecture and
 ## Build / test / run
 
 ```bash
-make            # -> ./zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
+make            # -> ./build/zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
 make ARCH=x86-64-v2   # portable release build (override the default -march=native; see release workflow)
-make debug      # -> ./zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
-make pext       # -> ./zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
+make debug      # -> ./build/zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
+make pext       # -> ./build/zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
 make clean
-./zenith        # interactive UCI loop
+./build/zenith        # interactive UCI loop
 
 make check             # run EVERY gate below (perft, bench-signature, legalcheck, seecheck, fuzzcheck,
                        #   bookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
-./zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
-./zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
-./zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
-./zenith seecheck      # static_exchange_eval vs hand-verified capture positions
-./zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
-./zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
-./zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
-make baseline          # snapshot ./zenith -> ./zenith-base
-tools/sprt.sh ./zenith ./zenith-base   # self-play SPRT of a change vs the baseline
+./build/zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
+./build/zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
+./build/zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
+./build/zenith seecheck      # static_exchange_eval vs hand-verified capture positions
+./build/zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
+./build/zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
+./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
+make baseline          # snapshot ./build/zenith -> ./build/zenith-base
+tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
@@ -47,8 +47,8 @@ object files or per-file targets. `-march=native` is dev-only; a real release fa
 ## The testing discipline (this is the point of the project)
 
 No strength change lands on intuition. Every change to search/eval must:
-1. keep `./zenith perft` passing (movegen invariant — never regress this),
-2. produce a new, deterministic `./zenith bench` node signature, and
+1. keep `./build/zenith perft` passing (movegen invariant — never regress this),
+2. produce a new, deterministic `./build/zenith bench` node signature, and
 3. pass a self-play **SPRT** vs the prior baseline (`tools/sprt.sh`).
 
 When you touch search or eval, expect to run all three. Perft and bench are fast local gates; SPRT is the
@@ -139,7 +139,7 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   low-RAM, parallelizable). The current best net `nets/zenith-kb3.nnue` = king buckets + 1.4B PlentyChess
   positions (16 shards); +57 Elo (kb2, 650M) over the prior 512/190M net, then +8 more (kb3) — data returns
   are now diminishing.
-- **Verification gate (never skip):** `trainer/verify.py` runs `./zenith nnueeval` and diffs against the
+- **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
   noise), not the loader. The pilot net loses to HCE because minimax amplifies leaf-eval noise; see the

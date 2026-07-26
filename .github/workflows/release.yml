@@ -53,12 +53,12 @@ jobs:
       - name: Build x86-64-v2 (baseline, magic)
         run: |
           make clean && make ARCH=x86-64-v2
-          mv zenith zenith-x86-64-v2
+          mv build/zenith zenith-x86-64-v2
 
       - name: Build x86-64-v3 (PEXT/BMI2)
         run: |
           make clean && make ARCH=x86-64-v3 pext
-          mv zenith-pext zenith-x86-64-v3-pext
+          mv build/zenith-pext zenith-x86-64-v3-pext
 
       # Verify the shipped binary with the arch-independent correctness gates (perft/legality/SEE/book are
       # exact integer checks — no cross-arch float sensitivity). The bench-signature determinism guard runs

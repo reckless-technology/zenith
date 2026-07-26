@@ -1,6 +1,5 @@
-/zenith
-/zenith-debug
-/zenith-base
+# Build outputs (make -> ./build)
+/build/
 *.o
 
 # Python training environment (not source; recreated via trainer/requirements)

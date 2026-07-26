@@ -8,7 +8,7 @@ self-play match between the theta+ and theta- engines (same binary, different UC
 theta toward whichever side scored better (Simultaneous Perturbation Stochastic Approximation, Spall).
 Standard gain schedule: c_k = c0/k^0.101, a_k = a0/(k+A)^0.602. Checkpoints theta to a file each iteration.
 
-    python tools/spsa.py --engine ./zenith-spsa --net nets/zenith-kb3.nnue \
+    python tools/spsa.py --engine ./build/zenith-spsa --net nets/zenith-kb3.nnue \
         --openings ~/pawnstar_nnue/openings.epd --fastchess ~/pawnstar_nnue/fastchess/fastchess \
         --iters 800 --games 8 --concurrency 8 --tc 8+0.08 --out tools/spsa_state.json
 """

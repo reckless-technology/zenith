@@ -2,7 +2,7 @@
 
 A UCI chess engine in **C17** with its own independently-trained NNUE evaluation. 
 
-Code was written by Claude Code under the close supervision and direction of Jonny Reckless.
+The source code was written by Claude Code under the close supervision and direction of Jonny Reckless.
 
 Zenith pairs a modern alpha-beta search — iterative deepening, principal-variation search, a lockless
 transposition table, the full pruning/reduction stack, and Lazy SMP — with a king-bucketed neural
@@ -22,20 +22,20 @@ pthread fallback (`src/platform.h`) for platforms without it (e.g. macOS). Magic
 portable; `-march=native` is for local dev — a release build would fan out per microarchitecture.
 
 ```bash
-make                 # -> ./zenith        (release: clang -std=c17, -O3 -flto -march=native, whole-program LTO)
+make                 # -> ./build/zenith        (release: clang -std=c17, -O3 -flto -march=native, whole-program LTO)
 make ARCH=x86-64-v2  # portable release build: override the default -march=native (see .github/workflows/release.yml)
-make debug           # -> ./zenith-debug  (AddressSanitizer + UBSan, -O1 -g; use for movegen/make_move work)
-make pext            # -> ./zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
+make debug           # -> ./build/zenith-debug  (AddressSanitizer + UBSan, -O1 -g; use for movegen/make_move work)
+make pext            # -> ./build/zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
 make check           # build + run every correctness gate (mirrors CI; see Verify below)
 make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
-make baseline        # snapshot the current ./zenith -> ./zenith-base (the SPRT reference binary)
+make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
 make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
 make format          # clang-format all sources in place (src/*.{c,h})
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make doc             # -> doc/html/index.html (Doxygen API reference)
 make clean           # remove build outputs (binaries + doc/html)
-./zenith             # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
+./build/zenith       # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
 ```
 
 ## Verify
@@ -44,14 +44,14 @@ Every correctness property has an executable gate. `make check` runs them all (a
 failure aborts non-zero.
 
 ```bash
-make check                    # build + run every gate below
-./zenith perft                # movegen vs known counts: canonical + ep/castling/promotion catchers + Ethereal 128
-./zenith bench 13             # deterministic fixed-depth node signature (guards search behaviour) + nps
-./zenith legalcheck           # the copy-free legality/check predicates == copy-make ground truth over a perft walk
-./zenith seecheck             # static exchange evaluation vs hand-verified capture positions
-./zenith fuzzcheck            # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
-./zenith nnuecheck <net.nnue> # incremental accumulator == full refresh, bit-identical
-./zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
+make check                          # build + run every gate below
+./build/zenith perft                # movegen vs known counts: canonical + ep/castling/promotion catchers + Ethereal 128
+./build/zenith bench 13             # deterministic fixed-depth node signature (guards search behaviour) + nps
+./build/zenith legalcheck           # the copy-free legality/check predicates == copy-make ground truth over a perft walk
+./build/zenith seecheck             # static exchange evaluation vs hand-verified capture positions
+./build/zenith fuzzcheck            # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
+./build/zenith nnuecheck <net.nnue> # incremental accumulator == full refresh, bit-identical
+./build/zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
 ```
 
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
@@ -164,11 +164,11 @@ reference. See [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and wo
 
 ```bash
 # convert public bulletformat data to text, featurise to shard caches, then stream-train
-./zenith bullet2text <shard.data> data/plenty/shard.txt 0 4
+./build/zenith bullet2text <shard.data> data/plenty/shard.txt 0 4
 PYTHONPATH=trainer python trainer/train.py --featurise-shard data/plenty/shard.txt data/shards/s00.npz
 PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
     --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
-PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./zenith
+PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./build/zenith
 ```
 
 The streaming trainer (`--shard-dir`, one shard in RAM at a time) is what allows training on datasets far
@@ -178,7 +178,7 @@ larger than memory. `datagen` can also generate the engine's own self-play data
 ## Opening book
 
 Standard **Polyglot** `.bin` books are supported (`src/book.c`; the Polyglot Zobrist key computation is
-validated against the official spec vectors by `./zenith bookcheck`). No book ships in the repo — supply
+validated against the official spec vectors by `./build/zenith bookcheck`). No book ships in the repo — supply
 your own, or fetch a free one with `make get-book` (downloads `performance.bin` from the GPL-3.0
 python-chess repo into the gitignored `books/`):
 

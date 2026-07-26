@@ -3,17 +3,17 @@
 # Copyright (C) 2026 Jonny Reckless
 # Self-play / cross-engine SPRT via fastchess (cutechess-cli is not installed on this box). Measures the
 # Elo of a change: a candidate engine/net vs a baseline. Works for:
-#   * NNUE vs HCE:      CAND=./zenith CAND_NET=nets/x.nnue  BASE=./zenith            (BASE_NET unset -> HCE)
+#   * NNUE vs HCE:      CAND=./build/zenith CAND_NET=nets/x.nnue  BASE=./build/zenith            (BASE_NET unset -> HCE)
 #   * version vs version: two zenith binaries
 #   * vs pawnstar:      BASE=/home/jonny/work/pawnstar/build/pawnstar BASE_NET=.../pawnstar-v12.bin
 #
 # Usage:  tools/sprt.sh [rounds]
-# Env:    CAND (default ./zenith), BASE (default ./zenith-base), CAND_NET, BASE_NET (EvalFile paths),
+# Env:    CAND (default ./build/zenith), BASE (default ./build/zenith-base), CAND_NET, BASE_NET (EvalFile paths),
 #         TC (default 8+0.08), ELO0/ELO1 (default 0/5), CONCURRENCY, OPENINGS.
 set -euo pipefail
 
-CAND="${CAND:-./zenith}"
-BASE="${BASE:-./zenith-base}"
+CAND="${CAND:-./build/zenith}"
+BASE="${BASE:-./build/zenith-base}"
 ROUNDS="${1:-2000}"
 TC="${TC:-8+0.08}"
 ELO0="${ELO0:-0}"

@@ -10,10 +10,10 @@ The pipeline is four stages:
 ```
    data                         trainer (PyTorch/CUDA)              engine (C)
  ┌─────────────────┐  text     ┌──────────────────────┐  .nnue   ┌───────────────────┐
- │ ./zenith datagen│ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
+ │ ./build/zenith datagen│ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
  │  (self-play)    │  fen;     │  featurise → SCReLU  │  ZNNUE3  │  + integer forward │
  │  OR             │  score;   │  net → quantise      │          │  behind evaluate() │
- │ ./zenith        │  wdl      │                      │          │                    │
+ │ ./build/zenith        │  wdl      │                      │          │                    │
  │  bullet2text    │           └──────────────────────┘          └───────────────────┘
  │  (public data)  │                     │                                 │
  └─────────────────┘                     └────── trainer/verify.py ────────┘
@@ -129,10 +129,10 @@ must reproduce `feature_index`, `king_bucket`, and `integer_eval` byte-for-byte.
 are never skipped:
 
 - **0-cp trainer parity** — `trainer/verify.py` loads a `.nnue`, evaluates a FEN set with the Python
-  reference `integer_eval`, runs the same FENs through `./zenith nnueeval <net>`, and requires
+  reference `integer_eval`, runs the same FENs through `./build/zenith nnueeval <net>`, and requires
   `max|engine − reference| == 0 cp`. Any nonzero diff means the loader or forward diverged from the export
   contract.
-- **Incremental == refresh** — `./zenith nnuecheck <net>` walks a perft-like tree and checks the
+- **Incremental == refresh** — `./build/zenith nnuecheck <net>` walks a perft-like tree and checks the
   incrementally-maintained accumulator against a full refresh at every node, bit-identical (guards the
   finny-cache / king-bucket refresh logic).
 
@@ -163,11 +163,11 @@ train / verify / SPRT steps afterwards are identical.
 ### Data, option A — Zenith self-play (fully independent)
 
 Generate self-play games at a fixed node budget, fanned across all cores. Each worker is an independent
-`./zenith datagen` process with its own seed writing one shard; only quiet, not-yet-decided positions are
+`./build/zenith datagen` process with its own seed writing one shard; only quiet, not-yet-decided positions are
 emitted (one record per ply), labelled with the eventual game result as WDL.
 
 ```bash
-make                                             # build ./zenith first
+make                                             # build ./build/zenith first
 tools/datagen_parallel.sh 20000 data/run1 32 5000 8
 #                          │     │        │  │    └ opening plies (random legal plies before recording)
 #                          │     │        │  └ nodes/move budget (go nodes N)
@@ -184,7 +184,7 @@ The shipped net trained on the **public PlentyChess bulletformat dataset** (inde
 Convert each bulletformat shard to Zenith's text format, subsampling with a stride for a diverse slice:
 
 ```bash
-./zenith bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
+./build/zenith bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
 #                    └ input (bulletformat)         └ output text          │ └ stride (keep 1 in 4)
 #                                                                          └ max records (0 = all)
 ```
@@ -222,7 +222,7 @@ is the signal to stop; rising val loss is overfit. Output: `nets/zenith-new.nnue
 
 ```bash
 PYTHONPATH=trainer python trainer/verify.py --net nets/zenith-new.nnue --fens data/run1/shard_01.txt --count 2000
-./zenith nnuecheck nets/zenith-new.nnue
+./build/zenith nnuecheck nets/zenith-new.nnue
 ```
 Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for strength.
 

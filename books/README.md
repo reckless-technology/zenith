@@ -9,5 +9,5 @@ setoption name OwnBook value true          # default false — testing always ru
 ```
 
 Any Polyglot `.bin` works. Freely-available collections exist (search "polyglot opening book"); verify a
-book's own redistribution terms before bundling it. `./zenith bookcheck` validates Zenith's Polyglot key
+book's own redistribution terms before bundling it. `./build/zenith bookcheck` validates Zenith's Polyglot key
 computation against the 9 official spec vectors, independent of any book.
