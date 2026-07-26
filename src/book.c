@@ -473,9 +473,22 @@ int run_book_check(void)
         const uint64_t key     = polyglot_key(&pos);
         const bool     is_pass = key == vectors[i].key;
         failures += !is_pass;
-        test_result(is_pass, "book   key %016llx  want %016llx  %s", (unsigned long long)key,
-                    (unsigned long long)vectors[i].key, vectors[i].fen);
+        // A passing key equals the expected one, so one key keeps the column; a failing line shows both
+        // (overflowing its column — worth the misalignment on the line that needs attention).
+        char aux[48];
+        if (is_pass)
+        {
+            snprintf(aux, sizeof aux, "key %016llx", (unsigned long long)key);
+        }
+        else
+        {
+            snprintf(aux, sizeof aux, "key %016llx  want %016llx", (unsigned long long)key,
+                     (unsigned long long)vectors[i].key);
+        }
+        test_result_columns(is_pass, "book", NULL, -1, aux, -1.0, -1.0, vectors[i].fen);
     }
-    test_result(failures == 0, "book   %d/%d polyglot key vectors pass", vector_count - failures, vector_count);
+    char detail[16];
+    snprintf(detail, sizeof detail, "%d/%d", vector_count - failures, vector_count);
+    test_result_columns(failures == 0, "book", detail, -1, NULL, -1.0, -1.0, "(polyglot key spec vectors)");
     return failures ? 1 : 0;
 }

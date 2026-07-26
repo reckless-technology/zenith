@@ -637,33 +637,37 @@ int run_bench(int depth)
         total += nodes;
         total_secs += secs;
         const double mnps = secs > 0.0 ? nodes / secs / 1e6 : 0.0;
-        char         nbuf[27];
+        char         detail[16];
+        snprintf(detail, sizeof detail, "depth %2d", depth);
         if (has_reference)
         {
             const bool is_pass = nodes == BenchCases[i].expected;
             passed += is_pass;
-            test_result(is_pass, "bench  depth %2d  %15s nodes  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf), mnps,
-                        BenchCases[i].fen);
+            test_result_columns(is_pass, "bench", detail, (int64_t)nodes, NULL, -1.0, mnps, BenchCases[i].fen);
         }
         else
         {
-            printf("bench  depth %2d  %15s nodes  %6.1f Mnps  %s\n", depth, u64_commas(nodes, nbuf), mnps,
-                   BenchCases[i].fen);
+            char line[192]; // informational (no reference at this depth): same columns, no [PASS]/[FAIL] tag
+            printf("       %s\n",
+                   test_columns(line, "bench", detail, (int64_t)nodes, NULL, -1.0, mnps, BenchCases[i].fen));
         }
     }
     free(searcher);
 
     const double mean_mnps = total_secs > 0.0 ? total / total_secs / 1e6 : 0.0;
-    char         tbuf[27];
+    char         summary_detail[16];
     if (has_reference)
     {
         const bool is_all_pass = passed == (int)count;
-        test_result(is_all_pass, "bench  %d/%zu positions pass  signature %s  %8.3fs  mean %.1f Mnps", passed, count,
-                    u64_commas(total, tbuf), total_secs, mean_mnps);
+        snprintf(summary_detail, sizeof summary_detail, "%d/%zu", passed, count);
+        test_result_columns(is_all_pass, "bench", summary_detail, (int64_t)total, "signature", total_secs, mean_mnps,
+                            "(fixed-depth node signature)");
         return is_all_pass ? 0 : 1;
     }
-    printf("bench  %zu positions  signature %s  %8.3fs  mean %.1f Mnps  (depth %d — no reference)\n", count,
-           u64_commas(total, tbuf), total_secs, mean_mnps, depth);
+    char line[192];
+    snprintf(summary_detail, sizeof summary_detail, "%zu/%zu", count, count);
+    printf("       %s\n", test_columns(line, "bench", summary_detail, (int64_t)total, "signature", total_secs,
+                                       mean_mnps, "(informational — no reference at this depth)"));
     return 0;
 }
 
@@ -844,9 +848,10 @@ static bool perft_report_case(const char *fen, const int depth, const uint64_t e
     const bool     is_pass  = nodes == expected;
     *total_nodes += nodes;
     *total_secs += secs;
-    char nbuf[27];
-    test_result(is_pass, "perft  depth %2d  %15s nodes  %6.1f Mnps  %s", depth, u64_commas(nodes, nbuf),
-                secs > 0.0 ? nodes / secs / 1e6 : 0.0, fen);
+    char detail[16];
+    snprintf(detail, sizeof detail, "depth %2d", depth);
+    test_result_columns(is_pass, "perft", detail, (int64_t)nodes, NULL, -1.0, secs > 0.0 ? nodes / secs / 1e6 : 0.0,
+                        fen);
     return is_pass;
 }
 
@@ -929,9 +934,10 @@ int run_perft_suite(void)
         passed += is_pass;
         total++;
     }
-    char nbuf[27];
-    test_result(is_all_pass, "perft  %d/%d cases pass  %s nodes total  %8.3fs  mean %.1f Mnps", passed, total,
-                u64_commas(total_nodes, nbuf), total_secs, total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0);
+    char detail[16];
+    snprintf(detail, sizeof detail, "%d/%d", passed, total);
+    test_result_columns(is_all_pass, "perft", detail, (int64_t)total_nodes, NULL, total_secs,
+                        total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0, "(movegen vs known counts)");
     return is_all_pass ? 0 : 1;
 }
 
@@ -1011,9 +1017,11 @@ int run_legal_check(void)
         "B6b/8/8/8/2K5/4k3/8/b6B w - - 0 1",
         "7k/RR6/8/8/8/8/rr6/7K w - - 0 1",
     };
-    uint64_t total_nodes = 0, total_mismatches = 0;
-    double   total_secs = 0.0;
-    for (size_t fen_index = 0; fen_index < sizeof(fens) / sizeof(fens[0]); fen_index++)
+    const size_t fen_count   = sizeof(fens) / sizeof(fens[0]);
+    uint64_t     total_nodes = 0, total_mismatches = 0;
+    double       total_secs = 0.0;
+    size_t       passed     = 0;
+    for (size_t fen_index = 0; fen_index < fen_count; fen_index++)
     {
         Position pos;
         position_init(&pos);
@@ -1025,16 +1033,18 @@ int run_legal_check(void)
         total_nodes += g_legal_nodes;
         total_mismatches += g_legal_mismatches;
         total_secs += secs;
-        char nbuf[27];
-        test_result(g_legal_mismatches == 0, "legal  %13s nodes  %3llu mism  %8.3fs  %6.1f Mnps  %s",
-                    u64_commas(g_legal_nodes, nbuf), (unsigned long long)g_legal_mismatches, secs,
-                    secs > 0.0 ? g_legal_nodes / secs / 1e6 : 0.0, fens[fen_index]);
+        passed += g_legal_mismatches == 0;
+        char aux[32];
+        snprintf(aux, sizeof aux, "%13s%3llu mism", "", (unsigned long long)g_legal_mismatches);
+        test_result_columns(g_legal_mismatches == 0, "legal", NULL, (int64_t)g_legal_nodes, aux, secs,
+                            secs > 0.0 ? g_legal_nodes / secs / 1e6 : 0.0, fens[fen_index]);
     }
-    char nbuf[27];
-    test_result(total_mismatches == 0,
-                "legal  %s nodes, %llu mismatches  %8.3fs  %6.1f Mnps  (position_is_legal == position_is_legal_slow)",
-                u64_commas(total_nodes, nbuf), (unsigned long long)total_mismatches, total_secs,
-                total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0);
+    char detail[16], aux[32];
+    snprintf(detail, sizeof detail, "%zu/%zu", passed, fen_count);
+    snprintf(aux, sizeof aux, "%13s%3llu mism", "", (unsigned long long)total_mismatches);
+    test_result_columns(total_mismatches == 0, "legal", detail, (int64_t)total_nodes, aux, total_secs,
+                        total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0,
+                        "(position_is_legal == position_is_legal_slow)");
     return total_mismatches ? 1 : 0;
 }
 
@@ -1073,7 +1083,8 @@ int run_fuzz_check(void)
         const bool is_rejected = !position_set_fen(&pos, reject_fens[i]);
         failures += !is_rejected;
         cases++;
-        test_result(is_rejected, "fuzz   reject  %s", reject_fens[i][0] ? reject_fens[i] : "(empty)");
+        test_result_columns(is_rejected, "fuzz", "reject", -1, NULL, -1.0, -1.0,
+                            reject_fens[i][0] ? reject_fens[i] : "(empty)");
     }
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
@@ -1091,9 +1102,11 @@ int run_fuzz_check(void)
             generate_legal(&pos, legal, false);
             (void)evaluate(&pos);
         }
-        test_result(is_accepted, "fuzz   accept  %s", accept_fens[i]);
+        test_result_columns(is_accepted, "fuzz", "accept", -1, NULL, -1.0, -1.0, accept_fens[i]);
     }
-    test_result(failures == 0, "fuzz   %d/%d inputs handled safely", cases - failures, cases);
+    char detail[16];
+    snprintf(detail, sizeof detail, "%d/%d", cases - failures, cases);
+    test_result_columns(failures == 0, "fuzz", detail, -1, NULL, -1.0, -1.0, "(malformed inputs handled safely)");
     return failures ? 1 : 0;
 }
 
@@ -1148,22 +1161,26 @@ int run_see_check(void)
         position_init(&pos);
         if (!position_set_fen(&pos, cases[i].fen))
         {
-            test_result(false, "see    bad FEN  %s", cases[i].fen);
+            test_result_columns(false, "see", cases[i].move, -1, "bad FEN", -1.0, -1.0, cases[i].fen);
             failures++;
             continue;
         }
         const Move move = parse_move(&pos, cases[i].move);
         if (move_is_none(move))
         {
-            test_result(false, "see    illegal move %s  %s", cases[i].move, cases[i].fen);
+            test_result_columns(false, "see", cases[i].move, -1, "illegal move", -1.0, -1.0, cases[i].fen);
             failures++;
             continue;
         }
         const int  see     = static_exchange_eval(&pos, move);
         const bool is_pass = see == cases[i].expected;
         failures += !is_pass;
-        test_result(is_pass, "see    %-5s  see %5d  want %5d  %s", cases[i].move, see, cases[i].expected, cases[i].fen);
+        char aux[32];
+        snprintf(aux, sizeof aux, "see %5d  want %5d", see, cases[i].expected);
+        test_result_columns(is_pass, "see", cases[i].move, -1, aux, -1.0, -1.0, cases[i].fen);
     }
-    test_result(failures == 0, "see    %d/%d cases pass", case_count - failures, case_count);
+    char detail[16];
+    snprintf(detail, sizeof detail, "%d/%d", case_count - failures, case_count);
+    test_result_columns(failures == 0, "see", detail, -1, NULL, -1.0, -1.0, "(static exchange evaluation)");
     return failures ? 1 : 0;
 }

@@ -25,6 +25,59 @@ static inline void test_result(const bool is_pass, const char *fmt, ...)
     putchar('\n');
 }
 
+static inline const char *u64_commas(uint64_t value, char *out);
+
+/**
+ * @brief Format the shared column grid every gate prints with (into @p out, >= 192 bytes).
+ *
+ * One grid so the fields common to several tests (node count, time, Mnps, and the trailing FEN/note) sit at
+ * the same column in every test's output, with absent fields left blank but padded:
+ *
+ *     name   detail    <          nodes>  <aux — per-test extras >    <time>  <    Mnps>  FEN / note
+ *     %-6s   %-9s      <%15s nodes>       <%-25s>                    <%8.3fs> <%6.1f Mnps>
+ *
+ * @param name test name ("perft", "see", ...).
+ * @param detail leading per-case info: "depth 13", the SEE move, "reject"; summaries use "passed/total".
+ * @param nodes node count, or a negative value to leave the column blank.
+ * @param aux per-test extra fields (mismatch count, SEE scores, polyglot key), or NULL.
+ * @param secs elapsed seconds, or a negative value to leave the column blank.
+ * @param mnps throughput in Mnps, or a negative value to leave the column blank.
+ * @param tail trailing FEN or "(note)"; always the last column, so FENs align across all tests.
+ *
+ * The fixed prefix is 94 characters; with the longest legal FEN the line stays comfortably under 200.
+ */
+static inline const char *test_columns(char *out, const char *name, const char *detail, const int64_t nodes,
+                                       const char *aux, const double secs, const double mnps, const char *tail)
+{
+    char nodes_col[32] = "";
+    if (nodes >= 0)
+    {
+        char commas[27];
+        snprintf(nodes_col, sizeof nodes_col, "%15s nodes", u64_commas((uint64_t)nodes, commas));
+    }
+    char time_col[16] = "";
+    if (secs >= 0.0)
+    {
+        snprintf(time_col, sizeof time_col, "%8.3fs", secs);
+    }
+    char mnps_col[16] = "";
+    if (mnps >= 0.0)
+    {
+        snprintf(mnps_col, sizeof mnps_col, "%6.1f Mnps", mnps);
+    }
+    snprintf(out, 192, "%-6s %-9s %21s %-25s %9s %11s %s", name, detail ? detail : "", nodes_col, aux ? aux : "",
+             time_col, mnps_col, tail ? tail : "");
+    return out;
+}
+
+/** @brief test_columns + the [PASS]/[FAIL] tag: the one-call form used by every gate's per-case/summary line. */
+static inline void test_result_columns(const bool is_pass, const char *name, const char *detail, const int64_t nodes,
+                                       const char *aux, const double secs, const double mnps, const char *tail)
+{
+    char line[192];
+    test_result(is_pass, "%s", test_columns(line, name, detail, nodes, aux, secs, mnps, tail));
+}
+
 /**
  * @brief Write @p value as a thousands-grouped decimal string into @p out (needs >= 27 bytes). @return @p out.
  *

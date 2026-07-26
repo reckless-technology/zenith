@@ -452,10 +452,12 @@ int nnue_run_self_check(const char *net_path)
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
     };
-    uint64_t total_nodes = 0, total_mismatches = 0;
-    int      overall_maxdiff = 0;
-    double   total_secs      = 0.0;
-    for (size_t fen_index = 0; fen_index < sizeof(fens) / sizeof(fens[0]); fen_index++)
+    const size_t fen_count   = sizeof(fens) / sizeof(fens[0]);
+    uint64_t     total_nodes = 0, total_mismatches = 0;
+    int          overall_maxdiff = 0;
+    double       total_secs      = 0.0;
+    size_t       passed          = 0;
+    for (size_t fen_index = 0; fen_index < fen_count; fen_index++)
     {
         Position position;
         position_init(&position);
@@ -468,18 +470,20 @@ int nnue_run_self_check(const char *net_path)
         total_nodes += g_check_nodes;
         total_mismatches += g_check_mismatches;
         total_secs += secs;
+        passed += g_check_mismatches == 0;
         if (g_check_maxdiff > overall_maxdiff)
         {
             overall_maxdiff = g_check_maxdiff;
         }
-        char nbuf[27];
-        test_result(g_check_mismatches == 0, "nnue   %13s nodes  max|diff| %d  %3llu mism  %8.3fs  %s",
-                    u64_commas(g_check_nodes, nbuf), g_check_maxdiff, (unsigned long long)g_check_mismatches, secs,
-                    fens[fen_index]);
+        char aux[32];
+        snprintf(aux, sizeof aux, "max|diff| %d  %3llu mism", g_check_maxdiff, (unsigned long long)g_check_mismatches);
+        test_result_columns(g_check_mismatches == 0, "nnue", NULL, (int64_t)g_check_nodes, aux, secs,
+                            secs > 0.0 ? g_check_nodes / secs / 1e6 : 0.0, fens[fen_index]);
     }
-    char nbuf[27];
-    test_result(total_mismatches == 0,
-                "nnue   %s nodes, %llu mismatches, max|diff|=%d  %8.3fs  (incremental == refresh)",
-                u64_commas(total_nodes, nbuf), (unsigned long long)total_mismatches, overall_maxdiff, total_secs);
+    char detail[16], aux[32];
+    snprintf(detail, sizeof detail, "%zu/%zu", passed, fen_count);
+    snprintf(aux, sizeof aux, "max|diff| %d  %3llu mism", overall_maxdiff, (unsigned long long)total_mismatches);
+    test_result_columns(total_mismatches == 0, "nnue", detail, (int64_t)total_nodes, aux, total_secs,
+                        total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0, "(incremental == refresh)");
     return total_mismatches ? 1 : 0;
 }
