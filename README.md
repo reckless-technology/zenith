@@ -32,6 +32,8 @@ make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
 make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
+make tables          # regenerate the committed constant tables (src/*.inc: Zobrist, PeSTO, Q28 ln) — a
+                     #   deliberate step, never a build side effect; the bench signature guards the values
 make format          # clang-format all sources in place (src/*.{c,h})
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make doc             # -> doc/html/index.html (Doxygen API reference)
