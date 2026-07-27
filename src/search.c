@@ -235,9 +235,14 @@ static bool is_time_up(const Searcher *searcher)
     {
         return true;
     }
-    // Only the main thread owns the time/node budget; when it runs out it sets the shared stop so helpers stop too.
-    if (searcher->is_main && ((searcher->node_limit && searcher->nodes >= (uint64_t)searcher->node_limit) ||
-                              (searcher->is_time_limited && elapsed(searcher) >= searcher->hard_ms)))
+    // Only the main thread owns the time/node budget; when it runs out it sets the shared stop so helpers
+    // stop too. The clock read and node-cap compare are gated to every 1024th node: clock_gettime is ~20ns
+    // — a measurable per-node tax at Mnps speeds — while 1024 nodes of stop-detection slack is well under a
+    // millisecond, far inside Move Overhead. (Node-capped searches may overshoot by up to 1023 nodes —
+    // still deterministic, and bench is depth-limited so its signature is untouched.)
+    if (searcher->is_main && (searcher->nodes & 1023) == 0 &&
+        ((searcher->node_limit && searcher->nodes >= (uint64_t)searcher->node_limit) ||
+         (searcher->is_time_limited && elapsed(searcher) >= searcher->hard_ms)))
     {
         atomic_store_explicit(&searcher->engine->search.is_stop_requested, true, memory_order_relaxed);
         return true;
