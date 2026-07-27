@@ -62,7 +62,7 @@ baseline: $(BIN)
 
 # Full local test suite — every self-check gate (mirrors CI). Any failure aborts with a non-zero exit.
 # nnuecheck runs only if the shipped net is present (nets/ is gitignored).
-NET = nets/zenith-kb3.nnue
+NET = nets/zenith-ob2.nnue
 check: $(BIN)
 	@echo "== perft ==";      ./$(BIN) perft || { echo "perft FAILED"; exit 1; }
 	@echo "== bench ==";       ./$(BIN) bench || { echo "bench FAILED"; exit 1; }
