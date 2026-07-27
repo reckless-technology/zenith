@@ -178,7 +178,7 @@ void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Pi
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, const Color perspective)
 {
     const NnueNetwork *const net = accumulator->net;
-    const int bucket = king_bucket(relative_king_square(perspective, position_king_sq(position, perspective)));
+    const int bucket             = king_bucket(relative_king_square(perspective, position->king_location[perspective]));
     accumulator->king_bucket[perspective] = bucket;
 
     if (accumulator->cache == NULL)
@@ -248,7 +248,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
 
 void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *position, const Color side)
 {
-    const int new_bucket = king_bucket(relative_king_square(side, position_king_sq(position, side)));
+    const int new_bucket = king_bucket(relative_king_square(side, position->king_location[side]));
     if (new_bucket != accumulator->king_bucket[side])
     {
         nnue_refresh_perspective(accumulator, position, side);

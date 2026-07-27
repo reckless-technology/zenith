@@ -87,7 +87,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
     const Bitboard own         = pos->colors[side];
     const Bitboard enemy       = pos->colors[opponent];
     const Bitboard empty       = ~occupancy;
-    const int      king_square = position_king_sq(pos, side);
+    const int      king_square = pos->king_location[side];
 
     // --- Pawns (setwise: one bitboard shift per move kind generates every pawn's move in parallel) ---
     // Pin rays are per-pawn, so the setwise shifts cover only unpinned pawns; the (rare) pinned pawns are
@@ -311,7 +311,7 @@ int generate_legal(const Position *pos, Move *moves, bool is_noisy_only)
 {
     const Bitboard checkers    = pos->checkers;
     const Bitboard pinned      = position_pinned_to_king(pos);
-    const int      king_square = position_king_sq(pos, pos->color_to_move);
+    const int      king_square = pos->king_location[pos->color_to_move];
 
     // Not in check: any target. Single check: capture the checker or block its ray. Double check: no
     // non-king move helps (king moves are never masked; en passant runs its own full test).

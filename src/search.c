@@ -716,7 +716,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
         // Check extension: search checking moves one ply deeper — forcing sequences resolve instead of
         // being pushed past the horizon, and evasions are never the last searched ply.
-        const bool is_child_in_check = position_is_in_check(&child);
+        const bool is_child_in_check = child.checkers != 0;
         int        extension         = is_child_in_check ? 1 : 0;
 
         // Singular extension: if the TT move is much better than every alternative, this node hinges on one

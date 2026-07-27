@@ -1060,7 +1060,7 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
     const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via position_is_legal
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
-    const int      enemy_king_square = position_king_sq(pos, enemy_of(pos->color_to_move));
+    const int      enemy_king_square = pos->king_location[enemy_of(pos->color_to_move)];
     for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
         const Move move = pseudo[index];
@@ -1081,7 +1081,7 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
         {
             Position child = *pos;
             position_make_move(&child, move);
-            const bool is_check_truth = position_is_in_check(&child);
+            const bool is_check_truth = (child.checkers != 0);
             const bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
             if (is_check_fast != is_check_truth)
             {
