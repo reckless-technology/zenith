@@ -12,7 +12,7 @@
  */
 #pragma once
 #define ZENITH_VERSION_MAJOR 1 ///< human-meaningful major version (edited by hand)
-#define ZENITH_VERSION_MINOR 0 ///< human-meaningful minor version (edited by hand)
+#define ZENITH_VERSION_MINOR 1 ///< human-meaningful minor version (edited by hand)
 
 #ifndef ZENITH_BUILD_NUMBER
 #define ZENITH_BUILD_NUMBER 0
