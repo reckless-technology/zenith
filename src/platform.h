@@ -64,7 +64,8 @@ static inline void zen_thread_join(zen_thread_t *thread)
 
 #endif
 
-// Monotonic wall clock in milliseconds (CLOCK_MONOTONIC on POSIX, QueryPerformanceCounter on Windows).
+// Monotonic wall clock in milliseconds (CLOCK_MONOTONIC on POSIX, QueryPerformanceCounter on Windows),
+// and the OS-reported logical CPU count (GetSystemInfo / sysconf).
 #if defined(_WIN32)
 
 #include <windows.h>
@@ -77,6 +78,14 @@ static inline int64_t platform_now_ms(void)
     return (int64_t)(counter.QuadPart * 1000 / frequency.QuadPart);
 }
 
+/** @brief Logical CPUs the OS reports (>= 1). */
+static inline int platform_cpu_count(void)
+{
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return info.dwNumberOfProcessors > 0 ? (int)info.dwNumberOfProcessors : 1;
+}
+
 #else
 
 #include <time.h>
@@ -86,6 +95,15 @@ static inline int64_t platform_now_ms(void)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+#include <unistd.h>
+
+/** @brief Logical CPUs the OS reports (>= 1). */
+static inline int platform_cpu_count(void)
+{
+    const long count = sysconf(_SC_NPROCESSORS_ONLN);
+    return count > 0 ? (int)count : 1;
 }
 
 #endif
