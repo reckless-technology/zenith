@@ -1057,20 +1057,19 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
-    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via position_is_move_legal
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
     const int      enemy_king_square = pos->king_location[enemy_of(pos->color_to_move)];
     for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
         const Move move = pseudo[index];
-        if (position_is_move_legal(pos, move, checkers, pinned) != position_is_move_legal_slow(pos, move))
+        if (position_is_move_legal(pos, move, pinned) != position_is_move_legal_slow(pos, move))
         {
             if (tally->mismatches < 8)
             {
                 char fen_buf[128];
                 printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
-                       position_is_move_legal(pos, move, checkers, pinned), position_is_move_legal_slow(pos, move),
+                       position_is_move_legal(pos, move, pinned), position_is_move_legal_slow(pos, move),
                        move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
             }
             tally->mismatches++;

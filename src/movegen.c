@@ -139,7 +139,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         {
             const int  from    = pop_lsb(&ep_attackers);
             const Move ep_move = move_make(from, pos->ep_square, FLAG_EP);
-            if (is_legal_mode && !position_is_move_legal(pos, ep_move, pos->checkers, pinned))
+            if (is_legal_mode && !position_is_move_legal(pos, ep_move, pinned))
             {
                 continue;
             }

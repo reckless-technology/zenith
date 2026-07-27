@@ -136,14 +136,14 @@ bool position_is_move_legal_slow(const Position *pos, Move move);
 Bitboard position_pinned_to_king(const Position *pos);
 /**
  * @brief Copy-free legality test for a pseudo-legal @p move — the primary legality filter (movegen's
- * generate_legal and the search both use it; position_is_move_legal_slow is the copy-make oracle it is validated
- * against). Passing the precomputed @p checkers / @p pinned makes it O(1) per move — no make_move.
+ * generate_legal and the search both use it; position_is_move_legal_slow is the copy-make oracle it is
+ * validated against). Reads the position's cached checkers; passing the once-per-node @p pinned makes it
+ * O(1) per move — no make_move.
  * @param pos the position.
  * @param move the pseudo-legal move to test.
- * @param checkers pieces giving check to the side to move (precomputed once per node).
  * @param pinned our pieces pinned to our king (see position_pinned_to_king).
  */
-bool position_is_move_legal(const Position *pos, Move move, Bitboard checkers, Bitboard pinned);
+bool position_is_move_legal(const Position *pos, Move move, Bitboard pinned);
 
 /**
  * @brief Our pieces that could discover check by moving off a ray between one of our sliders and the enemy king.

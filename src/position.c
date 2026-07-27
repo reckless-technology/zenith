@@ -367,11 +367,12 @@ bool position_gives_check_fast(const Position *pos, const Move move, const Bitbo
 }
 
 /** @brief Copy-free legality test for a pseudo-legal @p move, given the node's @p checkers and @p pinned. */
-bool position_is_move_legal(const Position *pos, const Move move, const Bitboard checkers, const Bitboard pinned)
+bool position_is_move_legal(const Position *pos, const Move move, const Bitboard pinned)
 {
-    const Color side = pos->color_to_move, opponent = enemy_of(side);
-    const int   from = move_from(move), to = move_to(move);
-    const int   king_square = pos->king_location[side];
+    const Bitboard checkers = pos->checkers; // cached per position by make_move/set_fen
+    const Color    side = pos->color_to_move, opponent = enemy_of(side);
+    const int      from = move_from(move), to = move_to(move);
+    const int      king_square = pos->king_location[side];
 
     // Castling is generated fully legal by movegen (king not in/through check, path empty) — always legal.
     if (move_is_castle(move))
