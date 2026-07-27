@@ -77,7 +77,7 @@ OUT bias   : round(b × QA × QB) → int32   [1]
 ```
 
 **File `nets/zenith-<tag>.nnue`** (little-endian): the 8-byte magic `ZNNUE3\0\0`, then the four arrays
-back-to-back in the order above. The integer forward (identical in `trainer/features.py::integer_eval` and
+back-to-back in the order above. The integer forward (identical in `integer_eval` of `trainer/features.py` and
 `src/nnue.c`):
 
 ```

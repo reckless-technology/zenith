@@ -84,3 +84,16 @@ stand-pat), not ideas that exist in the other engine.
 one architecture change per SPRT. Diagnose neutral timed results with a FIXED-DEPTH match to split eval-quality
 from speed before shelving; if the eval is genuinely better, scale data before abandoning — but watch for
 diminishing data returns and pivot to speed once eval scaling flattens. See [[pawnstar-gap-benchmarks]].
+
+**Improving heuristic: NO GAIN (2026-07-26).** Standard is-eval-better-than-2-plies-ago gating RFP margin
+(depth-1 when improving) + LMP quota (halved when not): bench nodes -33% at depth 13, but SPRT [0,5] @
+8+0.08 vs pre-change baseline capped at 4000 games WITHOUT verdict: +1.74 ± 6.32 Elo, LLR 0.08. Early +8
+readings regressed to ~+2 as the sample grew. Not landed (discipline: unproven = no). Zenith's tuned static
+margins apparently already capture most of what improving-conditioning buys elsewhere; a retry should
+co-tune the margins with SPSA rather than bolting improving onto margins tuned without it.
+
+**qsearch TT: +17.0 ± 7.6 Elo, H1 accepted (2026-07-26).** Probe at qsearch entry (non-PV bound cutoffs —
+any hit suffices at depth 0), stand-pat seeded from entry eval, store at depth 0 with fail-soft bounds.
+Found via the observation that qsearch prefetched the TT but never read it. Bench signature 2657379 →
+2264816 (-15% nodes). Landed as PR #3. Contrast with the improving heuristic (same day, unproven): the
+biggest wins remain plugging MISSING standard machinery, not re-conditioning what SPSA already tuned.

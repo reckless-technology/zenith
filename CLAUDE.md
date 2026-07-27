@@ -90,8 +90,8 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   `position_occupied` is one load) **plus** a `board[64]` piece-type mailbox, kept in sync. Incremental
   **Zobrist** `key` (`ZobristPiece[color][piece][sq]`, `ZobristEp[sq]`) + pawn-only `pawn_key`; the NNUE
   accumulator is embedded and updated
-  in the add_piece/remove_piece/move_piece primitives. Copy-free oracles for the search: `position_is_legal` (checkers+pins;
-  the copy-make `position_is_legal_slow` is the reference oracle it is validated against),
+  in the add_piece/remove_piece/move_piece primitives. Copy-free oracles for the search: `position_is_move_legal` (checkers+pins;
+  the copy-make `position_is_move_legal_slow` is the reference oracle it is validated against),
   `pinned_to_king`, `gives_check_fast`/`discovered_check_candidates` — all differentially validated by
   `legalcheck`. FEN I/O.
 - **movegen.\*** — one masked setwise skeleton (`generate_moves`) instantiated twice: `generate_pseudo`
@@ -99,7 +99,7 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   `MOVE_NONE`-terminated, returning the count) and `generate_legal` (real check-evasion + pin-ray masks baked
   into the target sets, per-destination king safety, full test only for en passant — no per-move filter pass;
   ~550 Mnps perft, at parity with pawnstar). The search uses `generate_pseudo` and filters with
-  `position_is_legal` *before* pruning/make (the +66 Elo prune-before-make change); `generate_legal` serves
+  `position_is_move_legal` *before* pruning/make (the +66 Elo prune-before-make change); `generate_legal` serves
   perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
 - **eval.\*** — `evaluate(pos, cache)` returns centipawns from side-to-move POV (memoised in the engine's
   shared lockless `EvalCache`; NULL = uncached). Dispatches to the NNUE forward when the position is bound

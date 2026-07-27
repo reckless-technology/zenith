@@ -36,6 +36,7 @@ static inline const char *u64_commas(uint64_t value, char *out);
  *     name   detail    <          nodes>  <aux — per-test extras >    <time>  <    Mnps>  FEN / note
  *     %-6s   %-9s      <%15s nodes>       <%-25s>                    <%8.3fs> <%6.1f Mnps>
  *
+ * @param out destination buffer for the formatted line (>= 192 bytes).
  * @param name test name ("perft", "see", ...).
  * @param detail leading per-case info: "depth 13", the SEE move, "reject"; summaries use "passed/total".
  * @param nodes node count, or a negative value to leave the column blank.
