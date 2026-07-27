@@ -6,10 +6,12 @@ This module is the single source of truth for the feature-index convention and t
 The C engine (src/nnue.*) must reproduce `feature_index` and `integer_eval` byte-for-byte — the
 verification gate compares the engine's integer eval against `integer_eval` here on a fixed FEN set.
 
-Architecture (Zenith v2, independent of any other engine):
+Architecture (Zenith v4, independent of any other engine):
     768 base inputs per perspective (6 piece types x 2 colors x 64 squares, own pieces first), replicated
     across NUM_KING_BUCKETS king-input buckets selected by the perspective's own king square (file-pair x
-    board-half) -> HIDDEN_SIZE feature transformer -> concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU -> 1 output
+    board-half) -> HIDDEN_SIZE feature transformer -> concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU ->
+    NUM_OUTPUT_BUCKETS output heads, one selected per position by total piece count ((count - 2) // 4).
+    Material-bucketed heads let the same hidden features be weighed differently by game phase.
 """
 
 import numpy as np
@@ -18,6 +20,7 @@ BASE_FEATURES = 768      # per-king-bucket feature block: 2 colors x 6 piece typ
 NUM_KING_BUCKETS = 8     # king-input buckets: 4 file-pairs x 2 board-halves, keyed on the perspective king
 INPUT_FEATURES = NUM_KING_BUCKETS * BASE_FEATURES  # 6144 feature-transformer rows
 HIDDEN_SIZE = 512
+NUM_OUTPUT_BUCKETS = 8   # output heads, selected by total piece count: bucket = (pieces - 2) // 4
 QUANT_ACCUMULATOR = 255  # QA: feature-transformer weight/accumulator scale
 QUANT_OUTPUT = 64        # QB: output-weight scale
 EVALUATION_SCALE = 400   # logit -> centipawn scale (must equal EVAL_SCALE in the trainer loss)
@@ -25,11 +28,18 @@ EVALUATION_SCALE = 400   # logit -> centipawn scale (must equal EVAL_SCALE in th
 PADDING_INDEX = INPUT_FEATURES  # embedding row 6144 is a forced-zero pad slot
 MAX_ACTIVE_FEATURES = 32        # at most 32 pieces on the board
 
-NNUE_MAGIC = b"ZNNUE3\0\0"  # 8-byte little-endian file magic (v3: king-input buckets)
+NNUE_MAGIC = b"ZNNUE4\0\0"  # 8-byte little-endian file magic (v4: king-input + output buckets)
+NNUE_MAGIC_V3 = b"ZNNUE3\0\0"  # previous format (single output head); loaders may broadcast it to v4
 
 WHITE, BLACK = 0, 1
 KING = 5
 _PIECE_CHAR_TO_TYPE = {"p": 0, "n": 1, "b": 2, "r": 3, "q": 4, "k": 5}
+
+
+def output_bucket(piece_count):
+    """Material output bucket for a position with piece_count total pieces (kings included): 2..32 pieces
+    map to buckets 0..7 via (count - 2) // 4. Must match output_bucket() in src/nnue.c."""
+    return (piece_count - 2) // 4
 
 
 def king_bucket(relative_king_square):
@@ -115,9 +125,10 @@ def integer_eval(feature_transformer_weight, feature_transformer_bias, output_we
     Arguments are the quantised arrays exactly as stored in the .nnue file:
         feature_transformer_weight : int array shaped [INPUT_FEATURES, HIDDEN_SIZE]  (6144 king-bucketed rows)
         feature_transformer_bias   : int array shaped [HIDDEN_SIZE]
-        output_weight              : int array shaped [2 * HIDDEN_SIZE]  (own half then opponent half)
-        output_bias                : int scalar
-    Returns the evaluation in centipawns from the side-to-move's point of view.
+        output_weight              : int array shaped [NUM_OUTPUT_BUCKETS, 2 * HIDDEN_SIZE]
+        output_bias                : int array shaped [NUM_OUTPUT_BUCKETS]
+    The output head is selected by the position's piece count (= len(own_indices), every piece emits one
+    feature per perspective). Returns the evaluation in centipawns from the side-to-move's point of view.
     """
     own_accumulator = feature_transformer_bias.astype(np.int64).copy()
     for index in own_indices:
@@ -126,8 +137,10 @@ def integer_eval(feature_transformer_weight, feature_transformer_bias, output_we
     for index in opponent_indices:
         opponent_accumulator += feature_transformer_weight[index]
 
-    output_weight_own = output_weight[:HIDDEN_SIZE].astype(np.int64)
-    output_weight_opponent = output_weight[HIDDEN_SIZE:].astype(np.int64)
+    bucket = output_bucket(len(own_indices))
+    bucket_weight = output_weight[bucket]
+    output_weight_own = bucket_weight[:HIDDEN_SIZE].astype(np.int64)
+    output_weight_opponent = bucket_weight[HIDDEN_SIZE:].astype(np.int64)
 
     clamped_own = np.clip(own_accumulator, 0, QUANT_ACCUMULATOR)
     clamped_opponent = np.clip(opponent_accumulator, 0, QUANT_ACCUMULATOR)
@@ -135,5 +148,5 @@ def integer_eval(feature_transformer_weight, feature_transformer_bias, output_we
                       + np.sum((clamped_opponent * output_weight_opponent) * clamped_opponent))
 
     accumulated = _truncated_divide(accumulated, QUANT_ACCUMULATOR)
-    accumulated += int(output_bias)
+    accumulated += int(output_bias[bucket])
     return _truncated_divide(accumulated * EVALUATION_SCALE, QUANT_ACCUMULATOR * QUANT_OUTPUT)

@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 
 from features import (EVALUATION_SCALE, HIDDEN_SIZE, INPUT_FEATURES, MAX_ACTIVE_FEATURES, NNUE_MAGIC,
-                      PADDING_INDEX, QUANT_ACCUMULATOR, QUANT_OUTPUT, position_features)
+                      NUM_OUTPUT_BUCKETS, PADDING_INDEX, QUANT_ACCUMULATOR, QUANT_OUTPUT, position_features)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -160,7 +160,9 @@ class PerspectiveNetwork(nn.Module):
         self.feature_transformer = nn.EmbeddingBag(INPUT_FEATURES + 1, hidden_size, mode="sum",
                                                    padding_idx=PADDING_INDEX)
         self.feature_transformer_bias = nn.Parameter(torch.zeros(hidden_size))
-        self.output = nn.Linear(2 * hidden_size, 1)
+        # One output head per material bucket; each position trains only its own head (gather below), so
+        # sparse phases (few pieces) get heads specialised to them instead of a compromise single head.
+        self.output = nn.Linear(2 * hidden_size, NUM_OUTPUT_BUCKETS)
         nn.init.normal_(self.feature_transformer.weight, std=0.01)
         with torch.no_grad():
             self.feature_transformer.weight[PADDING_INDEX].zero_()
@@ -169,7 +171,12 @@ class PerspectiveNetwork(nn.Module):
         own_accumulator = self.feature_transformer(own_indices) + self.feature_transformer_bias
         opponent_accumulator = self.feature_transformer(opponent_indices) + self.feature_transformer_bias
         hidden = torch.cat([screlu(own_accumulator), screlu(opponent_accumulator)], dim=1)
-        return self.output(hidden).squeeze(1)
+        heads = self.output(hidden)  # [batch, NUM_OUTPUT_BUCKETS]
+        # Material bucket per sample: every piece emits exactly one own-perspective feature, so the count of
+        # non-padding indices IS the piece count; bucket = (pieces - 2) // 4 (features.output_bucket).
+        piece_count = (own_indices != PADDING_INDEX).sum(dim=1)
+        bucket = torch.clamp((piece_count - 2) // 4, 0, NUM_OUTPUT_BUCKETS - 1)
+        return heads.gather(1, bucket.unsqueeze(1)).squeeze(1)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -179,20 +186,20 @@ def export_quantised_net(model, path):
     with torch.no_grad():
         transformer = model.feature_transformer.weight[:INPUT_FEATURES].cpu().numpy()  # [6144, HIDDEN]
         transformer_bias = model.feature_transformer_bias.cpu().numpy()                # [HIDDEN]
-        output_weight = model.output.weight[0].cpu().numpy()                           # [2*HIDDEN]
-        output_bias = float(model.output.bias[0].cpu())
+        output_weight = model.output.weight.cpu().numpy()                              # [BUCKETS, 2*HIDDEN]
+        output_bias = model.output.bias.cpu().numpy()                                  # [BUCKETS]
 
     transformer_q = np.rint(transformer * QUANT_ACCUMULATOR).astype(np.int16)
     transformer_bias_q = np.rint(transformer_bias * QUANT_ACCUMULATOR).astype(np.int16)
     output_weight_q = np.rint(output_weight * QUANT_OUTPUT).astype(np.int16)
-    output_bias_q = np.int32(round(output_bias * QUANT_ACCUMULATOR * QUANT_OUTPUT))
+    output_bias_q = np.rint(output_bias * QUANT_ACCUMULATOR * QUANT_OUTPUT).astype(np.int32)
 
     with open(path, "wb") as handle:
         handle.write(NNUE_MAGIC)
-        handle.write(transformer_q.tobytes())        # [768][HIDDEN] int16, feature-major
+        handle.write(transformer_q.tobytes())        # [6144][HIDDEN] int16, feature-major
         handle.write(transformer_bias_q.tobytes())   # [HIDDEN] int16
-        handle.write(output_weight_q.tobytes())      # [2*HIDDEN] int16
-        handle.write(struct.pack("<i", int(output_bias_q)))  # int32
+        handle.write(output_weight_q.tobytes())      # [BUCKETS][2*HIDDEN] int16, bucket-major
+        handle.write(output_bias_q.tobytes())        # [BUCKETS] int32
     saturated = int(np.sum(np.abs(transformer * QUANT_ACCUMULATOR) > 32767))
     print(f"exported {path}  (transformer weights saturating int16: {saturated})")
 
