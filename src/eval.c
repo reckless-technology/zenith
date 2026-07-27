@@ -87,7 +87,7 @@ int evaluate(const Position *pos, EvalCache *cache)
     // Read the incrementally-maintained accumulator (kept in sync by make_move/set_fen) — a cheap forward pass.
     if (pos->accumulator.net != NULL)
     {
-        value = nnue_evaluate(&pos->accumulator, pos->color_to_move);
+        value = nnue_evaluate(&pos->accumulator, pos->color_to_move, nnue_output_bucket(pos));
         if (slot)
         {
             atomic_store_explicit(slot, eval_cache_pack(pos->key, value), memory_order_relaxed);
