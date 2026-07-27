@@ -220,8 +220,7 @@ int run_datagen(Engine *engine, const int argc, char **argv)
             Move legal[MAX_MOVES];
             if (generate_legal(&pos, legal, false) == 0)
             {
-                game_result =
-                    position_is_in_check(&pos) ? (pos.color_to_move == WHITE ? -1 : +1) : 0; // mated stm loses
+                game_result = (pos.checkers != 0) ? (pos.color_to_move == WHITE ? -1 : +1) : 0; // mated stm loses
                 break;
             }
             if (position_is_draw(&pos, history, history_count))
@@ -241,7 +240,7 @@ int run_datagen(Engine *engine, const int argc, char **argv)
             const int score = searcher->root_score; // cp, stm POV
 
             // Record quiet, not-yet-decided positions (one per ply).
-            if (!position_is_in_check(&pos) && move_is_quiet(move) && abs(score) < RECORD_SCORE_CAP)
+            if (!(pos.checkers != 0) && move_is_quiet(move) && abs(score) < RECORD_SCORE_CAP)
             {
                 Record *const record = &pending[pending_count++];
                 position_fen(&pos, record->fen);
