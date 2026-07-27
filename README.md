@@ -45,8 +45,9 @@ make clean           # remove build outputs (binaries + doc/html)
 ## Verify
 
 Every correctness property has an executable gate. `make check` runs them all; CI runs the same gates on
-Linux, macOS, and Windows (asserting the bench signature on each), plus a threaded UCI smoke and the NNUE
-gates against a synthetic net. Any failure aborts non-zero.
+Linux and Windows on every push (asserting the bench signature on each), plus a threaded UCI smoke and the
+NNUE gates against a synthetic net; macOS runs the full suite on release candidates. Any failure aborts
+non-zero.
 
 ```bash
 make check                          # build + run every gate below
