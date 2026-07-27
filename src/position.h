@@ -20,9 +20,10 @@
 typedef struct Position
 {
     Bitboard colors[NUM_COLORS]; ///< occupancy per color
-    /// Occupancy per piece type (both colors), indexed by Piece. The NO_PIECE slot (index 0) holds the
-    /// occupied-squares bitboard — all piece bitboards OR-ed — maintained incrementally alongside the rest.
-    Bitboard pieces[NUM_PIECES];
+
+    Bitboard pieces[NUM_PIECES]; ///< Occupancy per piece type (both colors), indexed by Piece. The NO_PIECE slot (index
+                                 ///< 0) holds the occupied-squares bitboard — all piece bitboards OR-ed — maintained
+                                 ///< incrementally alongside the rest.
     uint64_t key;      ///< incremental Zobrist key of the whole position
     uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
     /// Pieces giving check to the side to move — recomputed once per make_move/make_null/set_fen, so the
@@ -34,14 +35,14 @@ typedef struct Position
     // Scalars, widest-first. The semantic fields carry their enum types (Color/Square) for readability;
     // those are int-sized but land in the struct's existing tail padding before the 32-aligned accumulator,
     // so sizeof(Position) is unchanged. The move counters stay narrow: they are bounded by the draw rules
-    // (halfmove <= ~150 under the 75-move rule; fullmove fits any game in 16 bits), and an out-of-range FEN
-    // counter truncates harmlessly (halfmove only feeds the >=100 draw test + repetition window; fullmove is
+    // (half_move <= ~150 under the 75-move rule; full_move fits any game in 16 bits), and an out-of-range FEN
+    // counter truncates harmlessly (half_move only feeds the >=100 draw test + repetition window; full_move is
     // FEN-output only).
     Color    color_to_move;             ///< side to move
     Square   ep_square;                 ///< en-passant TARGET square (0..63), or NO_SQUARE when no ep is possible
     Square   king_location[NUM_COLORS]; ///< king square per color (0 if kingless), maintained by add_piece/move_piece
-    uint16_t fullmove;                  ///< full-move number (FEN output only)
-    uint8_t  halfmove;                  ///< 50-move clock (plies); resets on a pawn move or capture
+    uint16_t full_move;                 ///< full-move number (FEN output only)
+    uint8_t  half_move;                 ///< 50-move clock (plies); resets on a pawn move or capture
     uint8_t  castling_rights;           ///< castling-rights bitmask (CR_*)
 
     /// NNUE accumulator, maintained incrementally in add_piece/remove_piece/move_piece (only when a net is loaded).
