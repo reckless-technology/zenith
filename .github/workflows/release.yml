@@ -1,8 +1,10 @@
 name: Release
 
 # Manually promote the current main commit to a formal GitHub Release.
-# Builds portable per-microarch binaries, verifies them with the correctness gates, publishes the release,
-# then bumps the minor version in src/version.h for the next development cycle.
+# Builds portable per-microarch Linux binaries, verifies them with the correctness gates, publishes the
+# release, then bumps the minor version in src/version.h for the next development cycle. macOS builds and
+# verifies here (release candidates only — its runners bill 10x, so it is deliberately absent from ci.yml);
+# the release-macos job attaches an arm64 tarball and asserts the bench signature cross-platform.
 on:
   workflow_dispatch:
     inputs:
@@ -122,3 +124,38 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/release_bump && chmod 600 ~/.ssh/release_bump
           GIT_SSH_COMMAND="ssh -i ~/.ssh/release_bump -o IdentitiesOnly=yes" \
             git push git@github.com:jonny-reckless/zenith.git HEAD:main
+
+  # macOS: release candidates only (excluded from per-push CI on cost grounds). Runs the FULL gate suite —
+  # including the bench node-signature assertion, which is where the cross-platform reproducibility
+  # guarantee is now enforced — then attaches the arm64 tarball + checksum to the release made above.
+  release-macos:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: the version banner's build number is the commit count
+
+      - name: Resolve tag (must match the release job's computation)
+        id: ver
+        run: |
+          major=$(sed -n 's/^#define ZENITH_VERSION_MAJOR \([0-9]*\).*/\1/p' src/version.h)
+          minor=$(sed -n 's/^#define ZENITH_VERSION_MINOR \([0-9]*\).*/\1/p' src/version.h)
+          build=$(git rev-list --count HEAD)
+          echo "tag=v${major}.${minor}.${build}" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Apple clang, arm64 — no -march)
+        run: make ARCH=
+
+      - name: Correctness gates + bench signature
+        run: make check
+
+      - name: Package and attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          install -d pkg && install build/zenith pkg/zenith && cp README.md LICENSE pkg/
+          tar -C pkg -czf "zenith-${tag}-macos-arm64.tar.gz" zenith README.md LICENSE
+          shasum -a 256 "zenith-${tag}-macos-arm64.tar.gz" > "zenith-${tag}-macos-arm64.tar.gz.sha256"
+          gh release upload "$tag" "zenith-${tag}-macos-arm64.tar.gz" "zenith-${tag}-macos-arm64.tar.gz.sha256"
