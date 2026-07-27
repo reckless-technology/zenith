@@ -46,7 +46,7 @@ typedef struct NnueRefreshCacheEntry
  */
 typedef struct NnueRefreshCache
 {
-    NnueRefreshCacheEntry entries[2][NNUE_KING_BUCKETS]; ///< [perspective][bucket]
+    NnueRefreshCacheEntry entries[2][2][NNUE_KING_BUCKETS]; ///< [perspective][mirrored][bucket]
 } NnueRefreshCache;
 
 /**

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Jonny Reckless
-"""Generate a synthetic ZNNUE4 net for CI: valid format, deterministic pseudo-random weights.
+"""Generate a synthetic ZNNUE5 net for CI: valid format, deterministic pseudo-random weights.
 
 The NNUE correctness gates are weight-agnostic — nnuecheck verifies incremental accumulator maintenance
 against a full refresh (identical for any weights), and the loader/forward only need a well-formed file —
@@ -25,7 +25,7 @@ def main():
         raise SystemExit("usage: make_test_net.py <out.nnue>")
     rng = random.Random(0x5EED)
     with open(sys.argv[1], "wb") as out:
-        out.write(b"ZNNUE4\x00\x00")
+        out.write(b"ZNNUE5\x00\x00")
         # feature-transformer weights, feature-major
         for _ in range(INPUT_FEATURES):
             out.write(struct.pack(f"<{HIDDEN}h", *(rng.randint(-50, 50) for _ in range(HIDDEN))))

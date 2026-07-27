@@ -10,32 +10,28 @@ forward pass diverges from the trainer's export contract.
 """
 
 import argparse
-import struct
 import subprocess
 
 import numpy as np
 
-from features import (HIDDEN_SIZE, INPUT_FEATURES, NNUE_MAGIC, NNUE_MAGIC_V3, NUM_OUTPUT_BUCKETS,
+from features import (HIDDEN_SIZE, INPUT_FEATURES, NNUE_MAGIC, NUM_OUTPUT_BUCKETS,
                       integer_eval, position_features)
 
 
 def load_net(path):
-    """Load a v4 net; a v3 net's single output head is broadcast to all buckets (identical evals)."""
+    """Load a current-format (v5) net. Older formats are rejected: this reference implements only the
+    current feature contract (mirrored indexing), so applying it to a v3/v4 net would mis-verify it.
+    Older shipped nets remain covered by the engine's own `nnuecheck` gate."""
     with open(path, "rb") as handle:
         magic = handle.read(8)
-        if magic not in (NNUE_MAGIC, NNUE_MAGIC_V3):
-            raise SystemExit(f"bad magic in {path}: {magic!r}")
+        if magic != NNUE_MAGIC:
+            raise SystemExit(f"bad magic in {path}: {magic!r} (verify.py checks only the current format)")
         transformer = np.frombuffer(handle.read(INPUT_FEATURES * HIDDEN_SIZE * 2), dtype=np.int16)
         transformer = transformer.reshape(INPUT_FEATURES, HIDDEN_SIZE).astype(np.int64)
         transformer_bias = np.frombuffer(handle.read(HIDDEN_SIZE * 2), dtype=np.int16).astype(np.int64)
-        if magic == NNUE_MAGIC_V3:
-            one = np.frombuffer(handle.read(2 * HIDDEN_SIZE * 2), dtype=np.int16).astype(np.int64)
-            output_weight = np.tile(one, (NUM_OUTPUT_BUCKETS, 1))
-            output_bias = np.full(NUM_OUTPUT_BUCKETS, struct.unpack("<i", handle.read(4))[0], dtype=np.int64)
-        else:
-            output_weight = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 2 * HIDDEN_SIZE * 2), dtype=np.int16)
-            output_weight = output_weight.reshape(NUM_OUTPUT_BUCKETS, 2 * HIDDEN_SIZE).astype(np.int64)
-            output_bias = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 4), dtype=np.int32).astype(np.int64)
+        output_weight = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 2 * HIDDEN_SIZE * 2), dtype=np.int16)
+        output_weight = output_weight.reshape(NUM_OUTPUT_BUCKETS, 2 * HIDDEN_SIZE).astype(np.int64)
+        output_bias = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 4), dtype=np.int32).astype(np.int64)
     return transformer, transformer_bias, output_weight, output_bias
 
 

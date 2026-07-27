@@ -34,12 +34,15 @@ typedef struct NnueAccumulator
     _Alignas(32) int16_t values[2][NNUE_HIDDEN]; ///< hidden layer per perspective (WHITE, BLACK)
     /// Cached king-input bucket per perspective, set by nnue_refresh / refresh_perspective. Incremental
     /// updates use these; a king move that changes a side's bucket refreshes that perspective.
-    int                king_bucket[2];
+    int king_bucket[2];
+    /// Whether each perspective is horizontally mirrored (king on files e-h; v5 nets only). Cached like the
+    /// bucket: incremental updates read it, and a king move that flips it refreshes that perspective.
+    uint8_t            king_mirror[2];
     const NnueNetwork *net;   ///< the net this accumulator tracks (NULL = none; position_init binds it)
     NnueRefreshCache  *cache; ///< refresh cache for king-bucket rebuilds (NULL = rebuild by full rescan)
 } NnueAccumulator;
 
 // Both pointers must land in the tail padding the 32-byte alignment already creates — Position's size (and
 // therefore the per-node copy-make cost) must not change: 2*NNUE_HIDDEN*2 bytes of values + 2 ints +
-// 2 pointers = 2072 <= 2080 (the struct's padded size without them).
+// 2 pointers + 2 mirror flags = 2074 <= 2080 (the struct's padded size without them).
 _Static_assert(sizeof(NnueAccumulator) == 2080, "accumulator bindings must fit the existing tail padding");
