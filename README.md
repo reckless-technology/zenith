@@ -120,13 +120,13 @@ PRNG — before any thread exists.
 One masked setwise generator (`generate_moves`) is instantiated twice. `generate_pseudo` uses permissive
 masks and emits pseudo-legal moves into a caller-provided `Move[MAX_MOVES]` buffer terminated by a
 `MOVE_NONE` sentinel; the search then filters each move with the copy-free legality oracle —
-`position_is_legal(move, checkers, pinned)`, built on precomputed pins and checkers — *before* it pays for
+`position_is_move_legal(move, checkers, pinned)`, built on precomputed pins and checkers — *before* it pays for
 `make_move`, so illegal and pruned moves never cost a copy. `generate_legal` instantiates the same skeleton
 with real check-evasion and pin-ray masks baked into the target sets (per-destination king safety; a full
 test only for en passant), producing fully legal moves in a single pass with no filter — this backs perft
-(~550 Mnps), datagen, and UCI move parsing. The oracles (`position_is_legal`, `pinned_to_king`,
+(~550 Mnps), datagen, and UCI move parsing. The oracles (`position_is_move_legal`, `pinned_to_king`,
 `gives_check_fast`, `discovered_check_candidates`) are differentially validated against the copy-make
-ground truth (`position_is_legal_slow`) by the `legalcheck` gate.
+ground truth (`position_is_move_legal_slow`) by the `legalcheck` gate.
 
 ### Evaluation
 

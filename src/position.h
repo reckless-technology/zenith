@@ -19,19 +19,23 @@
  */
 typedef struct Position
 {
-    Bitboard colors[NUM_COLORS]; ///< occupancy per color
+    Bitboard colors[NUM_COLORS]; ///< Occupancy per color.
 
     Bitboard pieces[NUM_PIECES]; ///< Occupancy per piece type (both colors), indexed by Piece. The NO_PIECE slot (index
-                                 ///< 0) holds the occupied-squares bitboard — all piece bitboards OR-ed — maintained
-                                 ///< incrementally alongside the rest.
-    uint64_t key;      ///< incremental Zobrist key of the whole position
-    uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search)
+    ///< zero) holds the occupied-squares bitboard — all piece bitboards OR-ed — maintained
+    ///< incrementally alongside the rest.
+
+    uint64_t key;      ///< Incremental Zobrist key of the whole position.
+    uint64_t pawn_key; ///< Zobrist of pawns only, for the eval correction history (search).
+
     /// Pieces giving check to the side to move — recomputed once per make_move/make_null/set_fen, so the
     /// search and movegen read it instead of recomputing attackers-to-king. 0 iff the side to move is not in check.
     Bitboard checkers;
+
     /// Mailbox of 1-byte Piece codes (NO_PIECE=0 .. KING=6). Color is not stored here — read it from
     /// the `colors` bitboards via position_color_on. 1-byte entries keep the copy-make struct small.
     uint8_t board[NUM_SQUARES];
+
     // Scalars, widest-first. The semantic fields carry their enum types (Color/Square) for readability;
     // those are int-sized but land in the struct's existing tail padding before the 32-aligned accumulator,
     // so sizeof(Position) is unchanged. The move counters stay narrow: they are bounded by the draw rules
@@ -119,27 +123,27 @@ void position_make_move(Position *pos, Move move);
 /** @brief The side to move passes (for null-move pruning). */
 void position_make_null(Position *pos);
 /** @brief Whether a pseudo-legal @p move is legal, tested via copy-make — the slow reference oracle (ground
- *  truth for the `legalcheck` gate). Prefer position_is_legal, the copy-free path movegen and the search use. */
-bool position_is_legal_slow(const Position *pos, Move move);
+ *  truth for the `legalcheck` gate). Prefer position_is_move_legal, the copy-free path movegen and the search use. */
+bool position_is_move_legal_slow(const Position *pos, Move move);
 
 /**
  * @brief Our pieces pinned to our own king.
  *
- * Part of the fast, copy-free legality path: with this and the node's checkers, position_is_legal can
- * prune before paying make_move. It must agree with position_is_legal_slow on every pseudo-legal move
+ * Part of the fast, copy-free legality path: with this and the node's checkers, position_is_move_legal can
+ * prune before paying make_move. It must agree with position_is_move_legal_slow on every pseudo-legal move
  * (validated by the `legalcheck` differential test).
  */
 Bitboard position_pinned_to_king(const Position *pos);
 /**
  * @brief Copy-free legality test for a pseudo-legal @p move — the primary legality filter (movegen's
- * generate_legal and the search both use it; position_is_legal_slow is the copy-make oracle it is validated
- * against). Passing the precomputed @p checkers / @p pinned makes it O(1) per move — no make_move.
+ * generate_legal and the search both use it; position_is_move_legal_slow is the copy-make oracle it is
+ * validated against). Reads the position's cached checkers; passing the once-per-node @p pinned makes it
+ * O(1) per move — no make_move.
  * @param pos the position.
  * @param move the pseudo-legal move to test.
- * @param checkers pieces giving check to the side to move (precomputed once per node).
  * @param pinned our pieces pinned to our king (see position_pinned_to_king).
  */
-bool position_is_legal(const Position *pos, Move move, Bitboard checkers, Bitboard pinned);
+bool position_is_move_legal(const Position *pos, Move move, Bitboard pinned);
 
 /**
  * @brief Our pieces that could discover check by moving off a ray between one of our sliders and the enemy king.

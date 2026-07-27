@@ -22,9 +22,9 @@ enum
 typedef struct NnueRefreshCacheEntry
 {
     _Alignas(32) int16_t values[NNUE_HIDDEN]; ///< cached accumulator half for this (perspective, bucket)
-    Bitboard           colors[2];             ///< board occupancy per color when @ref values was built
-    Bitboard           pieces[NUM_PIECES];    ///< board occupancy per piece type when @ref values was built
-    const NnueNetwork *net;                   ///< the net @ref values belongs to (NULL / different net = miss)
+    Bitboard           colors[2];             ///< board occupancy per color when `values` was built
+    Bitboard           pieces[NUM_PIECES];    ///< board occupancy per piece type when `values` was built
+    const NnueNetwork *net;                   ///< the net `values` belongs to (NULL / different net = miss)
 } NnueRefreshCacheEntry;
 
 /**
