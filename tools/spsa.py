@@ -48,7 +48,7 @@ def run_match(args, plus, minus):
     """Play args.games games between the theta+ and theta- option sets; return theta+'s points minus
     theta-'s points (draws cancel), i.e. (wins - losses) from theta+'s perspective."""
     def opts(values):
-        out = [f"option.EvalFile={args.net}"]
+        out = [f"option.EvalFile={args.net}", "option.Threads=1"]
         for (name, _, _, _), value in zip(PARAMS, values):
             out.append(f"option.{name}={int(round(value))}")
         return out
