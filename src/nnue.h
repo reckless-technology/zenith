@@ -15,8 +15,16 @@
 
 enum
 {
-    NNUE_KING_BUCKETS = 8 ///< king-input buckets (4 file-pairs x 2 board-halves); must match nnue.c/features.py
+    NNUE_KING_BUCKETS   = 8, ///< king-input buckets (4 file-pairs x 2 board-halves); must match features.py
+    NNUE_OUTPUT_BUCKETS = 8  ///< material output heads, selected by (piece_count - 2) / 4; must match features.py
 };
+
+/** @brief The output head for @p position: total piece count (kings included) mapped by (count - 2) / 4.
+ *  set_fen guarantees 2..32 pieces, so the result is always in [0, NNUE_OUTPUT_BUCKETS). */
+static inline int nnue_output_bucket(const Position *position)
+{
+    return (popcount(position->pieces[NO_PIECE]) - 2) / 4;
+}
 
 /** @brief One refresh-cache slot: the last accumulator built for a (perspective, king bucket) and its board. */
 typedef struct NnueRefreshCacheEntry
@@ -53,8 +61,9 @@ void nnue_free(const NnueNetwork *net);
 /// @{
 /** @brief Standalone eval of @p position (which must have a bound net): full refresh then forward pass. */
 int nnue_evaluate_position(const Position *position);
-/** @brief Forward pass from a maintained @p accumulator (reads its bound net), from @p stm's POV. */
-int nnue_evaluate(const NnueAccumulator *accumulator, Color stm);
+/** @brief Forward pass from a maintained @p accumulator (reads its bound net), from @p stm's POV, using
+ *  the given material @p output_bucket (see nnue_output_bucket). */
+int nnue_evaluate(const NnueAccumulator *accumulator, Color stm, int output_bucket);
 /// @}
 
 /// @name Accumulator maintenance (no-ops without a bound net — callers guard on accumulator->net).

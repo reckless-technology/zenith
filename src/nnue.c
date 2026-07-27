@@ -28,15 +28,18 @@ enum
     EVALUATION_SCALE  = 400
 };
 
-static const char NNUE_MAGIC[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'};
+static const char NNUE_MAGIC_V4[8] = {'Z', 'N', 'N', 'U', 'E', '4', '\0', '\0'};
+static const char NNUE_MAGIC_V3[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'}; // single output head
 
 /** @brief The quantised network weights, loaded from a `.nnue` file (completes accumulator.h's forward decl). */
 struct NnueNetwork
 {
     int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; ///< feature-major, king-bucketed
     int16_t feature_transformer_bias[HIDDEN_SIZE];                   ///< feature-transformer bias
-    int16_t output_weight[2 * HIDDEN_SIZE]; ///< own half [0,HIDDEN), opponent half [HIDDEN,2*HIDDEN)
-    int32_t output_bias;                    ///< output bias
+    /// Output heads, one per material bucket ((piece_count - 2) / 4): own half [0,HIDDEN), opponent half
+    /// [HIDDEN,2*HIDDEN). A v3 net's single head is broadcast to every bucket at load (identical evals).
+    int16_t output_weight[NNUE_OUTPUT_BUCKETS][2 * HIDDEN_SIZE];
+    int32_t output_bias[NNUE_OUTPUT_BUCKETS]; ///< output bias per material bucket
 };
 
 _Static_assert((int)NNUE_KING_BUCKETS == (int)NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
@@ -302,25 +305,26 @@ static inline int64_t screlu_dot(const int16_t *acc, const int16_t *weight)
 }
 #endif
 
-int nnue_evaluate(const NnueAccumulator *accumulator, const Color stm)
+int nnue_evaluate(const NnueAccumulator *accumulator, const Color stm, const int output_bucket)
 {
     const NnueNetwork *const net      = accumulator->net;
+    const int16_t *const     weights  = net->output_weight[output_bucket];
     const int16_t *const     own      = accumulator->values[stm];
     const int16_t *const     opponent = accumulator->values[enemy_of(stm)];
 #if defined(__AVX2__)
-    int64_t accumulated = screlu_dot(own, net->output_weight) + screlu_dot(opponent, net->output_weight + HIDDEN_SIZE);
+    int64_t accumulated = screlu_dot(own, weights) + screlu_dot(opponent, weights + HIDDEN_SIZE);
 #else
     int64_t accumulated = 0;
     for (int i = 0; i < HIDDEN_SIZE; i++)
     {
         const int32_t own_clamped = clamp_accumulator(own[i]);
-        accumulated += (int64_t)(own_clamped * net->output_weight[i]) * own_clamped;
+        accumulated += (int64_t)(own_clamped * weights[i]) * own_clamped;
         const int32_t opponent_clamped = clamp_accumulator(opponent[i]);
-        accumulated += (int64_t)(opponent_clamped * net->output_weight[HIDDEN_SIZE + i]) * opponent_clamped;
+        accumulated += (int64_t)(opponent_clamped * weights[HIDDEN_SIZE + i]) * opponent_clamped;
     }
 #endif
     accumulated /= QUANT_ACCUMULATOR;
-    accumulated += net->output_bias;
+    accumulated += net->output_bias[output_bucket];
     return (int)(accumulated * EVALUATION_SCALE / (QUANT_ACCUMULATOR * QUANT_OUTPUT));
 }
 
@@ -330,7 +334,7 @@ int nnue_evaluate_position(const Position *position)
     accumulator.net   = position->accumulator.net;
     accumulator.cache = NULL; // standalone eval: full rebuild, no per-thread cache
     nnue_refresh(&accumulator, position);
-    return nnue_evaluate(&accumulator, position->color_to_move);
+    return nnue_evaluate(&accumulator, position->color_to_move, nnue_output_bucket(position));
 }
 
 // ---- loading -----------------------------------------------------------------------------------------
@@ -341,9 +345,10 @@ const NnueNetwork *nnue_load(const char *path)
     {
         return NULL;
     }
-    char magic[8];
-    bool is_read_ok = fread(magic, 1, 8, file) == 8;
-    if (!is_read_ok || memcmp(magic, NNUE_MAGIC, 8) != 0)
+    char       magic[8];
+    bool       is_read_ok = fread(magic, 1, 8, file) == 8;
+    const bool is_v3      = is_read_ok && memcmp(magic, NNUE_MAGIC_V3, 8) == 0;
+    if (!is_read_ok || (memcmp(magic, NNUE_MAGIC_V4, 8) != 0 && !is_v3))
     {
         fprintf(stderr, "nnue: bad magic in %s\n", path);
         fclose(file);
@@ -362,10 +367,29 @@ const NnueNetwork *nnue_load(const char *path)
                                      file) == sizeof(loaded->feature_transformer_weight);
     is_read_ok = is_read_ok && fread(loaded->feature_transformer_bias, 1, sizeof(loaded->feature_transformer_bias),
                                      file) == sizeof(loaded->feature_transformer_bias);
-    is_read_ok = is_read_ok &&
-                 fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) == sizeof(loaded->output_weight);
-    is_read_ok =
-        is_read_ok && fread(&loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
+    if (is_v3)
+    {
+        // v3: one output head — read it into bucket 0, then broadcast to every bucket (identical evals).
+        is_read_ok = is_read_ok && fread(loaded->output_weight[0], 1, sizeof(loaded->output_weight[0]), file) ==
+                                       sizeof(loaded->output_weight[0]);
+        int32_t bias = 0;
+        is_read_ok   = is_read_ok && fread(&bias, 1, sizeof bias, file) == sizeof bias;
+        for (int bucket = 0; bucket < NNUE_OUTPUT_BUCKETS; bucket++)
+        {
+            if (bucket > 0)
+            {
+                memcpy(loaded->output_weight[bucket], loaded->output_weight[0], sizeof(loaded->output_weight[0]));
+            }
+            loaded->output_bias[bucket] = bias;
+        }
+    }
+    else
+    {
+        is_read_ok = is_read_ok && fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) ==
+                                       sizeof(loaded->output_weight);
+        is_read_ok = is_read_ok &&
+                     fread(loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
+    }
     fclose(file);
     if (!is_read_ok)
     {
