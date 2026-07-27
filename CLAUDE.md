@@ -128,7 +128,7 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   re-tune with `tools/spsa.py`). `static_exchange_eval()` is the local SEE.
 - **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`datagen`/
   `bullet2text`/`nnueeval`/`nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
-  sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256),
+  sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256; default = half the logical CPUs, so each thread gets a real core on SMT machines),
   `Move Overhead`, `EvalFile`, `OwnBook`/`BookFile` (Polyglot; OwnBook defaults false — testing stays
   bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:
   major.minor.<git commit count>, stamped by the Makefile).

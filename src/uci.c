@@ -514,7 +514,12 @@ void uci_loop(Engine *engine)
     // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
     printf("Zenith %s compiled %s %s\n", ZENITH_VERSION_STRING, __DATE__, __TIME__);
     fflush(stdout);
-    UciSession session = {.engine = engine, .thread_count = 1, .move_overhead = 20};
+    // Default Threads = half the logical CPUs the OS reports: on SMT machines that gives each Lazy-SMP
+    // thread a real core instead of a hyperthread sibling (two search threads sharing one core fight over
+    // the same execution resources). GUIs can still set 1..256 explicitly; test harnesses pin Threads=1.
+    UciSession session = {.engine        = engine,
+                          .thread_count  = platform_cpu_count() / 2 > 1 ? platform_cpu_count() / 2 : 1,
+                          .move_overhead = 20};
     position_init(&session.game, engine->net);
     position_set_fen(&session.game, START_FEN); // start from a legal position, so a bare/invalid `go` never
                                                 // searches the empty board (king_sq would then do lsb(0))
@@ -532,7 +537,7 @@ void uci_loop(Engine *engine)
             printf("id name Zenith %s\n", ZENITH_VERSION_STRING);
             printf("id author Jonny Reckless\n");
             printf("option name Hash type spin default 64 min 1 max 65536\n");
-            printf("option name Threads type spin default 1 min 1 max 256\n");
+            printf("option name Threads type spin default %d min 1 max 256\n", session.thread_count);
             printf("option name Move Overhead type spin default 20 min 0 max 5000\n");
             printf("option name Clear Hash type button\n");
             printf("option name EvalFile type string default <none>\n");
