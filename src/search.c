@@ -307,10 +307,28 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
 
     const Bitboard checkers    = pos->checkers; // cached: recomputed once per make_move
     const bool     is_in_check = checkers != 0;
-    int            best        = -VALUE_INF;
+
+    // Transposition table: qsearch entries are stored at depth 0, so ANY hit covers a qsearch node's needs
+    // (the tree below is captures-only and the stored score already summarizes it). Non-PV nodes take the
+    // usual bound cutoffs; the entry's static eval also seeds stand-pat below without re-evaluating.
+    TTData     tt_entry  = {0};
+    const bool is_tt_hit = tt_probe(&searcher->engine->tt, pos->key, &tt_entry);
+    if (is_tt_hit && beta - alpha == 1)
+    {
+        const int tt_score = score_from_tt((int)tt_entry.score, ply);
+        if (tt_entry.bound == BOUND_EXACT || (tt_entry.bound == BOUND_LOWER && tt_score >= beta) ||
+            (tt_entry.bound == BOUND_UPPER && tt_score <= alpha))
+        {
+            return tt_score;
+        }
+    }
+
+    const int orig_alpha = alpha;
+    int       best       = -VALUE_INF;
     if (!is_in_check)
     {
-        best = evaluate(pos, &searcher->engine->eval_cache);
+        best = (is_tt_hit && tt_entry.eval != VALUE_NONE) ? (int)tt_entry.eval
+                                                          : evaluate(pos, &searcher->engine->eval_cache);
         if (best >= beta)
         {
             return best; // stand-pat cutoff — returns before the pin scan below
@@ -320,6 +338,7 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
             alpha = best;
         }
     }
+    const int stand_pat = best; // raw static eval (or VALUE_NONE-ish -INF in check) for the TT store below
 
     Move           moves[MAX_MOVES];
     const int      count  = generate_pseudo(pos, moves, !is_in_check); // in check: evasions; else captures + promotions
@@ -399,6 +418,10 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
     {
         return -VALUE_MATE + ply; // checkmate (all evasions were illegal)
     }
+    // Store at depth 0 so negamax's depth-preferred probes still outrank this entry; the raw stand-pat eval
+    // rides along for other nodes' stand-pat seeding. Bound classification mirrors negamax's fail-soft rules.
+    const Bound bound = best >= beta ? BOUND_LOWER : (alpha > orig_alpha ? BOUND_EXACT : BOUND_UPPER);
+    tt_store(&searcher->engine->tt, pos->key, best, is_in_check ? VALUE_NONE : stand_pat, 0, bound, MOVE_NONE, ply);
     return best;
 }
 
