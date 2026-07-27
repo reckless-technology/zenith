@@ -97,3 +97,8 @@ any hit suffices at depth 0), stand-pat seeded from entry eval, store at depth 0
 Found via the observation that qsearch prefetched the TT but never read it. Bench signature 2657379 →
 2264816 (-15% nodes). Landed as PR #3. Contrast with the improving heuristic (same day, unproven): the
 biggest wins remain plugging MISSING standard machinery, not re-conditioning what SPSA already tuned.
+
+**Output buckets (ob2): +14.7 ± 7.7 Elo fixed-depth SPRT over kb3, H1 accepted (2026-07-27).** Phase 1 of
+the evaluator project: 8 material heads ((pieces-2)/4) on the unchanged kb 768×8→512 transformer, retrained
+on the same 16 shards (8 epochs, val 0.01483 vs kb3-era ~0.0156). ZNNUE4 format; v3 nets broadcast at load.
+Training: ~32 min/epoch on the 4070 (~723k pos/s). Next: horizontal king mirroring (phase 2).
