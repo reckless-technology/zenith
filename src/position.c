@@ -168,7 +168,7 @@ Bitboard position_attackers_to(const Position *pos, const int square, const Colo
 static void update_checkers(Position *pos)
 {
     const Color side = pos->color_to_move;
-    pos->checkers    = position_attackers_to(pos, position_king_sq(pos, side), enemy_of(side), position_occupied(pos));
+    pos->checkers    = position_attackers_to(pos, pos->king_location[side], enemy_of(side), position_occupied(pos));
 }
 
 /** @brief Apply @p move to @p pos in place (copy-make: the caller copied @p pos first — there is no unmake). */
@@ -274,13 +274,13 @@ bool position_is_legal_slow(const Position *pos, const Move move)
     const Color side = pos->color_to_move;
     Position    copy = *pos;
     position_make_move(&copy, move);
-    return !position_is_attacked_by(&copy, position_king_sq(&copy, side), enemy_of(side));
+    return !position_is_attacked_by(&copy, copy.king_location[side], enemy_of(side));
 }
 
 Bitboard position_pinned_to_king(const Position *pos)
 {
     const Color    side = pos->color_to_move, opponent = enemy_of(side);
-    const int      king_square   = position_king_sq(pos, side);
+    const int      king_square   = pos->king_location[side];
     const Bitboard occupancy     = position_occupied(pos);
     Bitboard       pinned_pieces = 0;
     // Enemy sliders that would hit our king on an empty board are candidate pinners.
@@ -304,7 +304,7 @@ Bitboard position_pinned_to_king(const Position *pos)
 Bitboard position_discovered_check_candidates(const Position *pos)
 {
     const Color    side = pos->color_to_move, opponent = enemy_of(side);
-    const int      enemy_king_square = position_king_sq(pos, opponent);
+    const int      enemy_king_square = pos->king_location[opponent];
     const Bitboard occupancy         = position_occupied(pos);
     Bitboard       candidates        = 0;
     // Our sliders that would hit the enemy king on an empty board; a single OWN piece between such a slider
@@ -371,7 +371,7 @@ bool position_is_legal(const Position *pos, const Move move, const Bitboard chec
 {
     const Color side = pos->color_to_move, opponent = enemy_of(side);
     const int   from = move_from(move), to = move_to(move);
-    const int   king_square = position_king_sq(pos, side);
+    const int   king_square = pos->king_location[side];
 
     // Castling is generated fully legal by movegen (king not in/through check, path empty) — always legal.
     if (move_is_castle(move))

@@ -39,7 +39,7 @@ typedef struct Position
     // FEN-output only).
     Color    color_to_move;             ///< side to move
     Square   ep_square;                 ///< en-passant TARGET square (0..63), or NO_SQUARE when no ep is possible
-    Square   king_location[NUM_COLORS]; ///< king square per color, maintained incrementally by add_piece/move_piece
+    Square   king_location[NUM_COLORS]; ///< king square per color (0 if kingless), maintained by add_piece/move_piece
     uint16_t fullmove;                  ///< full-move number (FEN output only)
     uint8_t  halfmove;                  ///< 50-move clock (plies); resets on a pawn move or capture
     uint8_t  castling_rights;           ///< castling-rights bitmask (CR_*)
@@ -77,24 +77,6 @@ static inline Bitboard position_pieces(const Position *pos, Color color, Piece p
     return pos->colors[color] & pos->pieces[piece];
 }
 
-/** @brief Squares holding @p piece pieces of either color. */
-static inline Bitboard position_pieces_type(const Position *pos, Piece piece)
-{
-    return pos->pieces[piece];
-}
-
-/** @brief Square of @p color's king (the incrementally-maintained king_location; 0 if that side has no king). */
-static inline int position_king_sq(const Position *pos, Color color)
-{
-    return pos->king_location[color];
-}
-
-/** @brief The piece type on @p square, or NO_PIECE if empty. */
-static inline Piece position_piece_on(const Position *pos, int square)
-{
-    return (Piece)pos->board[square];
-}
-
 /** @brief The color of the piece on @p square (undefined for empty squares — check occupancy first). */
 static inline Color position_color_on(const Position *pos, int square)
 {
@@ -114,12 +96,6 @@ Bitboard position_attackers_to(const Position *pos, int square, Color color, Bit
 static inline bool position_is_attacked_by(const Position *pos, int square, Color color)
 {
     return position_attackers_to(pos, square, color, position_occupied(pos)) != 0;
-}
-
-/** @brief Whether the side to move is in check (reads the cached @ref Position::checkers). */
-static inline bool position_is_in_check(const Position *pos)
-{
-    return pos->checkers != 0;
 }
 
 /// @}
