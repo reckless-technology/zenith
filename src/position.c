@@ -121,7 +121,7 @@ static void move_piece(Position *pos, const int from, const int to)
 
 bool position_is_draw(const Position *pos, const uint64_t *history_keys, const int history_count)
 {
-    if (pos->halfmove >= 100)
+    if (pos->half_move >= 100)
     {
         return true;
     }
@@ -136,7 +136,7 @@ bool position_is_draw(const Position *pos, const uint64_t *history_keys, const i
         }
     }
     // Repetition: scan the history back to the last irreversible move (step 2 keeps the side to move).
-    int stop_at = history_count - pos->halfmove;
+    int stop_at = history_count - pos->half_move;
     if (stop_at < 0)
     {
         stop_at = 0;
@@ -183,11 +183,11 @@ void position_make_move(Position *pos, const Move move)
         pos->key ^= ZobristEp[pos->ep_square];
         pos->ep_square = NO_SQUARE;
     }
-    pos->halfmove++;
+    pos->half_move++;
 
     if (move_is_capture(move))
     {
-        pos->halfmove = 0;
+        pos->half_move = 0;
         if (move_is_ep(move))
         {
             remove_piece(pos, to + (side == WHITE ? -8 : 8)); // captured pawn sits behind the ep target
@@ -215,7 +215,7 @@ void position_make_move(Position *pos, const Move move)
 
     if (piece == PAWN)
     {
-        pos->halfmove = 0;
+        pos->half_move = 0;
         if (move_is_promo(move))
         {
             remove_piece(pos, to);
@@ -249,7 +249,7 @@ void position_make_move(Position *pos, const Move move)
 
     if (side == BLACK)
     {
-        pos->fullmove++;
+        pos->full_move++;
     }
     pos->color_to_move = opponent;
     pos->key ^= ZobristSide;
@@ -265,7 +265,7 @@ void position_make_null(Position *pos)
     }
     pos->color_to_move = enemy_of(pos->color_to_move);
     pos->key ^= ZobristSide;
-    pos->halfmove++;
+    pos->half_move++;
     update_checkers(pos); // null move only made when not in check, but the new stm's checkers must be current
 }
 
@@ -460,21 +460,21 @@ bool position_set_fen(Position *pos, const char *fen)
     pos->pawn_key        = 0;
     pos->castling_rights = 0;
     pos->ep_square       = NO_SQUARE;
-    pos->halfmove        = 0;
-    pos->fullmove        = 1;
+    pos->half_move       = 0;
+    pos->full_move       = 1;
     pos->color_to_move   = WHITE;
 
     // Tokenize a local copy on whitespace; missing trailing fields read as "".
     char fen_copy[512];
     snprintf(fen_copy, sizeof fen_copy, "%s", fen);
-    char             *save_ptr     = NULL;
-    const char *const separators   = " \t\r\n";
-    const char       *board_str    = strtok_r(fen_copy, separators, &save_ptr);
-    const char       *side         = strtok_r(NULL, separators, &save_ptr);
-    const char       *castle_str   = strtok_r(NULL, separators, &save_ptr);
-    const char       *ep_str       = strtok_r(NULL, separators, &save_ptr);
-    const char *const halfmove_str = strtok_r(NULL, separators, &save_ptr);
-    const char *const fullmove_str = strtok_r(NULL, separators, &save_ptr);
+    char             *save_ptr      = NULL;
+    const char *const separators    = " \t\r\n";
+    const char       *board_str     = strtok_r(fen_copy, separators, &save_ptr);
+    const char       *side          = strtok_r(NULL, separators, &save_ptr);
+    const char       *castle_str    = strtok_r(NULL, separators, &save_ptr);
+    const char       *ep_str        = strtok_r(NULL, separators, &save_ptr);
+    const char *const half_move_str = strtok_r(NULL, separators, &save_ptr);
+    const char *const full_move_str = strtok_r(NULL, separators, &save_ptr);
     if (board_str == NULL)
     {
         board_str = "";
@@ -491,23 +491,23 @@ bool position_set_fen(Position *pos, const char *fen)
     {
         ep_str = "";
     }
-    // Lenient integer fields: a failed/absent halfmove read stores 0 and stops later parsing, so a 4-field
-    // FEN (no clocks) yields halfmove 0, fullmove 1.
-    int   halfmove_clock = 0, fullmove_number = 1;
+    // Lenient integer fields: a failed/absent half_move read stores 0 and stops later parsing, so a 4-field
+    // FEN (no clocks) yields half_move 0, full_move 1.
+    int   half_move_clock = 0, full_move_number = 1;
     char *end_ptr = NULL;
-    if (halfmove_str != NULL)
+    if (half_move_str != NULL)
     {
-        const long parsed    = strtol(halfmove_str, &end_ptr, 10);
-        const bool is_parsed = end_ptr != halfmove_str;
-        halfmove_clock       = is_parsed ? (int)parsed : 0;
-        if (is_parsed && *end_ptr == '\0' && fullmove_str != NULL)
+        const long parsed    = strtol(half_move_str, &end_ptr, 10);
+        const bool is_parsed = end_ptr != half_move_str;
+        half_move_clock      = is_parsed ? (int)parsed : 0;
+        if (is_parsed && *end_ptr == '\0' && full_move_str != NULL)
         {
-            const long full = strtol(fullmove_str, &end_ptr, 10);
-            fullmove_number = end_ptr != fullmove_str ? (int)full : 0;
+            const long full  = strtol(full_move_str, &end_ptr, 10);
+            full_move_number = end_ptr != full_move_str ? (int)full : 0;
         }
         else
         {
-            fullmove_number = is_parsed ? 0 : 1; // trailing junk / failed first read, as the stream behaves
+            full_move_number = is_parsed ? 0 : 1; // trailing junk / failed first read, as the stream behaves
         }
     }
 
@@ -606,8 +606,8 @@ bool position_set_fen(Position *pos, const char *fen)
             }
         }
     }
-    pos->halfmove = halfmove_clock;
-    pos->fullmove = fullmove_number;
+    pos->half_move = half_move_clock;
+    pos->full_move = full_move_number;
 
     if (pos->color_to_move == BLACK)
     {
@@ -702,7 +702,7 @@ char *position_fen(const Position *pos, char *buf)
     *out++ = ' ';
     char square_name[3];
     sq_name(pos->ep_square, square_name);
-    out += sprintf(out, "%s %d %d", square_name, pos->halfmove, pos->fullmove);
+    out += sprintf(out, "%s %d %d", square_name, pos->half_move, pos->full_move);
     (void)out;
     return buf;
 }
