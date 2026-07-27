@@ -269,7 +269,7 @@ void position_make_null(Position *pos)
     update_checkers(pos); // null move only made when not in check, but the new stm's checkers must be current
 }
 
-bool position_is_legal_slow(const Position *pos, const Move move)
+bool position_is_move_legal_slow(const Position *pos, const Move move)
 {
     const Color side = pos->color_to_move;
     Position    copy = *pos;
@@ -367,7 +367,7 @@ bool position_gives_check_fast(const Position *pos, const Move move, const Bitbo
 }
 
 /** @brief Copy-free legality test for a pseudo-legal @p move, given the node's @p checkers and @p pinned. */
-bool position_is_legal(const Position *pos, const Move move, const Bitboard checkers, const Bitboard pinned)
+bool position_is_move_legal(const Position *pos, const Move move, const Bitboard checkers, const Bitboard pinned)
 {
     const Color side = pos->color_to_move, opponent = enemy_of(side);
     const int   from = move_from(move), to = move_to(move);

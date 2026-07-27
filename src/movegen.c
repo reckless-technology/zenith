@@ -70,7 +70,7 @@ static Move *slider_moves(Move *out, Bitboard slider_pieces, Bitboard (*attack_f
  * @param moves output buffer (MAX_MOVES), MOVE_NONE-terminated.
  * @param is_noisy_only captures + promotions only.
  * @param is_legal_mode true = emit fully legal moves (per-destination king safety, full en-passant test);
- *        false = pseudo-legal (callers filter with position_is_legal).
+ *        false = pseudo-legal (callers filter with position_is_move_legal).
  * @param check_mask target filter for non-king moves: ~0 when not in check, checker|blocking-ray in single
  *        check, 0 in double check (only king moves can resolve).
  * @param pinned our pieces pinned to our king (position_pinned_to_king); pinned targets are restricted to
@@ -139,7 +139,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         {
             const int  from    = pop_lsb(&ep_attackers);
             const Move ep_move = move_make(from, pos->ep_square, FLAG_EP);
-            if (is_legal_mode && !position_is_legal(pos, ep_move, pos->checkers, pinned))
+            if (is_legal_mode && !position_is_move_legal(pos, ep_move, pos->checkers, pinned))
             {
                 continue;
             }
@@ -295,7 +295,7 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
  * @brief Generate pseudo-legal moves into @p moves (a MAX_MOVES buffer), terminated with MOVE_NONE.
  *
  * Castling is emitted fully legal (king not in/through check); every other move is legal iff it does not
- * leave the mover's own king in check — the search filters that with the copy-free position_is_legal before
+ * leave the mover's own king in check — the search filters that with the copy-free position_is_move_legal before
  * pruning/make. The permissive masks make this instantiation emit exactly the plain pseudo-legal move set.
  */
 int generate_pseudo(const Position *pos, Move *moves, bool is_noisy_only)

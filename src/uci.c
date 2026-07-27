@@ -635,7 +635,7 @@ int uci_run(Engine *engine, int argc, char **argv)
         }
         if (!strcmp(argv[1], "legalcheck"))
         {
-            return run_legal_check(); // position_is_legal == position_is_legal_slow over a perft-like walk
+            return run_legal_check(); // position_is_move_legal == position_is_move_legal_slow over a perft-like walk
         }
         if (!strcmp(argv[1], "datagen"))
         {
@@ -1042,8 +1042,8 @@ int run_perft_suite(void)
     return is_all_pass ? 0 : 1;
 }
 
-// --- CLI: legalcheck — the copy-free position_is_legal must agree with position_is_legal_slow on every pseudo-legal
-// move ---
+// --- CLI: legalcheck — the copy-free position_is_move_legal must agree with position_is_move_legal_slow on every
+// pseudo-legal move ---
 
 /** @brief Tallies for one legalcheck walk (passed down the recursion instead of file-scope counters). */
 typedef struct LegalCheckTally
@@ -1052,32 +1052,32 @@ typedef struct LegalCheckTally
     uint64_t mismatches; ///< disagreements found (first few are printed with their FEN)
 } LegalCheckTally;
 
-/** @brief Recurse to @p depth checking position_is_legal / gives_check_fast against copy-make ground truth. */
+/** @brief Recurse to @p depth checking position_is_move_legal / gives_check_fast against copy-make ground truth. */
 static void legal_check_walk(const Position *pos, const int depth, LegalCheckTally *tally)
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
-    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via position_is_legal
+    const Bitboard checkers          = pos->checkers; // cached; legalcheck also validates it via position_is_move_legal
     const Bitboard pinned            = position_pinned_to_king(pos);
     const Bitboard discovered        = position_discovered_check_candidates(pos);
     const int      enemy_king_square = pos->king_location[enemy_of(pos->color_to_move)];
     for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
         const Move move = pseudo[index];
-        if (position_is_legal(pos, move, checkers, pinned) != position_is_legal_slow(pos, move))
+        if (position_is_move_legal(pos, move, checkers, pinned) != position_is_move_legal_slow(pos, move))
         {
             if (tally->mismatches < 8)
             {
                 char fen_buf[128];
                 printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
-                       position_is_legal(pos, move, checkers, pinned), position_is_legal_slow(pos, move),
+                       position_is_move_legal(pos, move, checkers, pinned), position_is_move_legal_slow(pos, move),
                        move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
             }
             tally->mismatches++;
         }
         // gives_check_fast: for legal QUIET non-castle moves it must equal the copy-make ground truth
         // (castling is allowed to conservatively report true — it is only a pruning guard).
-        if (move_is_quiet(move) && !move_is_castle(move) && position_is_legal_slow(pos, move))
+        if (move_is_quiet(move) && !move_is_castle(move) && position_is_move_legal_slow(pos, move))
         {
             Position child = *pos;
             position_make_move(&child, move);
@@ -1113,7 +1113,7 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
 int run_legal_check(void)
 {
     // Positions chosen to hammer pins, checks, king moves, castling and en passant (incl. the EP discovered-
-    // check case that position_is_legal defers to the slow path).
+    // check case that position_is_move_legal defers to the slow path).
     const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
@@ -1151,7 +1151,7 @@ int run_legal_check(void)
     snprintf(aux, sizeof aux, "%13s%3llu mism", "", (unsigned long long)total_mismatches);
     test_result_columns(total_mismatches == 0, "legal", detail, (int64_t)total_nodes, aux, total_secs,
                         total_secs > 0.0 ? total_nodes / total_secs / 1e6 : 0.0,
-                        "(position_is_legal == position_is_legal_slow)");
+                        "(position_is_move_legal == position_is_move_legal_slow)");
     return total_mismatches ? 1 : 0;
 }
 
