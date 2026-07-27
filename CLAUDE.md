@@ -105,13 +105,16 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   shared lockless `EvalCache`; NULL = uncached). Dispatches to the NNUE forward when the position is bound
   to a net (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility, tempo). This
   single call site is the NNUE seam.
-- **nnue.\*** — quantised **king-bucketed** (768×8 → 512) SCReLU perspective net: loader (`ZNNUE3` magic),
-  feature indexing, and the integer forward. The perspective's own king square selects one of **8 king-input
-  buckets** (4 file-pairs × 2 board-halves) offsetting its 768 block. The accumulator is maintained
-  **incrementally** (embedded in `Position`); a king move that changes a side's bucket triggers
-  `refresh_perspective`, accelerated by a per-thread **finny refresh cache** (owned by each `Searcher`, bound
-  into its root position; per (perspective,bucket) cached accumulator + the board it was built from; rebuild
-  applies only piece-diffs, per-entry net-pointer-guarded). The accumulator carries its net binding
+- **nnue.\*** — quantised **king-bucketed** (768×8 → 512 → 8 output heads) SCReLU perspective net: loader
+  (`ZNNUE5` magic; still reads `ZNNUE4`/`ZNNUE3` so older nets keep working), feature indexing, and the
+  integer forward. A perspective whose own king sits on files e–h is **mirrored horizontally** (`square ^ 7`)
+  onto files a–d before indexing; the (mirrored) king square then selects one of **8 king-input buckets**
+  (4 files × 2 board-halves) offsetting its 768 block, and total piece count selects one of 8 **material
+  output buckets**. The accumulator is maintained **incrementally** (embedded in `Position`); a king move
+  that changes a side's bucket *or* mirror state triggers `refresh_perspective`, accelerated by a per-thread
+  **finny refresh cache** (owned by each `Searcher`, bound into its root position; per
+  (perspective,mirror,bucket) cached accumulator + the board it was built from; rebuild applies only
+  piece-diffs, per-entry net-pointer-guarded). The accumulator carries its net binding
   (`position_init(pos, net)`; NULL = HCE) — the net itself is heap-loaded and owned by the `Engine`.
   `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
 - **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
@@ -154,8 +157,8 @@ detection breaks.
 venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
 
 - **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
-  king-bucketed 768×8→512, SCReLU). `src/nnue.c` must reproduce `feature_index`, `king_bucket`, and
-  `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
+  king-bucketed 768×8→512→8 output heads, horizontal king mirroring, SCReLU). `src/nnue.c` must reproduce
+  `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
   low-RAM, parallelizable). The current best net `nets/zenith-ob2.nnue` = king buckets + material output

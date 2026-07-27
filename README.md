@@ -134,13 +134,15 @@ ground truth (`position_is_move_legal_slow`) by the `legalcheck` gate.
 A single seam — `evaluate(const Position *, EvalCache *)`, centipawns from the side-to-move's
 perspective — is the one call site the network replaces.
 
-- **NNUE (primary):** a king-bucketed **768×8 → 512** SCReLU perspective network. The perspective's own
-  king square selects one of 8 input buckets (4 file-pairs × 2 board-halves), offsetting its 768-feature
-  block. The accumulator is maintained **incrementally** inside `Position` and carries its net binding
+- **NNUE (primary):** a king-bucketed **768×8 → 512 → 8 output heads** SCReLU perspective network. A
+  perspective whose own king sits on files e–h is mirrored horizontally (`square ^ 7`) onto files a–d; the
+  (mirrored) king square selects one of 8 input buckets (4 files × 2 board-halves), offsetting its
+  768-feature block, and the total piece count selects one of 8 material output heads. The accumulator is
+  maintained **incrementally** inside `Position` and carries its net binding
   (`position_init(pos, net)`; the net itself is heap-loaded and owned by the `Engine`). A king move that
-  changes a side's bucket triggers a refresh accelerated by a per-thread **finny cache** (owned by each
-  `Searcher`, bound into its root position: a per-(perspective, bucket) cached accumulator plus the board
-  it was built from, so a rebuild applies only piece diffs). The
+  changes a side's bucket or mirror state triggers a refresh accelerated by a per-thread **finny cache**
+  (owned by each `Searcher`, bound into its root position: a per-(perspective, mirror, bucket) cached
+  accumulator plus the board it was built from, so a rebuild applies only piece diffs). The
   integer forward pass is AVX2-vectorised, and a shared lockless **eval cache** memoises results (its
   biggest win is qsearch stand-pat). The `nnuecheck` gate proves the incremental accumulator is
   bit-identical to a full refresh.
@@ -217,8 +219,8 @@ published, textbook techniques every strong engine does — bitboards, magic bit
 tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
 [Chess Programming Wiki](https://www.chessprogramming.org)) — implemented independently.
 
-- **NNUE network:** Zenith's own architecture (king-bucketed 768×8→512 SCReLU), its own trainer
-  (`trainer/`), its own quantised file format (`ZNNUE3`), and its own trained weights. The shipped net was
+- **NNUE network:** Zenith's own architecture (king-bucketed, horizontally-mirrored 768×8→512→8 SCReLU),
+  its own trainer (`trainer/`), its own quantised file format (`ZNNUE5`), and its own trained weights. The shipped net was
   trained on the **public PlentyChess dataset**
   ([Yoshie2000/plentychess_data_bulletformat](https://huggingface.co/datasets/Yoshie2000/plentychess_data_bulletformat)) —
   a public dataset used to train Zenith's own network; no other engine's code or network is included or

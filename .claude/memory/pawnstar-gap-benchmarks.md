@@ -57,3 +57,13 @@ self-play but only ~+20 better against pawnstar (~1/3 transfer). SPRT self-play 
 versus a stronger reference. The single-thread gap to pawnstar is still large (~−258) but narrowing; eval
 quality (more/better data, see [[zenith-eval-experiments]]) remains the highest-leverage lever. Next data
 scale-ups should keep pushing — 650M was 8 of 16 available PlentyChess shards.
+
+**BOTCHED MEASUREMENT (2026-07-27, since corrected):** a "−37.7 ± 18.4" run repeated the exact artifact this
+memory warns about — pawnstar was left on its Threads=32 + OwnBook=true defaults. Zenith 1-thread scoring
+44.6% against THAT is consistent with the true lead growing. ALWAYS pass option.Threads=1
+option.OwnBook=false to pawnstar, and match -concurrency (the valid baseline numbers used conc 8).
+
+- **FAIR re-measurement (2026-07-27, correct conditions: both Threads=1, OwnBook=false, Hash=64, conc 8,
+  8+0.08, 1000 games): Zenith +111.75 ± 15.49 (65.55%).** The lead GREW from +78 (2026-07-25) — the session's
+  +43 self-play Elo (SPSA pass 2 +11, qsearch TT +17, ob2 net +15) plus the gated-clock speed win transferred
+  to roughly +34 of gap movement. Zenith is decisively stronger than pawnstar single-thread.

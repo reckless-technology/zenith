@@ -2,7 +2,7 @@
 
 Zenith evaluates positions with its own king-bucketed NNUE, trained by the pipeline in this repository.
 Nothing here is shared with any other engine: Zenith has its own network architecture, its own trainer
-(`trainer/`), its own quantised file format (`ZNNUE3`), and its own trained weights. This document is the
+(`trainer/`), its own quantised file format (`ZNNUE5`), and its own trained weights. This document is the
 reference for how the network is built and how to train a new one.
 
 The pipeline is four stages:
@@ -11,7 +11,7 @@ The pipeline is four stages:
    data                         trainer (PyTorch/CUDA)              engine (C)
  ┌─────────────────┐  text     ┌──────────────────────┐  .nnue   ┌───────────────────┐
  │ ./build/zenith datagen│ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
- │  (self-play)    │  fen;     │  featurise → SCReLU  │  ZNNUE3  │  + integer forward │
+ │  (self-play)    │  fen;     │  featurise → SCReLU  │  ZNNUE5  │  + integer forward │
  │  OR             │  score;   │  net → quantise      │          │  behind evaluate() │
  │ ./build/zenith        │  wdl      │                      │          │                    │
  │  bullet2text    │           └──────────────────────┘          └───────────────────┘
@@ -32,26 +32,34 @@ A **perspective network** with **king-input buckets** — the design most strong
 
 ```
 per-perspective inputs : 768  =  2 colors × 6 piece types × 64 squares   (own pieces first)
-king buckets           : the perspective's OWN king square selects 1 of 8 buckets
-                         (4 file-pairs {a/b, c/d, e/f, g/h} × 2 board-halves {ranks 1-4, 5-8}),
+king mirroring         : if the perspective's OWN king is on files e-h, the whole perspective is
+                         mirrored horizontally (every square ^ 7) — the net only ever sees a king
+                         on files a-d
+king buckets           : the (mirrored) king square selects 1 of 8 buckets
+                         (4 files {a, b, c, d} × 2 board-halves {ranks 1-4, 5-8}),
                          offsetting the 768 block → 768 × 8 = 6144 feature-transformer rows
 feature transformer    : 6144 → 512     (one 512-wide accumulator per perspective)
 concatenate            : [own(512), opponent(512)] = 1024
 activation             : SCReLU(x) = clamp(x, 0, 1)²
-output                 : 1024 → 1  (single scalar logit), dequantised to centipawns
+output buckets         : 1024 → 8 heads; the head is selected by total piece count
+                         ((popcount(occupied) − 2) / 4), dequantised to centipawns
 ```
 
 Two accumulators are maintained, one per perspective (side-to-move "own" and the opponent). Black's
 perspective mirrors the board vertically (`square ^ 56`) and swaps the own/opponent colour halves, so the
-network only ever learns "from the side to move's point of view."
+network only ever learns "from the side to move's point of view." Horizontal king mirroring folds the
+board's left/right symmetry the same way: instead of spending 4 of 8 buckets on kingside king placements,
+mirrored positions share weights, so every bucket trains on twice the effective data at the same file size.
 
-The feature-index convention lives in **`trainer/features.py`** (`feature_index`, `king_bucket`) and is the
-single source of truth; `src/nnue.c` reproduces it exactly. Feature layout within one king bucket:
+The feature-index convention lives in **`trainer/features.py`** (`feature_index`, `king_bucket`,
+`king_mirror`) and is the single source of truth; `src/nnue.c` reproduces it exactly. Feature layout within
+one king bucket:
 
 ```
 index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  +  rel_square
         rel_color  = 0 for the perspective's own pieces, 1 for the opponent's
-        rel_square = square (White perspective)  or  square ^ 56 (Black perspective)
+        rel_square = square (White perspective)  or  square ^ 56 (Black perspective),
+                     then ^ 7 for every piece when king_mirror(rel_king) (own king on files e-h)
         piece_type = 0..5  (pawn..king, 0-based on the wire)
 ```
 
@@ -60,7 +68,7 @@ by the format.
 
 ---
 
-## 2. Quantisation & on-disk format (`ZNNUE3`)
+## 2. Quantisation & on-disk format (`ZNNUE5`)
 
 The trainer exports a fixed-point `int16` network; the engine loads it directly and does an all-integer
 forward pass (a float `.pt` checkpoint is saved alongside for inspection only).
@@ -72,19 +80,22 @@ EVALUATION_SCALE = 400   logit → centipawn scale (must equal the trainer loss 
 
 FT weights : round(w × QA)      → int16   [6144][512]   (feature-major, king-bucketed: 8 × 768 rows)
 FT bias    : round(b × QA)      → int16   [512]
-OUT weights: round(w × QB)      → int16   [1024]         (own half [0,512) then opponent half [512,1024))
-OUT bias   : round(b × QA × QB) → int32   [1]
+OUT weights: round(w × QB)      → int16   [8][1024]      (bucket-major; per bucket: own half [0,512)
+                                                          then opponent half [512,1024))
+OUT bias   : round(b × QA × QB) → int32   [8]
 ```
 
-**File `nets/zenith-<tag>.nnue`** (little-endian): the 8-byte magic `ZNNUE3\0\0`, then the four arrays
-back-to-back in the order above. The integer forward (identical in `integer_eval` of `trainer/features.py` and
-`src/nnue.c`):
+**File `nets/zenith-<tag>.nnue`** (little-endian): the 8-byte magic `ZNNUE5\0\0`, then the four arrays
+back-to-back in the order above. The engine's loader also still accepts `ZNNUE4` (identical layout, no
+king mirroring) and `ZNNUE3` (no mirroring, single output head broadcast to all 8 buckets), so older
+shipped nets keep working. The integer forward (identical in `integer_eval` of `trainer/features.py` and
+`src/nnue.c`; `b` = the position's output bucket):
 
 ```
 acc = FT_bias + Σ FT_weight[active feature]        (per perspective; int16 columns, int64 accumulation)
 h   = clamp(acc, 0, QA)                            (SCReLU input clamp, per perspective)
-out = Σ (h · OUT_w) · h                            (own half + opponent half; the ·h squares → SCReLU)
-out = out / QA + OUT_bias
+out = Σ (h · OUT_w[b]) · h                         (own half + opponent half; the ·h squares → SCReLU)
+out = out / QA + OUT_bias[b]
 cp  = out × EVALUATION_SCALE / (QA × QB)           (all divisions truncate toward zero, matching C `/`)
 ```
 
@@ -100,8 +111,17 @@ The export step prints how many transformer weights saturate `int16` (should be 
 - **King-input buckets (768×8).** Conditioning features on the perspective's own king square lets the net
   learn king-safety-dependent piece values. Worth **+21 Elo at fixed depth**, but it costs ~6% speed (a king
   move that changes bucket forces an accumulator refresh) and needs *more data* to pay for that speed hit —
-  it only overtakes the plain 512-net once the dataset is large (see §9). An 8-way **output**-bucket variant
-  (`ZNNUE2`) was tried and **shelved** — neutral Elo for the added complexity.
+  it only overtakes the plain 512-net once the dataset is large (see §9).
+- **Material output buckets (1024→8 heads).** Selecting the output head by total piece count lets each
+  game phase get its own 1024→1 mapping for almost no cost (the buckets share the whole feature
+  transformer; only the final dot product changes). An early attempt (`ZNNUE2`) was neutral, but retried on
+  the 1.4B-position dataset it was worth **+14.7 Elo at fixed depth** (`zenith-ob2`) — bucket ideas can be
+  data-starved rather than wrong.
+- **Horizontal king mirroring.** Chess has no left/right asymmetry in the rules, so a perspective whose king
+  sits on files e–h is mirrored (`square ^ 7`) onto files a–d before feature indexing. Halves the king-
+  placement space the net must model: same file size, twice the effective data per bucket. The cost is an
+  accumulator refresh when a king crosses the d/e boundary (served by the same finny refresh cache as
+  bucket changes).
 - **SCReLU over clipped ReLU.** `clamp(x,0,1)²` gives a stronger net than plain clipped ReLU at the same
   size and is cheap as an integer kernel (`(h·w)·h`). The clamp bound is exactly `QA`, so quantisation and
   activation share one constant.

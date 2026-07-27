@@ -8,8 +8,10 @@ verification gate compares the engine's integer eval against `integer_eval` here
 
 Architecture (Zenith v4, independent of any other engine):
     768 base inputs per perspective (6 piece types x 2 colors x 64 squares, own pieces first), replicated
-    across NUM_KING_BUCKETS king-input buckets selected by the perspective's own king square (file-pair x
-    board-half) -> HIDDEN_SIZE feature transformer -> concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU ->
+    across NUM_KING_BUCKETS king-input buckets selected by the perspective's own king square (file x
+    board-half, with files e-h MIRRORED onto a-d: the whole perspective flips horizontally, square ^ 7, so
+    every bucket sees both wings' data) -> HIDDEN_SIZE feature transformer ->
+    concat[own(HIDDEN), opp(HIDDEN)] -> SCReLU ->
     NUM_OUTPUT_BUCKETS output heads, one selected per position by total piece count ((count - 2) // 4).
     Material-bucketed heads let the same hidden features be weighed differently by game phase.
 """
@@ -28,7 +30,7 @@ EVALUATION_SCALE = 400   # logit -> centipawn scale (must equal EVAL_SCALE in th
 PADDING_INDEX = INPUT_FEATURES  # embedding row 6144 is a forced-zero pad slot
 MAX_ACTIVE_FEATURES = 32        # at most 32 pieces on the board
 
-NNUE_MAGIC = b"ZNNUE4\0\0"  # 8-byte little-endian file magic (v4: king-input + output buckets)
+NNUE_MAGIC = b"ZNNUE5\0\0"  # 8-byte little-endian file magic (v5: horizontal king mirroring)
 NNUE_MAGIC_V3 = b"ZNNUE3\0\0"  # previous format (single output head); loaders may broadcast it to v4
 
 WHITE, BLACK = 0, 1
@@ -42,12 +44,20 @@ def output_bucket(piece_count):
     return (piece_count - 2) // 4
 
 
+def king_mirror(relative_king_square):
+    """Whether this perspective mirrors horizontally: true when its king is on files e-h. Mirrored
+    perspectives XOR every square with 7, folding the king onto files a-d."""
+    return (relative_king_square & 7) >= 4
+
+
 def king_bucket(relative_king_square):
-    """Map a perspective-relative king square (0..63) to one of NUM_KING_BUCKETS buckets: 4 file-pairs
-    (a/b, c/d, e/f, g/h) x 2 board-halves (ranks 1-4, ranks 5-8). Must match king_bucket() in src/nnue.c."""
-    file_pair = (relative_king_square & 7) // 2  # 0..3
-    half = (relative_king_square >> 3) // 4      # 0..1
-    return half * 4 + file_pair                  # 0..7
+    """Map a perspective-relative king square (0..63) to one of NUM_KING_BUCKETS buckets: 4 files (a-d
+    after mirroring) x 2 board-halves (ranks 1-4, ranks 5-8). Must match king_bucket() in src/nnue.c."""
+    file = relative_king_square & 7
+    if file >= 4:
+        file = 7 - file                      # e-h mirror onto d-a
+    half = (relative_king_square >> 3) // 4  # 0..1
+    return half * 4 + file                   # 0..7
 
 
 def parse_board_pieces(board_field):
@@ -84,6 +94,8 @@ def feature_index(perspective, king_square, color, piece_type, square):
     else:
         relative_square = square ^ 56
         relative_king = king_square ^ 56
+    if king_mirror(relative_king):
+        relative_square ^= 7  # king on e-h: the whole perspective mirrors horizontally
     return king_bucket(relative_king) * BASE_FEATURES + relative_color * 384 + piece_type * 64 + relative_square
 
 

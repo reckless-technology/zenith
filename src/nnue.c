@@ -28,7 +28,8 @@ enum
     EVALUATION_SCALE  = 400
 };
 
-static const char NNUE_MAGIC_V4[8] = {'Z', 'N', 'N', 'U', 'E', '4', '\0', '\0'};
+static const char NNUE_MAGIC_V5[8] = {'Z', 'N', 'N', 'U', 'E', '5', '\0', '\0'}; // horizontal king mirroring
+static const char NNUE_MAGIC_V4[8] = {'Z', 'N', 'N', 'U', 'E', '4', '\0', '\0'}; // unmirrored, output buckets
 static const char NNUE_MAGIC_V3[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'}; // single output head
 
 /** @brief The quantised network weights, loaded from a `.nnue` file (completes accumulator.h's forward decl). */
@@ -40,6 +41,7 @@ struct NnueNetwork
     /// [HIDDEN,2*HIDDEN). A v3 net's single head is broadcast to every bucket at load (identical evals).
     int16_t output_weight[NNUE_OUTPUT_BUCKETS][2 * HIDDEN_SIZE];
     int32_t output_bias[NNUE_OUTPUT_BUCKETS]; ///< output bias per material bucket
+    bool    is_mirrored; ///< v5: perspectives with the king on files e-h mirror horizontally (square ^ 7)
 };
 
 _Static_assert((int)NNUE_KING_BUCKETS == (int)NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
@@ -49,11 +51,28 @@ _Static_assert((int)NNUE_KING_BUCKETS == (int)NUM_KING_BUCKETS, "header/implemen
  *
  * Must match king_bucket() in trainer/features.py.
  */
-static inline int king_bucket(const int relative_king_square)
+/** @brief Whether a perspective mirrors horizontally: v5 net and its king on files e-h. */
+static inline bool king_mirror(const NnueNetwork *net, const int relative_king_square)
 {
-    const int file_pair = (relative_king_square & 7) / 2;  // 0..3
-    const int half      = (relative_king_square >> 3) / 4; // 0..1
-    return half * 4 + file_pair;                           // 0..7
+    return net->is_mirrored && (relative_king_square & 7) >= 4;
+}
+
+/**
+ * @brief King-input bucket for a perspective-relative king square — a per-NET mapping.
+ *
+ * v5 (mirrored) nets: 4 files x 2 halves, files e-h folded onto d-a (the perspective mirrors, so its king
+ * always lands on a-d and every bucket trains on both wings). v3/v4 (unmirrored) nets keep the historical
+ * 4 file-pairs x 2 halves. Must match king_bucket() in trainer/features.py for the current format.
+ */
+static inline int king_bucket(const NnueNetwork *net, const int relative_king_square)
+{
+    const int file = relative_king_square & 7;
+    const int half = (relative_king_square >> 3) / 4; // 0..1
+    if (net->is_mirrored)
+    {
+        return half * 4 + (file >= 4 ? 7 - file : file); // v5: per-file, e-h folded
+    }
+    return half * 4 + file / 2; // v3/v4: file-pairs
 }
 
 /** @brief Perspective-relative king square (Black mirrors vertically), for bucket selection. */
@@ -136,24 +155,28 @@ static inline int32_t clamp_accumulator(const int32_t value)
 // bucket are handled by make_move via refresh_perspective (the whole perspective shifts blocks).
 void nnue_add_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
-    const NnueNetwork *const net = accumulator->net;
+    const NnueNetwork *const net      = accumulator->net;
+    const int                sq_white = accumulator->king_mirror[WHITE] ? square ^ 7 : square;
+    const int                sq_black = accumulator->king_mirror[BLACK] ? square ^ 7 : square;
     add_column(
         accumulator->values[WHITE],
-        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, sq_white)]);
     add_column(
         accumulator->values[BLACK],
-        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, sq_black)]);
 }
 
 void nnue_remove_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int square)
 {
-    const NnueNetwork *const net = accumulator->net;
+    const NnueNetwork *const net      = accumulator->net;
+    const int                sq_white = accumulator->king_mirror[WHITE] ? square ^ 7 : square;
+    const int                sq_black = accumulator->king_mirror[BLACK] ? square ^ 7 : square;
     sub_column(
         accumulator->values[WHITE],
-        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[WHITE], WHITE, color, type, sq_white)]);
     sub_column(
         accumulator->values[BLACK],
-        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, square)]);
+        net->feature_transformer_weight[feature_index(accumulator->king_bucket[BLACK], BLACK, color, type, sq_black)]);
 }
 
 void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Piece type, const int from, const int to)
@@ -161,11 +184,13 @@ void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Pi
     const NnueNetwork *const net = accumulator->net;
     for (int perspective = WHITE; perspective <= BLACK; perspective++)
     {
-        const int bucket = accumulator->king_bucket[perspective];
+        const int bucket  = accumulator->king_bucket[perspective];
+        const int sq_from = accumulator->king_mirror[perspective] ? from ^ 7 : from;
+        const int sq_to   = accumulator->king_mirror[perspective] ? to ^ 7 : to;
         sub_column(accumulator->values[perspective],
-                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, from)]);
+                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, sq_from)]);
         add_column(accumulator->values[perspective],
-                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, to)]);
+                   net->feature_transformer_weight[feature_index(bucket, (Color)perspective, color, type, sq_to)]);
     }
 }
 
@@ -180,9 +205,12 @@ void nnue_move_feature(NnueAccumulator *accumulator, const Color color, const Pi
  */
 void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *position, const Color perspective)
 {
-    const NnueNetwork *const net = accumulator->net;
-    const int bucket             = king_bucket(relative_king_square(perspective, position->king_location[perspective]));
-    accumulator->king_bucket[perspective] = bucket;
+    const NnueNetwork *const net           = accumulator->net;
+    const int                relative_king = relative_king_square(perspective, position->king_location[perspective]);
+    const bool               mirror        = king_mirror(net, relative_king);
+    const int                bucket        = king_bucket(net, relative_king);
+    accumulator->king_bucket[perspective]  = bucket;
+    accumulator->king_mirror[perspective]  = (uint8_t)mirror;
 
     if (accumulator->cache == NULL)
     {
@@ -196,7 +224,8 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
                 Bitboard pieces = position->colors[color] & position->pieces[type];
                 while (pieces)
                 {
-                    const int square = pop_lsb(&pieces);
+                    const int raw    = pop_lsb(&pieces);
+                    const int square = mirror ? raw ^ 7 : raw;
                     add_column(accumulator->values[perspective],
                                net->feature_transformer_weight[feature_index(bucket, perspective, (Color)color,
                                                                              (Piece)type, square)]);
@@ -206,7 +235,7 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
         return;
     }
 
-    NnueRefreshCacheEntry *const cache = &accumulator->cache->entries[perspective][bucket];
+    NnueRefreshCacheEntry *const cache = &accumulator->cache->entries[perspective][mirror ? 1 : 0][bucket];
     if (cache->net != net)
     {
         memcpy(cache->values, net->feature_transformer_bias, sizeof(cache->values));
@@ -228,13 +257,13 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
             Bitboard       removed = cached & ~current;
             while (added)
             {
-                const int square = pop_lsb(&added);
+                const int square = mirror ? pop_lsb(&added) ^ 7 : pop_lsb(&added);
                 add_column(cache->values, net->feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (Piece)type, square)]);
             }
             while (removed)
             {
-                const int square = pop_lsb(&removed);
+                const int square = mirror ? pop_lsb(&removed) ^ 7 : pop_lsb(&removed);
                 sub_column(cache->values, net->feature_transformer_weight[feature_index(
                                               bucket, perspective, (Color)color, (Piece)type, square)]);
             }
@@ -251,8 +280,11 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
 
 void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *position, const Color side)
 {
-    const int new_bucket = king_bucket(relative_king_square(side, position->king_location[side]));
-    if (new_bucket != accumulator->king_bucket[side])
+    const int relative_king = relative_king_square(side, position->king_location[side]);
+    // A refresh is needed when the bucket OR the mirror state changes — crossing the d/e file boundary can
+    // flip the mirror while landing in the same bucket index, which rebases every feature in the perspective.
+    if (king_bucket(accumulator->net, relative_king) != accumulator->king_bucket[side] ||
+        (uint8_t)king_mirror(accumulator->net, relative_king) != accumulator->king_mirror[side])
     {
         nnue_refresh_perspective(accumulator, position, side);
     }
@@ -348,7 +380,8 @@ const NnueNetwork *nnue_load(const char *path)
     char       magic[8];
     bool       is_read_ok = fread(magic, 1, 8, file) == 8;
     const bool is_v3      = is_read_ok && memcmp(magic, NNUE_MAGIC_V3, 8) == 0;
-    if (!is_read_ok || (memcmp(magic, NNUE_MAGIC_V4, 8) != 0 && !is_v3))
+    const bool is_v4      = is_read_ok && memcmp(magic, NNUE_MAGIC_V4, 8) == 0;
+    if (!is_read_ok || (memcmp(magic, NNUE_MAGIC_V5, 8) != 0 && !is_v4 && !is_v3))
     {
         fprintf(stderr, "nnue: bad magic in %s\n", path);
         fclose(file);
@@ -397,6 +430,7 @@ const NnueNetwork *nnue_load(const char *path)
         fprintf(stderr, "nnue: truncated file %s\n", path); // the caller's previous net (if any) stays intact
         return NULL;
     }
+    loaded->is_mirrored = !is_v3 && !is_v4; // v5: horizontal mirroring; earlier formats index unmirrored
     return loaded;
 }
 
