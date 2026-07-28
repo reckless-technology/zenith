@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Jonny Reckless
 # Self-play / cross-engine SPRT via fastchess (cutechess-cli is not installed on this box). Measures the
 # Elo of a change: a candidate engine/net vs a baseline. Works for:
-#   * NNUE vs HCE:      CAND=./build/zenith CAND_NET=nets/x.nnue  BASE=./build/zenith            (BASE_NET unset -> HCE)
+#   * new net vs shipped: CAND=./build/zenith CAND_NET=nets/x.nnue  BASE=./build/zenith          (BASE_NET unset -> embedded net)
 #   * version vs version: two zenith binaries
 #   * vs pawnstar:      BASE=/home/jonny/work/pawnstar/build/pawnstar BASE_NET=.../pawnstar-v12.bin
 #
@@ -30,7 +30,7 @@ for engine in "$CAND" "$BASE"; do
 done
 [ -f "$OPENINGS" ] || { echo "missing openings: $OPENINGS" >&2; exit 1; }
 
-# Optional per-engine EvalFile (NNUE net). Absent => that side uses its built-in evaluator (HCE for zenith).
+# Optional per-engine EvalFile (NNUE net). Absent => that side uses its default (zenith: the embedded net).
 cand_net_arg=(); [ -n "${CAND_NET:-}" ] && cand_net_arg=(option.EvalFile="$CAND_NET")
 base_net_arg=(); [ -n "${BASE_NET:-}" ] && base_net_arg=(option.EvalFile="$BASE_NET")
 # Optional per-engine working directory (e.g. pawnstar loads its net via a relative path).

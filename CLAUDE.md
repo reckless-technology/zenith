@@ -33,7 +33,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
 tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
-make tables            # regenerate src/generated/*.inc (Zobrist/PeSTO/ln/geometry/magic constants) — deliberate
+make tables            # regenerate src/generated/*.inc (Zobrist/ln/geometry/magic constants) — deliberate
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
@@ -70,7 +70,7 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 `SearchShared` with the stop flag/params/LMR table, the eval cache, and the loaded NNUE net), created by
 `engine_new()` / destroyed by `engine_delete()` in each executable's `main` and passed explicitly
 (`uci_loop`/`run_bench`/`run_datagen` take `Engine *`; every `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
-`uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
+`uci_loop`'s stack. The Zobrist keys, Q28 ln table, and the leaper/geometry attack tables
 (pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/generated/*.inc`, from
 `tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:
 `bitboard.c`'s ~850KB magic sliding-attack tables — deterministically filled from the constant multipliers
@@ -104,9 +104,11 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   `position_is_move_legal` *before* pruning/make (the +66 Elo prune-before-make change); `generate_legal` serves
   perft/datagen/UCI parsing. `noisy_only` = captures+promotions.
 - **eval.\*** — `evaluate(pos, cache)` returns centipawns from side-to-move POV (memoised in the engine's
-  shared lockless `EvalCache`; NULL = uncached). Dispatches to the NNUE forward when the position is bound
-  to a net (UCI `EvalFile`), else the PeSTO tapered HCE (material+PST, bishop pair, mobility, tempo). This
-  single call site is the NNUE seam.
+  shared lockless `EvalCache`; NULL = uncached). Always the NNUE forward: every `Engine` holds a net — the
+  **build-time-embedded** one (tools/embed_net.py -> build/embedded_net.o, from `NET` in the Makefile) by
+  default, replaced by UCI `EvalFile` (an unloadable file falls back to the embedded net). The hand-crafted
+  PeSTO fallback was removed with the embedded default; git history keeps it. This single call site is the
+  NNUE seam.
 - **nnue.\*** — quantised **king-bucketed** (768×8 → 512 → 8 output heads) SCReLU perspective net: loader
   (`ZNNUE5` magic; still reads `ZNNUE4`/`ZNNUE3` so older nets keep working), feature indexing, and the
   integer forward. A perspective whose own king sits on files e–h is **mirrored horizontally** (`square ^ 7`)
@@ -117,7 +119,7 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   **finny refresh cache** (owned by each `Searcher`, bound into its root position; per
   (perspective,mirror,bucket) cached accumulator + the board it was built from; rebuild applies only
   piece-diffs, per-entry net-pointer-guarded). The accumulator carries its net binding
-  (`position_init(pos, net)`; NULL = HCE) — the net itself is heap-loaded and owned by the `Engine`.
+  (`position_init(pos, net)`; NULL only for never-evaluated positions) — the net itself is heap-loaded and owned by the `Engine`.
   `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
 - **datagen/** (top-level, outside `src/` and the engine binary) — the NNUE training-data tools, built by
   `make datagen` into two standalone executables (each has its own small `main`; both compile the engine core
@@ -179,7 +181,7 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   noise), not the loader. The pilot net loses to HCE because minimax amplifies leaf-eval noise; see the
   `zenith-nnue-pilot-status` memory. Fix = more/cleaner data + better training, not engine code.
 - Every net change is still SPRT-gated (`tools/sprt.sh`, fastchess): `CAND_NET`/`BASE_NET` set `EvalFile`
-  per side (unset ⇒ that side uses HCE). Fixed-depth matches isolate eval quality from NNUE's speed cost.
+  per side (unset ⇒ that side uses its embedded net). Fixed-depth matches isolate eval quality from NNUE's speed cost.
 
 ## Conventions
 
