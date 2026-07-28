@@ -21,9 +21,10 @@ Engine *engine_new(void)
     search_shared_init(&engine->search);
     eval_cache_init(&engine->eval_cache); // a failed cache allocation degrades to uncached eval, not an error
     tt_resize(&engine->tt, ENGINE_DEFAULT_HASH_MB);
-    if (engine->tt.table == NULL)
+    engine->net = nnue_load_embedded(); // the build-time-embedded net: every engine evaluates with NNUE
+    if (engine->tt.table == NULL || engine->net == NULL)
     {
-        engine_delete(engine); // a searchless engine is useless — fail construction, leaking nothing
+        engine_delete(engine); // an engine that cannot search or evaluate is useless — fail construction
         return NULL;
     }
     return engine;

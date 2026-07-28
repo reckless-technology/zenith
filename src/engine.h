@@ -69,7 +69,7 @@ typedef struct Engine
     TranspositionTable tt;         ///< the shared lockless transposition table
     SearchShared       search;     ///< stop flag, tunable parameters, LMR table
     EvalCache          eval_cache; ///< shared lockless eval memoisation
-    const NnueNetwork *net;        ///< the loaded NNUE net (owned; NULL = HCE evaluation)
+    const NnueNetwork *net;        ///< the active NNUE net (owned; never NULL — embedded by default)
 } Engine;
 
 enum
@@ -79,8 +79,9 @@ enum
 
 /**
  * @brief Allocate, construct, and fully initialize a new Engine: default search parameters + LMR table,
- * eval cache, and a ENGINE_DEFAULT_HASH_MB transposition table. No net is loaded (HCE) until the caller
- * sets one. @return the ready-to-search engine, or NULL on allocation failure (nothing leaked).
+ * eval cache, a ENGINE_DEFAULT_HASH_MB transposition table, and the build-time-embedded NNUE net (the UCI
+ * EvalFile option can replace it). @return the ready-to-search engine, or NULL on allocation failure
+ * (nothing leaked).
  */
 Engine *engine_new(void);
 

@@ -12,6 +12,7 @@
 #pragma once
 #include "accumulator.h"
 #include "position.h"
+#include <stddef.h>
 
 enum
 {
@@ -54,8 +55,20 @@ typedef struct NnueRefreshCache
  * @return a heap-allocated net (release with nnue_free), or NULL on failure.
  */
 const NnueNetwork *nnue_load(const char *path);
-/** @brief Release a net returned by nnue_load (safe on NULL). No position may still reference it. */
+/**
+ * @brief Load the network embedded in the binary at build time (tools/embed_net.py -> the
+ * embedded_network_data array below). This is the engine's default and its fallback whenever an EvalFile
+ * cannot be loaded, so a bare binary is always full NNUE strength with no external files.
+ * @return a heap-allocated net (release with nnue_free); NULL only on allocation failure.
+ */
+const NnueNetwork *nnue_load_embedded(void);
+/** @brief Release a net returned by nnue_load/nnue_load_embedded (safe on NULL). No position may still
+ *  reference it. */
 void nnue_free(const NnueNetwork *net);
+
+/// The shipped .nnue file, generated into a C array at build time (build/embedded_net.c).
+extern const unsigned char embedded_network_data[];
+extern const size_t        embedded_network_size;
 
 /// @name Evaluation (centipawns, side-to-move POV).
 /// @{

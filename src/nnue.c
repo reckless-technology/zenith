@@ -370,43 +370,52 @@ int nnue_evaluate_position(const Position *position)
 }
 
 // ---- loading -----------------------------------------------------------------------------------------
-const NnueNetwork *nnue_load(const char *path)
+/** @brief Copy @p size bytes from @p bytes at @p *offset into @p destination, advancing the offset.
+ *  @return false if fewer than @p size bytes remain (the read cursor is left unchanged). */
+static bool read_bytes(void *destination, const size_t size, const unsigned char *bytes, const size_t total,
+                       size_t *offset)
 {
-    FILE *const file = fopen(path, "rb");
-    if (!file)
+    if (total - *offset < size)
     {
-        return NULL;
+        return false;
     }
+    memcpy(destination, bytes + *offset, size);
+    *offset += size;
+    return true;
+}
+
+/** @brief Parse a complete .nnue image from memory (any supported format version), committing only on a
+ *  fully-successful parse so a truncated image can never leave a caller holding garbage weights.
+ *  @p source_name labels error messages. @return a heap-allocated net, or NULL on failure. */
+static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t size, const char *source_name)
+{
+    size_t     offset = 0;
     char       magic[8];
-    bool       is_read_ok = fread(magic, 1, 8, file) == 8;
+    bool       is_read_ok = read_bytes(magic, 8, bytes, size, &offset);
     const bool is_v3      = is_read_ok && memcmp(magic, NNUE_MAGIC_V3, 8) == 0;
     const bool is_v4      = is_read_ok && memcmp(magic, NNUE_MAGIC_V4, 8) == 0;
     if (!is_read_ok || (memcmp(magic, NNUE_MAGIC_V5, 8) != 0 && !is_v4 && !is_v3))
     {
-        fprintf(stderr, "nnue: bad magic in %s\n", path);
-        fclose(file);
+        fprintf(stderr, "nnue: bad magic in %s\n", source_name);
         return NULL;
     }
-    // The net is returned only on a fully-successful read, so a truncated file can never leave a caller
-    // holding garbage weights.
     NnueNetwork *const loaded = malloc(sizeof(NnueNetwork));
     if (loaded == NULL)
     {
-        fclose(file);
-        fprintf(stderr, "nnue: out of memory loading %s\n", path);
+        fprintf(stderr, "nnue: out of memory loading %s\n", source_name);
         return NULL;
     }
-    is_read_ok = is_read_ok && fread(loaded->feature_transformer_weight, 1, sizeof(loaded->feature_transformer_weight),
-                                     file) == sizeof(loaded->feature_transformer_weight);
-    is_read_ok = is_read_ok && fread(loaded->feature_transformer_bias, 1, sizeof(loaded->feature_transformer_bias),
-                                     file) == sizeof(loaded->feature_transformer_bias);
+    is_read_ok = is_read_ok && read_bytes(loaded->feature_transformer_weight,
+                                          sizeof(loaded->feature_transformer_weight), bytes, size, &offset);
+    is_read_ok = is_read_ok && read_bytes(loaded->feature_transformer_bias, sizeof(loaded->feature_transformer_bias),
+                                          bytes, size, &offset);
     if (is_v3)
     {
         // v3: one output head — read it into bucket 0, then broadcast to every bucket (identical evals).
-        is_read_ok = is_read_ok && fread(loaded->output_weight[0], 1, sizeof(loaded->output_weight[0]), file) ==
-                                       sizeof(loaded->output_weight[0]);
+        is_read_ok =
+            is_read_ok && read_bytes(loaded->output_weight[0], sizeof(loaded->output_weight[0]), bytes, size, &offset);
         int32_t bias = 0;
-        is_read_ok   = is_read_ok && fread(&bias, 1, sizeof bias, file) == sizeof bias;
+        is_read_ok   = is_read_ok && read_bytes(&bias, sizeof bias, bytes, size, &offset);
         for (int bucket = 0; bucket < NNUE_OUTPUT_BUCKETS; bucket++)
         {
             if (bucket > 0)
@@ -418,20 +427,54 @@ const NnueNetwork *nnue_load(const char *path)
     }
     else
     {
-        is_read_ok = is_read_ok && fread(loaded->output_weight, 1, sizeof(loaded->output_weight), file) ==
-                                       sizeof(loaded->output_weight);
-        is_read_ok = is_read_ok &&
-                     fread(loaded->output_bias, 1, sizeof(loaded->output_bias), file) == sizeof(loaded->output_bias);
+        is_read_ok =
+            is_read_ok && read_bytes(loaded->output_weight, sizeof(loaded->output_weight), bytes, size, &offset);
+        is_read_ok = is_read_ok && read_bytes(loaded->output_bias, sizeof(loaded->output_bias), bytes, size, &offset);
     }
-    fclose(file);
     if (!is_read_ok)
     {
         free(loaded);
-        fprintf(stderr, "nnue: truncated file %s\n", path); // the caller's previous net (if any) stays intact
+        fprintf(stderr, "nnue: truncated data in %s\n", source_name); // the caller's previous net stays intact
         return NULL;
     }
     loaded->is_mirrored = !is_v3 && !is_v4; // v5: horizontal mirroring; earlier formats index unmirrored
     return loaded;
+}
+
+const NnueNetwork *nnue_load(const char *path)
+{
+    FILE *const file = fopen(path, "rb");
+    if (!file)
+    {
+        return NULL;
+    }
+    // Read the whole file into a temporary buffer and parse from memory — one code path shared with the
+    // embedded net. The buffer is a transient ~6.3MB; the parsed net is the only long-lived allocation.
+    fseek(file, 0, SEEK_END);
+    const long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    if (file_size <= 0)
+    {
+        fclose(file);
+        return NULL;
+    }
+    unsigned char *const bytes = malloc((size_t)file_size);
+    if (bytes == NULL)
+    {
+        fclose(file);
+        fprintf(stderr, "nnue: out of memory loading %s\n", path);
+        return NULL;
+    }
+    const bool is_read_ok = fread(bytes, 1, (size_t)file_size, file) == (size_t)file_size;
+    fclose(file);
+    const NnueNetwork *const loaded = is_read_ok ? nnue_parse(bytes, (size_t)file_size, path) : NULL;
+    free(bytes);
+    return loaded;
+}
+
+const NnueNetwork *nnue_load_embedded(void)
+{
+    return nnue_parse(embedded_network_data, embedded_network_size, "<embedded net>");
 }
 
 void nnue_free(const NnueNetwork *net)

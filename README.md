@@ -34,8 +34,8 @@ make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
 make get-book        # download a free Polyglot opening book -> books/ (gitignored); prints the setoption lines
-make tables          # regenerate the committed constant tables (src/generated/*.inc: Zobrist, PeSTO,
-                     #   Q28 ln, bitboard geometry, magic multipliers) — a
+make tables          # regenerate the committed constant tables (src/generated/*.inc: Zobrist, Q28 ln,
+                     #   bitboard geometry, magic multipliers) — a
                      #   deliberate step, never a build side effect; the bench signature guards the values
 make format          # clang-format all sources in place (src/ and datagen/)
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
@@ -75,7 +75,7 @@ change that *does* alter the signature is actually a strength gain — no streng
 One translation unit per file, flat `src/`. **No globals:** all mutable engine state lives in an `Engine`
 aggregate (`engine.h` — the transposition table, the shared search state, the eval cache, and the loaded
 NNUE net), built by `engine_new()` and released by `engine_delete()` in `main`, passed explicitly
-everywhere; UCI session state is a `UciSession` on `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
+everywhere; UCI session state is a `UciSession` on `uci_loop`'s stack. The Zobrist keys, Q28 ln table, and the leaper/geometry attack tables
 are generated compile-time constants (`tools/generate_tables.py` → `src/generated/*.inc`). The one
 exception is
 `bitboard.c`'s ~850KB magic sliding-attack tables, deterministically filled from generated constant
@@ -90,7 +90,7 @@ PRNG — before any thread exists.
 `src/position.*`   | bitboards + mailbox, Zobrist + pawn key, FEN I/O, copy-make, legality/check oracles
 `src/movegen.*`    | one masked setwise generator: pseudo-legal + single-pass legal instantiations
 `src/engine.*`     | the Engine aggregate (TT + shared search state + eval cache + NNUE net) + its new/delete
-`src/eval.*`       | evaluate(): NNUE when a net is loaded, else a tapered HCE; shared eval cache
+`src/eval.*`       | evaluate(): the NNUE forward pass (a net is always loaded); shared eval cache
 `src/nnue.*`       | king-bucketed quantised NNUE: loader, feature indexing, AVX2 forward, finny refresh cache
 `src/book.*`       | Polyglot opening book: key computation, probing, weighted move choice
 `src/tt.*`         | lockless transposition table ({key^data, data} slots, bit-field payload)
@@ -148,8 +148,11 @@ perspective — is the one call site the network replaces.
   integer forward pass is AVX2-vectorised, and a shared lockless **eval cache** memoises results (its
   biggest win is qsearch stand-pat). The `nnuecheck` gate proves the incremental accumulator is
   bit-identical to a full refresh.
-- **HCE (fallback):** a PeSTO tapered material + piece-square evaluation with bishop pair, mobility, and
-  tempo terms, used when no net is loaded.
+- **Embedded by default:** the shipped net is generated into a C array at build time (`tools/embed_net.py`
+  -> `build/embedded_net.o`) and linked into every binary, so a bare executable is full strength with no
+  external files; `EvalFile` swaps in another net at runtime, falling back to the embedded copy if the file
+  cannot be loaded. (The former PeSTO hand-crafted fallback was removed with the embedded default; it
+  remains in git history.)
 
 ### Search
 
@@ -228,7 +231,6 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
   ([Yoshie2000/plentychess_data_bulletformat](https://huggingface.co/datasets/Yoshie2000/plentychess_data_bulletformat)) —
   a public dataset used to train Zenith's own network; no other engine's code or network is included or
   derived.
-- **HCE fallback:** PeSTO piece-square tables (public, widely used).
 - **Opening book:** the Polyglot key constants come from the public
   [book-format specification](http://hgm.nubati.net/book_format.html); no book is bundled.
 

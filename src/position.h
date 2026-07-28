@@ -59,8 +59,9 @@ typedef struct Position
  * buckets at 0.
  *
  * The zeroed king buckets are crucial so set_fen's incremental add_piece() calls index the net in bounds before
- * the authoritative refresh. @p net may be NULL (no NNUE — evaluate() uses the HCE and the accumulator
- * updates become no-ops). Call it before using any freshly-declared `Position`.
+ * the authoritative refresh. @p net may be NULL only for positions that are never evaluated (perft, the
+ * legality/SEE/book gates — the accumulator updates become no-ops); anything that reaches evaluate() must be
+ * bound to the engine's net. Call it before using any freshly-declared `Position`.
  */
 static inline void position_init(Position *pos, const NnueNetwork *net)
 {

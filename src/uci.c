@@ -560,7 +560,11 @@ static void set_option(UciSession *session, char **save_ptr)
     }
     else if (strcmp(option_name, "evalfile") == 0)
     {
-        const NnueNetwork *const loaded = nnue_load(value);
+        // An empty value returns to the embedded net; a file that fails to load falls back to it too
+        // (the engine always evaluates with SOME net — HCE is gone).
+        const bool               is_from_file = value[0] != '\0';
+        const NnueNetwork *const from_file    = is_from_file ? nnue_load(value) : NULL;
+        const NnueNetwork *const loaded       = from_file != NULL ? from_file : nnue_load_embedded();
         if (loaded != NULL)
         {
             nnue_free(session->engine->net); // safe: join_search() above ensured no thread is searching
@@ -569,10 +573,22 @@ static void set_option(UciSession *session, char **save_ptr)
             session->game.accumulator.net = loaded;
             nnue_refresh(&session->game.accumulator, &session->game);
             eval_cache_clear(&session->engine->eval_cache); // a new net changes every evaluation
-            printf("info string loaded NNUE %s\n", value);
+            if (from_file != NULL)
+            {
+                printf("info string loaded NNUE %s\n", value);
+            }
+            else if (is_from_file)
+            {
+                printf("info string failed to load NNUE %s — using the embedded net\n", value);
+            }
+            else
+            {
+                printf("info string using the embedded net\n");
+            }
         }
         else
         {
+            // Only reachable if the embedded-net allocation itself failed; keep the current net.
             printf("info string failed to load NNUE %s\n", value);
         }
         fflush(stdout);
@@ -622,7 +638,7 @@ void uci_loop(Engine *engine)
             printf("option name Threads type spin default %d min 1 max 256\n", session.thread_count);
             printf("option name Move Overhead type spin default 20 min 0 max 5000\n");
             printf("option name Clear Hash type button\n");
-            printf("option name EvalFile type string default <none>\n");
+            printf("option name EvalFile type string default <embedded>\n");
             printf("option name OwnBook type check default false\n");
             printf("option name BookFile type string default <none>\n");
             // Tunable search parameters (SPSA); defaults reproduce the shipped engine.
@@ -868,7 +884,7 @@ int uci_run(Engine *engine, int argc, char **argv)
 /**
  * @brief A bench position and its deterministic search node count at BENCH_DEPTH.
  *
- * The node counts are the signature components: their sum (2,264,816) is the bench node signature that guards
+ * The node counts are the signature components: their sum (1,469,216) is the bench node signature that guards
  * search determinism. They are reproducible on every platform and compiler by construction: the fixed-depth
  * search — including the LMR reduction table, built in Q28 fixed point from the generated LnQ28 table — is
  * pure integer arithmetic with no floating point anywhere. If a search/eval change intentionally moves the
@@ -881,14 +897,14 @@ typedef struct
 } BenchCase;
 
 static const BenchCase BenchCases[] = {
-    {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 266239},
-    {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 686520},
-    {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 153697},
-    {"r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", 210780},
-    {"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1", 286300},
-    {"8/8/8/8/8/8/6k1/4K2R w K - 0 1", 55530},
-    {"rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1", 339961},
-    {"r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1", 265789},
+    {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 227398},
+    {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 151310},
+    {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 142430},
+    {"r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", 291396},
+    {"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1", 300822},
+    {"8/8/8/8/8/8/6k1/4K2R w K - 0 1", 34300},
+    {"rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1", 209719},
+    {"r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1", 111841},
 };
 
 /**
@@ -1387,14 +1403,17 @@ int run_fuzz_check(void)
         test_result_columns(is_rejected, "fuzz", "reject", -1, NULL, -1.0, -1.0,
                             reject_fens[i][0] ? reject_fens[i] : "(empty)");
     }
+    // evaluate() requires a net (HCE is gone); fuzz with the embedded one so the NNUE accumulator and
+    // forward pass are exercised on adversarial positions too (set_fen's incremental adds + refresh).
+    const NnueNetwork *const fuzz_net = nnue_load_embedded();
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
         Position pos;
-        position_init(&pos, NULL);
+        position_init(&pos, fuzz_net);
         const bool is_accepted = position_set_fen(&pos, accept_fens[i]);
         failures += !is_accepted;
         cases++;
-        if (is_accepted)
+        if (is_accepted && fuzz_net != NULL)
         {
             // Exercise the downstream paths that OOB'd before hardening: movegen (buffer cap), the legality
             // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
@@ -1405,6 +1424,7 @@ int run_fuzz_check(void)
         }
         test_result_columns(is_accepted, "fuzz", "accept", -1, NULL, -1.0, -1.0, accept_fens[i]);
     }
+    nnue_free(fuzz_net);
     char detail[16];
     snprintf(detail, sizeof detail, "%d/%d", cases - failures, cases);
     test_result_columns(failures == 0, "fuzz", detail, -1, NULL, -1.0, -1.0, "(malformed inputs handled safely)");

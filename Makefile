@@ -29,6 +29,11 @@ ENGINE_CORE_SRCS = $(filter-out src/main.c,$(SRCS))
 # All build outputs land in ./build (created on demand); `make clean` just removes it.
 BUILD_DIR = build
 BIN       = $(BUILD_DIR)/zenith
+# The shipped net (committed). It is embedded into every binary at build time (below) and doubles as the
+# `make check` nnuecheck target: the engine falls back to the embedded copy whenever EvalFile is unset or
+# fails to load, so a bare binary is always full NNUE strength with no external files.
+NET       = nets/zenith-ob2.nnue
+EMBED_OBJ = $(BUILD_DIR)/embedded_net.o
 
 .PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug
 
@@ -37,38 +42,46 @@ all: $(BIN)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BIN): $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SRCS) -o $(BIN) $(LDLIBS)
+# The embedded net: .nnue -> generated C array -> one cached object file. Regenerated/recompiled only
+# when the net (or the generator) changes, so the 6.3MB array costs nothing on normal rebuilds. Plain
+# data — no -march or LTO needed, and the same object links into the ASan builds.
+$(BUILD_DIR)/embedded_net.c: $(NET) tools/embed_net.py | $(BUILD_DIR)
+	python3 tools/embed_net.py $(NET) $@
+$(EMBED_OBJ): $(BUILD_DIR)/embedded_net.c
+	$(CC) $(STD) -O1 -c $< -o $@
+
+$(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SRCS) $(EMBED_OBJ) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
 DEBUG_FLAGS = $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN)
-debug: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
-	$(CC) $(DEBUG_FLAGS) $(SRCS) -o $(BIN)-debug $(LDLIBS)
+debug: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) | $(BUILD_DIR)
+	$(CC) $(DEBUG_FLAGS) $(SRCS) $(EMBED_OBJ) -o $(BIN)-debug $(LDLIBS)
 
 # PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./build/zenith-pext. Output is bit-identical
 # to the magic build (same bench signature); ~2% faster perft / ~1.7% faster search on Intel Haswell+ and
 # AMD Zen3+, but MUCH slower on AMD Zen1/Zen2 (microcoded pext) — so it is opt-in and magic stays the
 # portable default. Needs a BMI2 target (the default -march=native provides it; a real release enables it
 # only for the x86-64-v3+ microarch variants).
-pext: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) -o $(BIN)-pext $(LDLIBS)
+pext: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) $(EMBED_OBJ) -o $(BIN)-pext $(LDLIBS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
 
 # NNUE training-data tools -> ./build/zenith-datagen + ./build/zenith-bullet2text. Standalone executables
 # (they replaced the old `datagen`/`bullet2text` engine subcommands), same single-shot whole-program compile
 # as the engine: the self-play generator runs real searches, so both link the engine core (LTO drops what
 # the converter never calls). -Isrc lets datagen/ include the engine headers by name.
-datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen $(LDLIBS)
-	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text $(LDLIBS)
+datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c $(EMBED_OBJ) -o $(BIN)-datagen $(LDLIBS)
+	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c $(EMBED_OBJ) -o $(BIN)-bullet2text $(LDLIBS)
 	@echo "built $(BIN)-datagen (self-play generator) and $(BIN)-bullet2text (bulletformat -> text)"
 
 # Correctness builds of the datagen tools (ASan+UBSan, -O1). The tool sources live outside src/, so
 # `make debug` no longer compiles them — this keeps them under the same sanitizers (CI builds this and
 # smoke-runs the generator).
-datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $(BUILD_DIR)
-	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen-debug $(LDLIBS)
-	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text-debug $(LDLIBS)
+datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) | $(BUILD_DIR)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c $(EMBED_OBJ) -o $(BIN)-datagen-debug $(LDLIBS)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c $(EMBED_OBJ) -o $(BIN)-bullet2text-debug $(LDLIBS)
 	@echo "built $(BIN)-datagen-debug and $(BIN)-bullet2text-debug (ASan+UBSan)"
 
 perft: $(BIN)
@@ -85,8 +98,6 @@ baseline: $(BIN)
 	@echo "baseline -> $(BIN)-base"
 
 # Full local test suite — every self-check gate (mirrors CI). Any failure aborts with a non-zero exit.
-# nnuecheck runs only if the shipped net is present (nets/ is gitignored).
-NET = nets/zenith-ob2.nnue
 check: $(BIN)
 	@echo "== perft ==";      ./$(BIN) perft || { echo "perft FAILED"; exit 1; }
 	@echo "== bench ==";       ./$(BIN) bench || { echo "bench FAILED"; exit 1; }

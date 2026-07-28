@@ -102,3 +102,28 @@ biggest wins remain plugging MISSING standard machinery, not re-conditioning wha
 the evaluator project: 8 material heads ((pieces-2)/4) on the unchanged kb 768×8→512 transformer, retrained
 on the same 16 shards (8 epochs, val 0.01483 vs kb3-era ~0.0156). ZNNUE4 format; v3 nets broadcast at load.
 Training: ~32 min/epoch on the 4070 (~723k pos/s). Next: horizontal king mirroring (phase 2).
+
+**King mirroring infrastructure (ZNNUE5) landed (2026-07-27, PR #13).** Phase 2: perspective with own king
+on files e-h flips horizontally (square^7) onto a-d; 8 king buckets = 4 files × 2 halves of the folded
+region; finny cache keyed (perspective, mirror, bucket); d/e king crossing = refresh even when the bucket
+number is unchanged. Loader keeps v4/v3 back-compat; verify.py is current-format-only. All gates 0-diff;
+bench unchanged; node-identical to main with ob2. **Implementation trap that cost a debugging round:** the
+mirror flip must be applied in ALL THREE accumulator primitives (add/remove/move feature) — the first
+attempt flipped only move_feature, and nnuecheck caught millions of lane mismatches from startpos (both
+kings on e-file ⇒ both perspectives mirrored). The shard .npz caches bake in feature indices, so a feature
+contract change requires full refeaturisation (~2.5h, 16 shards; s08-s15 texts regenerate from
+~/pawnstar_nnue/data binpacks 13148/13227/13247/13349/13364/13381/13399/13419 with
+`bullet2text IN OUT 0 4` — maxRecords=0, **stride 4**; verified old row counts == ceil(records/4) — see
+scratchpad refeat_v5.sh). Long-running background jobs must be launched with `setsid nohup` so a Claude
+Code harness restart cannot kill them (the first refeaturisation run died this way mid-shard). Net
+zenith-km1 training on the same ob2 recipe; SPRT vs ob2 pending.
+
+**Embedded net + HCE removal (2026-07-28).** The shipped net is embedded into every binary at build time
+(tools/embed_net.py -> generated C array -> build/embedded_net.o, cached; +3.8s once per net change, zero
+on normal rebuilds). engine_new() loads it by default; EvalFile swaps nets at runtime and falls back to the
+embedded copy on load failure; empty EvalFile returns to it. The PeSTO HCE was removed (git history keeps
+it) — eval is NNUE always. **The bench signature moved 2,264,816 -> 1,469,216 by necessity:** the old
+signature was HCE search trees (bench ran netless); with the net as default, bench trees are NNUE-scored.
+Search itself proven untouched: node-identical to pre-change main with the same EvalFile, and embedded ==
+file-loaded ob2. The signature now guards loader + embedded weights too. Same number on clang/gcc/ASan/PEXT.
+Datagen self-play now emits NNUE-scored records by default (matters for phase 4).
