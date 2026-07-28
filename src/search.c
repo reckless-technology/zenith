@@ -57,6 +57,15 @@ static int64_t min_i64(const int64_t a, const int64_t b)
     return a < b ? a : b;
 }
 
+// Type-dispatched min/max/clamp over the helpers above (C11 _Generic — standard, unlike typeof, which
+// would need a GNU statement expression to avoid double evaluation). The controlling expression sums the
+// arguments so mixed int/int64_t operands promote and dispatch to the 64-bit version; it is never
+// evaluated (C17 6.5.1.1), and each argument is evaluated exactly once by the selected call. An operand
+// type without a listed association (e.g. uint64_t) is a compile error, never a silent conversion.
+#define min_value(a, b)               _Generic((a) + (b), int: min_int, int64_t: min_i64)((a), (b))
+#define max_value(a, b)               _Generic((a) + (b), int: max_int, int64_t: max_i64)((a), (b))
+#define clamp_value(value, low, high) _Generic((value) + (low) + (high), int: clamp_int)((value), (low), (high))
+
 static int draw_value(void)
 {
     return 0;
@@ -137,7 +146,7 @@ int static_exchange_eval(const Position *pos, const Move move)
     }
     while (--swap_index > 0)
     {
-        gain[swap_index - 1] = -max_int(-gain[swap_index - 1], gain[swap_index]);
+        gain[swap_index - 1] = -max_value(-gain[swap_index - 1], gain[swap_index]);
     }
     return gain[0];
 }
@@ -195,17 +204,19 @@ bool set_search_param(SearchShared *shared, const char *name, const int value)
         size_t      offset; ///< field offset in SearchParams (keeps the table static const)
         bool        rebuilds_lmr_table;
     } params[] = {
-        {"RfpMargin", offsetof(SearchParams, rfp_margin), false},
-        {"NmpDivisor", offsetof(SearchParams, nmp_divisor), false},
-        {"LmpBase", offsetof(SearchParams, lmp_base), false},
-        {"FutilityBase", offsetof(SearchParams, futility_base), false},
-        {"FutilityMargin", offsetof(SearchParams, futility_margin), false},
+        // clang-format off
+        {"RfpMargin",        offsetof(SearchParams, rfp_margin),         false},
+        {"NmpDivisor",       offsetof(SearchParams, nmp_divisor),        false},
+        {"LmpBase",          offsetof(SearchParams, lmp_base),           false},
+        {"FutilityBase",     offsetof(SearchParams, futility_base),      false},
+        {"FutilityMargin",   offsetof(SearchParams, futility_margin),    false},
         {"SeeCaptureMargin", offsetof(SearchParams, see_capture_margin), false},
-        {"SingularMargin", offsetof(SearchParams, singular_margin), false},
-        {"AspirationDelta", offsetof(SearchParams, aspiration_delta), false},
-        {"HistoryMax", offsetof(SearchParams, history_max), false},
-        {"LmrBase", offsetof(SearchParams, lmr_base_x100), true},
-        {"LmrDivisor", offsetof(SearchParams, lmr_divisor_x100), true},
+        {"SingularMargin",   offsetof(SearchParams, singular_margin),    false},
+        {"AspirationDelta",  offsetof(SearchParams, aspiration_delta),   false},
+        {"HistoryMax",       offsetof(SearchParams, history_max),        false},
+        {"LmrBase",          offsetof(SearchParams, lmr_base_x100),      true},
+        {"LmrDivisor",       offsetof(SearchParams, lmr_divisor_x100),   true},
+        // clang-format on
     };
 
     for (size_t i = 0; i < sizeof params / sizeof params[0]; i++)
@@ -259,7 +270,7 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
     if (lim->movetime > 0)
     {
         searcher->is_time_limited = true;
-        searcher->hard_ms = searcher->soft_ms = max_i64(1, lim->movetime - searcher->move_overhead);
+        searcher->hard_ms = searcher->soft_ms = max_value(1, lim->movetime - searcher->move_overhead);
     }
     else if (lim->time[root->color_to_move] > 0)
     {
@@ -267,8 +278,8 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
         const int64_t remaining = lim->time[root->color_to_move], increment = lim->inc[root->color_to_move];
         const int     moves_to_go = lim->movestogo > 0 ? lim->movestogo : 30;
         const int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
-        searcher->soft_ms         = max_i64(1, budget - searcher->move_overhead);
-        searcher->hard_ms         = max_i64(1, min_i64(remaining - searcher->move_overhead, searcher->soft_ms * 4));
+        searcher->soft_ms         = max_value(1, budget - searcher->move_overhead);
+        searcher->hard_ms         = max_value(1, min_value(remaining - searcher->move_overhead, searcher->soft_ms * 4));
     }
     else if (lim->has_time_control)
     {
@@ -479,8 +490,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
         // Mate-distance pruning: at ply p the best possible outcome is mate-in-p (VALUE_MATE - p) and the
         // worst is being mated now (-VALUE_MATE + p). Clamping the window to those limits fails immediately
         // when a shorter mate is already known higher in the tree — no point searching for a longer one.
-        alpha = max_int(alpha, -VALUE_MATE + ply);
-        beta  = min_int(beta, VALUE_MATE - ply - 1);
+        alpha = max_value(alpha, -VALUE_MATE + ply);
+        beta  = min_value(beta, VALUE_MATE - ply - 1);
         if (alpha >= beta)
         {
             return alpha;
@@ -554,7 +565,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     if (!is_in_check)
     {
         eval += searcher->correction_history[pos->color_to_move][pos->pawn_key & (CORRHIST_SIZE - 1)] / CORRHIST_GRAIN;
-        eval = clamp_int(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
+        eval = clamp_value(eval, -VALUE_MATE_IN_MAX + 1, VALUE_MATE_IN_MAX - 1);
     }
 
     // Reverse futility pruning (static null move): if the static eval beats beta by a depth-scaled safety
@@ -574,7 +585,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
     if (!is_pv_node && !is_in_check && depth >= 3 && eval >= beta &&
         position_has_non_pawn_material(pos, pos->color_to_move))
     {
-        const int reduction  = 3 + depth / 3 + min_int((eval - beta) / searcher->engine->search.params.nmp_divisor, 3);
+        const int reduction = 3 + depth / 3 + min_value((eval - beta) / searcher->engine->search.params.nmp_divisor, 3);
         Position  null_child = *pos;
         position_make_null(&null_child); // flips side to move (and clears ep); board unchanged
         searcher_hist_push(searcher, pos->key);
@@ -764,7 +775,8 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             int reduction = 0;
             if (depth >= 3 && move_count >= 4 && is_quiet && !is_in_check)
             {
-                reduction = searcher->engine->search.reductions[min_int(depth, MAX_PLY - 1)][min_int(move_count, 63)];
+                reduction =
+                    searcher->engine->search.reductions[min_value(depth, MAX_PLY - 1)][min_value(move_count, 63)];
                 if (is_pv_node)
                 {
                     reduction--;
@@ -773,7 +785,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                 {
                     reduction++;
                 }
-                reduction = clamp_int(reduction, 0, new_depth - 1);
+                reduction = clamp_value(reduction, 0, new_depth - 1);
             }
             // PVS stage 2: null-window (alpha, alpha+1) scout at the (possibly reduced) depth — a cheap
             // yes/no "can this move beat alpha?". Most moves answer no and are done.
@@ -832,7 +844,7 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
                         {
                             searcher->counter_moves[prev_piece_to] = move;
                         }
-                        const int bonus = min_int(depth * depth, searcher->engine->search.params.history_max);
+                        const int bonus = min_value(depth * depth, searcher->engine->search.params.history_max);
                         const int current_piece_to =
                             (pos->color_to_move * 6 + pos->board[move_from(move)] - 1) * 64 + move_to(move);
                         apply_gravity(&searcher->history[pos->color_to_move][move_from(move)][move_to(move)], bonus);
@@ -888,9 +900,9 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
             !(bound == BOUND_LOWER && best_score <= raw_eval) && !(bound == BOUND_UPPER && best_score >= raw_eval))
         {
             int *const entry  = &searcher->correction_history[pos->color_to_move][pos->pawn_key & (CORRHIST_SIZE - 1)];
-            const int  target = clamp_int((best_score - raw_eval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
-            const int  weight = min_int(depth + 1, 16);
-            *entry = clamp_int((*entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
+            const int  target = clamp_value((best_score - raw_eval) * CORRHIST_GRAIN, -CORRHIST_MAX, CORRHIST_MAX);
+            const int  weight = min_value(depth + 1, 16);
+            *entry = clamp_value((*entry * (256 - weight) + target * weight) / 256, -CORRHIST_MAX, CORRHIST_MAX);
         }
     }
     if (is_root)
@@ -938,8 +950,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
         int alpha = -VALUE_INF, beta = VALUE_INF, delta = searcher->engine->search.params.aspiration_delta;
         if (depth >= 4)
         {
-            alpha = max_int(-VALUE_INF, score - delta);
-            beta  = min_int(VALUE_INF, score + delta);
+            alpha = max_value(-VALUE_INF, score - delta);
+            beta  = min_value(VALUE_INF, score + delta);
         }
         while (true)
         {
@@ -952,12 +964,12 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
             if (window_score <= alpha)
             {
                 beta  = (alpha + beta) / 2;
-                alpha = max_int(-VALUE_INF, window_score - delta);
+                alpha = max_value(-VALUE_INF, window_score - delta);
                 delta += delta / 2;
             }
             else if (window_score >= beta)
             {
-                beta = min_int(VALUE_INF, window_score + delta);
+                beta = min_value(VALUE_INF, window_score + delta);
                 delta += delta / 2;
             }
             else
