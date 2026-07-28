@@ -6,7 +6,6 @@
  */
 #include "uci.h"
 #include "book.h"
-#include "datagen.h"
 #include "eval.h"
 #include "movegen.h"
 #include "nnue.h"
@@ -641,14 +640,6 @@ int uci_run(Engine *engine, int argc, char **argv)
         if (!strcmp(argv[1], "legalcheck"))
         {
             return run_legal_check(); // position_is_move_legal == position_is_move_legal_slow over a perft-like walk
-        }
-        if (!strcmp(argv[1], "datagen"))
-        {
-            return run_datagen(engine, argc - 1, argv + 1);
-        }
-        if (!strcmp(argv[1], "bullet2text"))
-        {
-            return run_bullet2text(argc - 1, argv + 1);
         }
         if (!strcmp(argv[1], "nnueeval"))
         {

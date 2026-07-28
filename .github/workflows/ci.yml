@@ -59,6 +59,10 @@ jobs:
       - name: Build (LTO, release)
         run: make ARCH=${{ matrix.arch }}
 
+      - name: Build the datagen tools (Linux only; build-only bitrot guard for build/zenith-datagen + build/zenith-bullet2text)
+        if: matrix.label == 'linux'
+        run: make datagen ARCH=${{ matrix.arch }}
+
       - name: Perft (move-gen correctness — must pass)
         run: ./${{ matrix.bin }} perft
 
@@ -141,4 +145,4 @@ jobs:
       - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)
         run: sudo apt-get update && sudo apt-get install -y clang-format-18
       - name: Check formatting (repo .clang-format)
-        run: clang-format-18 --dry-run --Werror src/*.c src/*.h
+        run: clang-format-18 --dry-run --Werror src/*.c src/*.h datagen/*.c datagen/*.h
