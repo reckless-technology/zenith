@@ -15,7 +15,7 @@ Reference opponent + tooling on this box:
 - **`~/pawnstar_nnue/data/*.data` is the PUBLIC PlentyChess dataset** (bulletformat, 5.7B positions, from
   huggingface Yoshie2000/plentychess_data_bulletformat) — NOT pawnstar's private data. It is fine for
   Zenith to train on (public third-party data, independent of the pawnstar engine); the user directed it.
-  Use `./zenith bullet2text <in.data> <out.txt> [max] [stride]` to convert to Zenith's fen;score;wdl.
+  Use `./build/zenith-bullet2text <in.data> <out.txt> [max] [stride]` (built by `make datagen`) to convert to Zenith's fen;score;wdl.
 - Off-limits for independence: pawnstar's engine code/nets and its `bullet` trainer (Zenith uses its own).
 
 Related: [[zenith-goal-independence]] [[training-setup]]

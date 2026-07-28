@@ -59,6 +59,10 @@ jobs:
       - name: Build (LTO, release)
         run: make ARCH=${{ matrix.arch }}
 
+      - name: Build the datagen tools (Linux only; build-only bitrot guard for build/zenith-datagen + build/zenith-bullet2text)
+        if: matrix.label == 'linux'
+        run: make datagen ARCH=${{ matrix.arch }}
+
       - name: Perft (move-gen correctness — must pass)
         run: ./${{ matrix.bin }} perft
 
@@ -134,6 +138,14 @@ jobs:
           python3 tools/make_test_net.py test_net.nnue
           ./build/zenith-debug nnuecheck test_net.nnue
 
+      - name: Build the datagen tools with ASan/UBSan (they live outside src/, so `make debug` skips them)
+        run: make datagen-debug
+
+      - name: Datagen smoke under ASan/UBSan (2 self-play games at a tiny node budget)
+        run: |
+          ./build/zenith-datagen-debug 2 datagen_smoke.txt 1 200 4
+          [ -s datagen_smoke.txt ] || { echo '::error::datagen produced no records'; exit 1; }
+
   format-check:
     runs-on: ubuntu-latest
     steps:
@@ -141,4 +153,4 @@ jobs:
       - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)
         run: sudo apt-get update && sudo apt-get install -y clang-format-18
       - name: Check formatting (repo .clang-format)
-        run: clang-format-18 --dry-run --Werror src/*.c src/*.h
+        run: clang-format-18 --dry-run --Werror src/*.c src/*.h datagen/*.c datagen/*.h
