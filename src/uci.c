@@ -659,11 +659,60 @@ int uci_run(Engine *engine, int argc, char **argv)
             }
             return nnue_run_self_check(argv[2]);
         }
+        // Book-builder support (tools/build_book.py): expose legal-move enumeration and the Polyglot key so
+        // the builder needs no chess knowledge of its own — both come from the exact code paths the engine
+        // plays and probes with (generate_legal; polyglot_key, validated by bookcheck).
+        if (!strcmp(argv[1], "moves"))
+        {
+            if (argc < 3)
+            {
+                fprintf(stderr, "usage: %s moves \"<fen>\"   (legal moves in UCI notation, space-separated)\n",
+                        argv[0]);
+                return 1;
+            }
+            Position pos;
+            position_init(&pos, NULL); // never evaluated: movegen only
+            if (!position_set_fen(&pos, argv[2]))
+            {
+                fprintf(stderr, "invalid FEN: %s\n", argv[2]);
+                return 1;
+            }
+            Move      list[MAX_MOVES];
+            const int count = generate_legal(&pos, list, false);
+            char      uci_buf[8];
+            for (int index = 0; index < count; index++)
+            {
+                printf("%s%c", move_to_uci(list[index], uci_buf), index + 1 < count ? ' ' : '\n');
+            }
+            if (count == 0)
+            {
+                printf("\n");
+            }
+            return 0;
+        }
+        if (!strcmp(argv[1], "polykey"))
+        {
+            if (argc < 3)
+            {
+                fprintf(stderr, "usage: %s polykey \"<fen>\"   (Polyglot book key, 16 hex digits)\n", argv[0]);
+                return 1;
+            }
+            Position pos;
+            position_init(&pos, NULL); // never evaluated: key computation only
+            if (!position_set_fen(&pos, argv[2]))
+            {
+                fprintf(stderr, "invalid FEN: %s\n", argv[2]);
+                return 1;
+            }
+            printf("%016llx\n", (unsigned long long)polyglot_key(&pos));
+            return 0;
+        }
         // Unknown subcommand: fall through to the UCI loop (GUIs may pass arbitrary arguments), but say so —
         // in particular `datagen`/`bullet2text` moved to standalone executables (`make datagen`), and anyone
         // typing the old subcommands would otherwise sit at a silent prompt.
         fprintf(stderr,
-                "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck "
+                "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck moves "
+                "polykey "
                 "seecheck fuzzcheck bookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
                 "see `make datagen`)\n",
                 argv[1]);
