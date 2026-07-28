@@ -127,3 +127,12 @@ signature was HCE search trees (bench ran netless); with the net as default, ben
 Search itself proven untouched: node-identical to pre-change main with the same EvalFile, and embedded ==
 file-loaded ob2. The signature now guards loader + embedded weights too. Same number on clang/gcc/ASan/PEXT.
 Datagen self-play now emits NNUE-scored records by default (matters for phase 4).
+
+**King mirroring net (km1): +14.3 Elo fixed-depth SPRT over ob2, H1 accepted at 3,968 games (2026-07-28).**
+Phase 2 payoff: the ZNNUE5 mirrored architecture (PR #13) trained on the SAME 1.4B PlentyChess positions
+refeaturised under the mirrored contract, exact ob2 recipe (8 epochs, batch 32768, lr 1.2e-3, wdl 0.3).
+Val 0.014691 — project best (ob2 0.01483). LLR 2.96, 52.05%. Watch-out that resolved itself: a val-loss
+bump at epoch 5 (0.0155->0.0162) from streaming shard order recovered fully under lr decay by epoch 7 —
+don't panic-stop on a single-epoch val regression. Shipped as the embedded default (Makefile NET; bench
+re-pinned 1,469,216 -> 1,421,091). Architecture lever total so far: ob2 +14.7, km1 +14.3 on top —
+input-side AND output-side enrichment both paid off once data was at 1.4B scale. Next: capacity (512->1024).

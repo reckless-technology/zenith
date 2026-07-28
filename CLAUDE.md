@@ -170,11 +170,11 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). The current best net `nets/zenith-ob2.nnue` = king buckets + material output
-  buckets (ZNNUE4) + 1.4B PlentyChess positions (+14.7 Elo fixed-depth SPRT over kb3); its predecessor
-  `nets/zenith-kb3.nnue` = king buckets + the same 1.4B PlentyChess
-  positions (16 shards); +57 Elo (kb2, 650M) over the prior 512/190M net, then +8 more (kb3) — data returns
-  are now diminishing.
+  low-RAM, parallelizable). The current best net `nets/zenith-km1.nnue` = horizontal king mirroring
+  (ZNNUE5) + material output buckets + the same 1.4B PlentyChess positions refeaturised under the mirrored
+  contract (+14.3 Elo fixed-depth SPRT over ob2, val loss 0.014691 — the project's best). Lineage:
+  kb2 (+57, 650M) -> kb3 (+8, 1.4B; data returns diminishing) -> ob2 (+14.7, output buckets) -> km1
+  (+14.3, mirroring). `nets/zenith-ob2.nnue` and `nets/zenith-kb3.nnue` are retained for reference.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
