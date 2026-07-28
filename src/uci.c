@@ -74,6 +74,89 @@ static Move parse_move(const Position *pos, const char *text)
     return MOVE_NONE;
 }
 
+/**
+ * @brief Format @p move (legal in @p pos) as Standard Algebraic Notation into @p out (>= 16 bytes).
+ *
+ * Full SAN: castling as O-O/O-O-O, piece letters, minimal disambiguation (file, else rank, else both,
+ * judged among legal same-type moves to the same square), captures (pawn captures with the from-file,
+ * en passant included), =Q promotions, and a trailing + / # from making the move on a copy.
+ * @return @p out.
+ */
+static char *move_to_san(const Position *pos, const Move move, char *out)
+{
+    char     *cursor = out;
+    const int from = move_from(move), to = move_to(move);
+    if (move_is_castle(move))
+    {
+        strcpy(cursor, file_of(to) > file_of(from) ? "O-O" : "O-O-O");
+        cursor += strlen(cursor);
+    }
+    else
+    {
+        const Piece piece      = (Piece)pos->board[from];
+        const bool  is_capture = move_is_capture(move); // includes en passant (its flag carries CAPTURE)
+        if (piece != PAWN)
+        {
+            *cursor++ = " PNBRQK"[piece];
+            // Minimal disambiguation among other legal same-type moves to the same target square.
+            Move moves[MAX_MOVES];
+            generate_legal(pos, moves, false);
+            bool is_ambiguous = false, shares_file = false, shares_rank = false;
+            for (int index = 0; moves[index] != MOVE_NONE; index++)
+            {
+                const Move other = moves[index];
+                if (other != move && move_to(other) == to && pos->board[move_from(other)] == piece)
+                {
+                    is_ambiguous = true;
+                    shares_file |= file_of(move_from(other)) == file_of(from);
+                    shares_rank |= rank_of(move_from(other)) == rank_of(from);
+                }
+            }
+            if (is_ambiguous)
+            {
+                if (!shares_file)
+                {
+                    *cursor++ = (char)('a' + file_of(from));
+                }
+                else if (!shares_rank)
+                {
+                    *cursor++ = (char)('1' + rank_of(from));
+                }
+                else
+                {
+                    *cursor++ = (char)('a' + file_of(from));
+                    *cursor++ = (char)('1' + rank_of(from));
+                }
+            }
+        }
+        else if (is_capture)
+        {
+            *cursor++ = (char)('a' + file_of(from));
+        }
+        if (is_capture)
+        {
+            *cursor++ = 'x';
+        }
+        *cursor++ = (char)('a' + file_of(to));
+        *cursor++ = (char)('1' + rank_of(to));
+        if (move_is_promo(move))
+        {
+            *cursor++ = '=';
+            *cursor++ = "  NBRQ"[move_promo_pt(move)];
+        }
+    }
+    // Check / checkmate suffix: make the move on a copy and look at the resulting position.
+    Position child = *pos;
+    position_make_move(&child, move);
+    if (child.checkers)
+    {
+        Move replies[MAX_MOVES];
+        *cursor++ = generate_legal(&child, replies, false) == 0 ? '#' : '+';
+    }
+    *cursor = '\0';
+    return out;
+}
+
 /** @brief Handle the `position` command: set the board (startpos/fen) and replay any `moves`, rebuilding history. */
 static void set_position(UciSession *session, char **save_ptr)
 {
@@ -705,6 +788,35 @@ int uci_run(Engine *engine, int argc, char **argv)
                 return 1;
             }
             printf("%016llx\n", (unsigned long long)polyglot_key(&pos));
+            return 0;
+        }
+        if (!strcmp(argv[1], "san"))
+        {
+            if (argc < 4)
+            {
+                fprintf(stderr, "usage: %s san \"<fen>\" <uciMove...>   (prints the moves in SAN, one line)\n",
+                        argv[0]);
+                return 1;
+            }
+            Position pos;
+            position_init(&pos, NULL); // never evaluated: notation only
+            if (!position_set_fen(&pos, argv[2]))
+            {
+                fprintf(stderr, "invalid FEN: %s\n", argv[2]);
+                return 1;
+            }
+            for (int index = 3; index < argc; index++)
+            {
+                const Move move = parse_move(&pos, argv[index]);
+                if (move_is_none(move))
+                {
+                    fprintf(stderr, "illegal move %s\n", argv[index]);
+                    return 1;
+                }
+                char san_buf[16];
+                printf("%s%c", move_to_san(&pos, move, san_buf), index + 1 < argc ? ' ' : '\n');
+                position_make_move(&pos, move);
+            }
             return 0;
         }
         if (!strcmp(argv[1], "applymoves"))
