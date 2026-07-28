@@ -707,6 +707,34 @@ int uci_run(Engine *engine, int argc, char **argv)
             printf("%016llx\n", (unsigned long long)polyglot_key(&pos));
             return 0;
         }
+        if (!strcmp(argv[1], "applymoves"))
+        {
+            if (argc < 3)
+            {
+                fprintf(stderr, "usage: %s applymoves \"<fen>\" [uciMove...]   (prints the resulting FEN)\n", argv[0]);
+                return 1;
+            }
+            Position pos;
+            position_init(&pos, NULL); // never evaluated: make_move only
+            if (!position_set_fen(&pos, argv[2]))
+            {
+                fprintf(stderr, "invalid FEN: %s\n", argv[2]);
+                return 1;
+            }
+            for (int index = 3; index < argc; index++)
+            {
+                const Move move = parse_move(&pos, argv[index]);
+                if (move_is_none(move))
+                {
+                    fprintf(stderr, "illegal move %s in %s\n", argv[index], argv[2]);
+                    return 1;
+                }
+                position_make_move(&pos, move);
+            }
+            char fen_buf[128];
+            printf("%s\n", position_fen(&pos, fen_buf));
+            return 0;
+        }
         // Unknown subcommand: fall through to the UCI loop (GUIs may pass arbitrary arguments), but say so —
         // in particular `datagen`/`bullet2text` moved to standalone executables (`make datagen`), and anyone
         // typing the old subcommands would otherwise sit at a silent prompt.
