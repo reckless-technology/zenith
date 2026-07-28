@@ -138,6 +138,14 @@ jobs:
           python3 tools/make_test_net.py test_net.nnue
           ./build/zenith-debug nnuecheck test_net.nnue
 
+      - name: Build the datagen tools with ASan/UBSan (they live outside src/, so `make debug` skips them)
+        run: make datagen-debug
+
+      - name: Datagen smoke under ASan/UBSan (2 self-play games at a tiny node budget)
+        run: |
+          ./build/zenith-datagen-debug 2 datagen_smoke.txt 1 200 4
+          [ -s datagen_smoke.txt ] || { echo '::error::datagen produced no records'; exit 1; }
+
   format-check:
     runs-on: ubuntu-latest
     steps:

@@ -659,6 +659,14 @@ int uci_run(Engine *engine, int argc, char **argv)
             }
             return nnue_run_self_check(argv[2]);
         }
+        // Unknown subcommand: fall through to the UCI loop (GUIs may pass arbitrary arguments), but say so —
+        // in particular `datagen`/`bullet2text` moved to standalone executables (`make datagen`), and anyone
+        // typing the old subcommands would otherwise sit at a silent prompt.
+        fprintf(stderr,
+                "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck "
+                "seecheck fuzzcheck bookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
+                "see `make datagen`)\n",
+                argv[1]);
     }
     uci_loop(engine);
     return 0;

@@ -18,6 +18,7 @@ make ARCH=x86-64-v2   # portable release build (override the default -march=nati
 make debug      # -> ./build/zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
 make pext       # -> ./build/zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
 make datagen    # -> ./build/zenith-datagen + ./build/zenith-bullet2text  (standalone NNUE training-data tools)
+make datagen-debug  # -> ASan+UBSan builds of both datagen tools (outside src/, so `make debug` skips them)
 make clean
 ./build/zenith        # interactive UCI loop
 

@@ -30,7 +30,7 @@ ENGINE_CORE_SRCS = $(filter-out src/main.c,$(SRCS))
 BUILD_DIR = build
 BIN       = $(BUILD_DIR)/zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug
 
 all: $(BIN)
 
@@ -41,8 +41,9 @@ $(BIN): $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SRCS) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
+DEBUG_FLAGS = $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN)
 debug: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
-	$(CC) $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
+	$(CC) $(DEBUG_FLAGS) $(SRCS) -o $(BIN)-debug $(LDLIBS)
 
 # PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./build/zenith-pext. Output is bit-identical
 # to the magic build (same bench signature); ~2% faster perft / ~1.7% faster search on Intel Haswell+ and
@@ -61,6 +62,14 @@ datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $
 	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen $(LDLIBS)
 	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text $(LDLIBS)
 	@echo "built $(BIN)-datagen (self-play generator) and $(BIN)-bullet2text (bulletformat -> text)"
+
+# Correctness builds of the datagen tools (ASan+UBSan, -O1). The tool sources live outside src/, so
+# `make debug` no longer compiles them — this keeps them under the same sanitizers (CI builds this and
+# smoke-runs the generator).
+datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $(BUILD_DIR)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen-debug $(LDLIBS)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text-debug $(LDLIBS)
+	@echo "built $(BIN)-datagen-debug and $(BIN)-bullet2text-debug (ASan+UBSan)"
 
 perft: $(BIN)
 	./$(BIN) perft
