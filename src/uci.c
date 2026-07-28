@@ -884,7 +884,7 @@ int uci_run(Engine *engine, int argc, char **argv)
 /**
  * @brief A bench position and its deterministic search node count at BENCH_DEPTH.
  *
- * The node counts are the signature components: their sum (1,469,216) is the bench node signature that guards
+ * The node counts are the signature components: their sum (1,421,091) is the bench node signature that guards
  * search determinism. They are reproducible on every platform and compiler by construction: the fixed-depth
  * search — including the LMR reduction table, built in Q28 fixed point from the generated LnQ28 table — is
  * pure integer arithmetic with no floating point anywhere. If a search/eval change intentionally moves the
@@ -897,14 +897,14 @@ typedef struct
 } BenchCase;
 
 static const BenchCase BenchCases[] = {
-    {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 227398},
-    {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 151310},
-    {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 142430},
-    {"r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", 291396},
-    {"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1", 300822},
-    {"8/8/8/8/8/8/6k1/4K2R w K - 0 1", 34300},
-    {"rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1", 209719},
-    {"r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1", 111841},
+    {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 210340},
+    {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 181907},
+    {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 142448},
+    {"r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1", 193452},
+    {"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 1", 379494},
+    {"8/8/8/8/8/8/6k1/4K2R w K - 0 1", 37877},
+    {"rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 0 1", 131490},
+    {"r2q1rk1/1p1nbppp/p2pbn2/4p3/4P3/1NN1BP2/PPPQ2PP/R3KB1R w KQ - 0 1", 144083},
 };
 
 /**
