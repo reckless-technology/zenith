@@ -20,9 +20,10 @@ The pipeline is four stages:
  └──────────────────────┘                  engine int eval == trainer ref (0 cp)
 ```
 
-`evaluate()` in `src/eval.c` is the single seam: it calls the NNUE forward pass when a net is loaded (UCI
-`EvalFile`) and falls back to the hand-crafted PeSTO evaluation otherwise. No search change is needed to
-adopt or swap a net.
+`evaluate()` in `src/eval.c` is the single seam: it is always the NNUE forward pass. Every engine holds a
+net — the shipped one is embedded into the binary at build time (`tools/embed_net.py`; `NET` in the
+Makefile), and the UCI `EvalFile` option swaps in another at runtime (a file that fails to load falls back
+to the embedded net). No search change is needed to adopt or swap a net.
 
 ---
 
@@ -251,12 +252,12 @@ Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for stre
 ## 7. Deciding whether it is better (SPRT)
 
 A verified net is only *correct*, not necessarily *stronger*. Gate it with a self-play SPRT via
-`tools/sprt.sh` (fastchess). `CAND_NET` / `BASE_NET` set each side's `EvalFile`; an unset side uses the HCE.
+`tools/sprt.sh` (fastchess). `CAND_NET` / `BASE_NET` set each side's `EvalFile`; an unset side uses its embedded net.
 
 ```bash
 # new net vs the current release net
 CAND_NET=nets/zenith-new.nnue BASE_NET=nets/zenith-kb3.nnue tools/sprt.sh
-# new net vs HCE (BASE_NET unset)
+# new net vs the embedded net (BASE_NET unset)
 CAND_NET=nets/zenith-new.nnue tools/sprt.sh
 ```
 
@@ -280,7 +281,8 @@ eval wins. The full experiment log with every result and lesson is in
 - **AVX2 forward** — vectorised accumulator column add/sub and the SCReLU output dot, with a scalar fallback.
 - **Shared lockless eval cache** — memoises `evaluate()` results (biggest win: qsearch stand-pat).
 
-Load a net at runtime with `setoption name EvalFile value nets/zenith-<tag>.nnue`; unset ⇒ HCE.
+Load a net at runtime with `setoption name EvalFile value nets/zenith-<tag>.nnue`; unset (or a load
+failure) ⇒ the build-time-embedded net.
 
 ---
 
