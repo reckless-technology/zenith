@@ -17,6 +17,8 @@ make            # -> ./build/zenith   (clang -std=c17, -O3 -flto -march=native, 
 make ARCH=x86-64-v2   # portable release build (override the default -march=native; see release workflow)
 make debug      # -> ./build/zenith-debug  (ASan+UBSan, -O1) — use for any movegen/make_move correctness work
 make pext       # -> ./build/zenith-pext  (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
+make datagen    # -> ./build/zenith-datagen + ./build/zenith-bullet2text  (standalone NNUE training-data tools)
+make datagen-debug  # -> ASan+UBSan builds of both datagen tools (outside src/, so `make debug` skips them)
 make clean
 ./build/zenith        # interactive UCI loop
 
@@ -66,8 +68,8 @@ Single translation unit per file, flat `src/`. Threads and the monotonic clock g
 
 **No globals.** All mutable engine state lives in an `Engine` aggregate (`engine.h`: the TT, a
 `SearchShared` with the stop flag/params/LMR table, the eval cache, and the loaded NNUE net), created by
-`engine_new()` / destroyed by `engine_delete()` in `main` and passed explicitly (`uci_loop`/`run_bench`/
-`run_datagen` take `Engine *`; every `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
+`engine_new()` / destroyed by `engine_delete()` in each executable's `main` and passed explicitly
+(`uci_loop`/`run_bench`/`run_datagen` take `Engine *`; every `Searcher` carries `engine`). UCI session state (game, options, searcher pool, book) is a `UciSession` on
 `uci_loop`'s stack. The Zobrist keys, PeSTO tables, Q28 ln table, and the leaper/geometry attack tables
 (pawn/knight/king, BetweenBB/LineBB) are generated compile-time constants (`src/generated/*.inc`, from
 `tools/generate_tables.py`, which also emits the 128 magic multipliers). The ONE exception:
@@ -117,8 +119,13 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   piece-diffs, per-entry net-pointer-guarded). The accumulator carries its net binding
   (`position_init(pos, net)`; NULL = HCE) — the net itself is heap-loaded and owned by the `Engine`.
   `nnueeval <net>` CLI reads FENs from stdin and prints evals (used by the verification gate).
-- **datagen.\*** — `datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
-  emits `fen;stm_score_cp;wdl` records (one per quiet position). Fan out with `tools/datagen_parallel.sh`.
+- **datagen/** (top-level, outside `src/` and the engine binary) — the NNUE training-data tools, built by
+  `make datagen` into two standalone executables (each has its own small `main`; both compile the engine core
+  `src/*.c` minus `src/main.c` in the same single-shot whole-program style):
+  `./build/zenith-datagen <games> <out> [seed] [nodes] [openingPlies]` self-plays from random openings and
+  emits `fen;stm_score_cp;wdl` records (one per quiet position; fan out with `tools/datagen_parallel.sh`),
+  and `./build/zenith-bullet2text <in.data> <out.txt> [maxRecords] [stride]` converts bulletformat binpacks
+  to the same text.
 - **tt.\*** — global, **lockless** for Lazy SMP: 16-byte `{key^data, data}` slots with the XOR torn-read
   guard, relaxed atomics, bit-field payload (`TTData`, signed depth), depth-preferred replacement with
   generation aging. Mate scores are stored distance-from-node: **always go through
@@ -129,8 +136,8 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   SEE pruning, IIR), check + singular extensions, mate-distance pruning, and a pawn-keyed eval
   **correction history**. All margins live in `SearchParams` (UCI-exposed spins, **SPSA-tuned** defaults;
   re-tune with `tools/spsa.py`). `static_exchange_eval()` is the local SEE.
-- **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`datagen`/
-  `bullet2text`/`nnueeval`/`nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
+- **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`nnueeval`/
+  `nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
   sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256; default = half the logical CPUs, so each thread gets a real core on SMT machines),
   `Move Overhead`, `EvalFile`, `OwnBook`/`BookFile` (Polyglot; OwnBook defaults false — testing stays
   bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:

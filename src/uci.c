@@ -6,7 +6,6 @@
  */
 #include "uci.h"
 #include "book.h"
-#include "datagen.h"
 #include "eval.h"
 #include "movegen.h"
 #include "nnue.h"
@@ -642,14 +641,6 @@ int uci_run(Engine *engine, int argc, char **argv)
         {
             return run_legal_check(); // position_is_move_legal == position_is_move_legal_slow over a perft-like walk
         }
-        if (!strcmp(argv[1], "datagen"))
-        {
-            return run_datagen(engine, argc - 1, argv + 1);
-        }
-        if (!strcmp(argv[1], "bullet2text"))
-        {
-            return run_bullet2text(argc - 1, argv + 1);
-        }
         if (!strcmp(argv[1], "nnueeval"))
         {
             if (argc < 3)
@@ -668,6 +659,14 @@ int uci_run(Engine *engine, int argc, char **argv)
             }
             return nnue_run_self_check(argv[2]);
         }
+        // Unknown subcommand: fall through to the UCI loop (GUIs may pass arbitrary arguments), but say so —
+        // in particular `datagen`/`bullet2text` moved to standalone executables (`make datagen`), and anyone
+        // typing the old subcommands would otherwise sit at a silent prompt.
+        fprintf(stderr,
+                "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck "
+                "seecheck fuzzcheck bookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
+                "see `make datagen`)\n",
+                argv[1]);
     }
     uci_loop(engine);
     return 0;

@@ -27,6 +27,8 @@ make                 # -> ./build/zenith        (release: clang -std=c17, -O3 -f
 make ARCH=x86-64-v2  # portable release build: override the default -march=native (see .github/workflows/release.yml)
 make debug           # -> ./build/zenith-debug  (AddressSanitizer + UBSan, -O1 -g; use for movegen/make_move work)
 make pext            # -> ./build/zenith-pext   (BMI2 PEXT sliding attacks; bit-identical, ~2% faster on Haswell+/Zen3+)
+make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text (standalone NNUE training-data tools)
+make datagen-debug   # -> ASan+UBSan builds of both datagen tools (they live outside src/, so `make debug` skips them)
 make check           # build + run every correctness gate (mirrors CI; see Verify below)
 make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
@@ -35,7 +37,7 @@ make get-book        # download a free Polyglot opening book -> books/ (gitignor
 make tables          # regenerate the committed constant tables (src/generated/*.inc: Zobrist, PeSTO,
                      #   Q28 ln, bitboard geometry, magic multipliers) — a
                      #   deliberate step, never a build side effect; the bench signature guards the values
-make format          # clang-format all sources in place (src/*.{c,h})
+make format          # clang-format all sources in place (src/ and datagen/)
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make doc             # -> doc/html/index.html (Doxygen API reference)
 make clean           # remove build outputs (binaries + doc/html)
@@ -93,10 +95,10 @@ PRNG — before any thread exists.
 `src/book.*`       | Polyglot opening book: key computation, probing, weighted move choice
 `src/tt.*`         | lockless transposition table ({key^data, data} slots, bit-field payload)
 `src/search.*`     | iterative deepening, PVS, quiescence, the pruning/reduction/extension stack, Lazy SMP
-`src/datagen.*`    | self-play data generation + a bulletformat-to-text converter (for training)
 `src/uci.*`        | the UCI protocol loop, time manager, and CLI self-test subcommands
 `src/version.h`    | major.minor + build number (git commit count, stamped by the Makefile)
 `src/main.c`       | entry + CLI dispatch
+`datagen/*`        | standalone training-data tools (`make datagen`): self-play generation + a bulletformat-to-text converter
 
 ### Board representation
 
@@ -175,8 +177,8 @@ All the pruning/reduction margins live in `SearchParams`, exposed as UCI spin op
 The protocol loop (`uci.c`) runs the search on a coordinator thread that spawns the Lazy-SMP helpers;
 `stop` sets a shared atomic. Options: `Hash`, `Clear Hash`, `Threads`, `Move Overhead`, `EvalFile`,
 `OwnBook`/`BookFile`, plus the tunable search parameters. The same binary exposes the CLI self-tests
-(`bench`, `perft`, `legalcheck`, `seecheck`, `fuzzcheck`, `bookcheck`, `nnuecheck`) and the training
-helpers (`datagen`, `bullet2text`, `nnueeval`).
+(`bench`, `perft`, `legalcheck`, `seecheck`, `fuzzcheck`, `bookcheck`, `nnuecheck`) and the NNUE
+verification helper (`nnueeval`); the training-data tools are separate executables built by `make datagen`.
 
 ## NNUE training pipeline
 
@@ -188,7 +190,8 @@ reference. See [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and wo
 
 ```bash
 # convert public bulletformat data to text, featurise to shard caches, then stream-train
-./build/zenith bullet2text <shard.data> data/plenty/shard.txt 0 4
+make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text
+./build/zenith-bullet2text <shard.data> data/plenty/shard.txt 0 4
 PYTHONPATH=trainer python trainer/train.py --featurise-shard data/plenty/shard.txt data/shards/s00.npz
 PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
     --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
@@ -196,7 +199,7 @@ PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens>
 ```
 
 The streaming trainer (`--shard-dir`, one shard in RAM at a time) is what allows training on datasets far
-larger than memory. `datagen` can also generate the engine's own self-play data
+larger than memory. `./build/zenith-datagen` can also generate the engine's own self-play data
 (`fen;stm_score;wdl` records) across all cores via `tools/datagen_parallel.sh`.
 
 ## Opening book

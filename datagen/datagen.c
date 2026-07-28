@@ -134,11 +134,10 @@ static bool random_opening(Position *pos, uint64_t *history, int *history_count,
 
 int run_datagen(Engine *engine, const int argc, char **argv)
 {
-    // argv: [0]=datagen [1]=games [2]=out [3]=seed [4]=nodes [5]=opening_plies
+    // argv: [0]=program [1]=games [2]=out [3]=seed [4]=nodes [5]=opening_plies
     if (argc < 3)
     {
-        fprintf(stderr, "usage: %s datagen <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd] [net.nnue]\n",
-                argv[0]);
+        fprintf(stderr, "usage: %s <games> <out.txt> [seed] [nodes] [openingPlies] [book.epd] [net.nnue]\n", argv[0]);
         return 1;
     }
     const long        games    = atol(argv[1]);
@@ -308,7 +307,7 @@ int run_bullet2text(const int argc, char **argv)
 {
     if (argc < 3)
     {
-        fprintf(stderr, "usage: %s bullet2text <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
+        fprintf(stderr, "usage: %s <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
         return 1;
     }
     const char *const in_path     = argv[1];

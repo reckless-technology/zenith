@@ -19,8 +19,8 @@ if [ -z "$CF" ]; then
     exit 0
 fi
 
-# Staged, non-deleted C/header files under src/.
-mapfile -d '' staged_files < <(git diff --cached --name-only --diff-filter=ACM -z -- 'src/*.c' 'src/*.h')
+# Staged, non-deleted C/header files under src/ and datagen/.
+mapfile -d '' staged_files < <(git diff --cached --name-only --diff-filter=ACM -z -- 'src/*.c' 'src/*.h' 'datagen/*.c' 'datagen/*.h')
 [ ${#staged_files[@]} -eq 0 ] && exit 0
 
 unformatted=()

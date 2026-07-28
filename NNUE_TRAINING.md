@@ -8,16 +8,16 @@ reference for how the network is built and how to train a new one.
 The pipeline is four stages:
 
 ```
-   data                         trainer (PyTorch/CUDA)              engine (C)
- ┌─────────────────┐  text     ┌──────────────────────┐  .nnue   ┌───────────────────┐
- │ ./build/zenith datagen│ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
- │  (self-play)    │  fen;     │  featurise → SCReLU  │  ZNNUE5  │  + integer forward │
- │  OR             │  score;   │  net → quantise      │          │  behind evaluate() │
- │ ./build/zenith        │  wdl      │                      │          │                    │
- │  bullet2text    │           └──────────────────────┘          └───────────────────┘
- │  (public data)  │                     │                                 │
- └─────────────────┘                     └────── trainer/verify.py ────────┘
-                                          engine int eval == trainer ref (0 cp)
+   data                             trainer (PyTorch/CUDA)             engine (C)
+ ┌──────────────────────┐  text     ┌──────────────────────┐  .nnue   ┌────────────────────┐
+ │ ./build/             │ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
+ │  zenith-datagen      │  fen;     │  featurise → SCReLU  │  ZNNUE5  │  + integer forward │
+ │  (self-play)         │  score;   │  net → quantise      │          │  behind evaluate() │
+ │  OR                  │  wdl      │                      │          │                    │
+ │ ./build/             │           └──────────────────────┘          └────────────────────┘
+ │  zenith-bullet2text  │                      │                                │
+ │  (public data)       │                      └────── trainer/verify.py ───────┘
+ └──────────────────────┘                  engine int eval == trainer ref (0 cp)
 ```
 
 `evaluate()` in `src/eval.c` is the single seam: it calls the NNUE forward pass when a net is loaded (UCI
@@ -183,11 +183,11 @@ train / verify / SPRT steps afterwards are identical.
 ### Data, option A — Zenith self-play (fully independent)
 
 Generate self-play games at a fixed node budget, fanned across all cores. Each worker is an independent
-`./build/zenith datagen` process with its own seed writing one shard; only quiet, not-yet-decided positions are
+`./build/zenith-datagen` process with its own seed writing one shard; only quiet, not-yet-decided positions are
 emitted (one record per ply), labelled with the eventual game result as WDL.
 
 ```bash
-make                                             # build ./build/zenith first
+make datagen                                     # build ./build/zenith-datagen first
 tools/datagen_parallel.sh 20000 data/run1 32 5000 8
 #                          │     │        │  │    └ opening plies (random legal plies before recording)
 #                          │     │        │  └ nodes/move budget (go nodes N)
@@ -204,7 +204,7 @@ The shipped net trained on the **public PlentyChess bulletformat dataset** (inde
 Convert each bulletformat shard to Zenith's text format, subsampling with a stride for a diverse slice:
 
 ```bash
-./build/zenith bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
+./build/zenith-bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
 #                    └ input (bulletformat)         └ output text          │ └ stride (keep 1 in 4)
 #                                                                          └ max records (0 = all)
 ```

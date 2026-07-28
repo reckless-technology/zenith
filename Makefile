@@ -20,11 +20,17 @@ HDRS      = $(wildcard src/*.h)
 # Generated constant tables (committed; rebuilt only by an explicit `make tables`). They are #included by
 # .c files, so every binary must depend on them or edits leave a stale build.
 INCS      = $(wildcard src/generated/*.inc)
+# Training-data tooling (datagen/): built only by `make datagen`, never into the engine binary. The engine
+# core (everything but src/main.c — the tools bring their own main()) is compiled into the tools so the
+# self-play generator can run real searches.
+DATAGEN_SRCS     = $(wildcard datagen/*.c)
+DATAGEN_HDRS     = $(wildcard datagen/*.h)
+ENGINE_CORE_SRCS = $(filter-out src/main.c,$(SRCS))
 # All build outputs land in ./build (created on demand); `make clean` just removes it.
 BUILD_DIR = build
 BIN       = $(BUILD_DIR)/zenith
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug
 
 all: $(BIN)
 
@@ -35,8 +41,9 @@ $(BIN): $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SRCS) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
+DEBUG_FLAGS = $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN)
 debug: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
-	$(CC) $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN) $(SRCS) -o $(BIN)-debug $(LDLIBS)
+	$(CC) $(DEBUG_FLAGS) $(SRCS) -o $(BIN)-debug $(LDLIBS)
 
 # PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./build/zenith-pext. Output is bit-identical
 # to the magic build (same bench signature); ~2% faster perft / ~1.7% faster search on Intel Haswell+ and
@@ -46,6 +53,23 @@ debug: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 pext: $(SRCS) $(HDRS) $(INCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) -o $(BIN)-pext $(LDLIBS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
+
+# NNUE training-data tools -> ./build/zenith-datagen + ./build/zenith-bullet2text. Standalone executables
+# (they replaced the old `datagen`/`bullet2text` engine subcommands), same single-shot whole-program compile
+# as the engine: the self-play generator runs real searches, so both link the engine core (LTO drops what
+# the converter never calls). -Isrc lets datagen/ include the engine headers by name.
+datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen $(LDLIBS)
+	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text $(LDLIBS)
+	@echo "built $(BIN)-datagen (self-play generator) and $(BIN)-bullet2text (bulletformat -> text)"
+
+# Correctness builds of the datagen tools (ASan+UBSan, -O1). The tool sources live outside src/, so
+# `make debug` no longer compiles them — this keeps them under the same sanitizers (CI builds this and
+# smoke-runs the generator).
+datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) | $(BUILD_DIR)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c -o $(BIN)-datagen-debug $(LDLIBS)
+	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c -o $(BIN)-bullet2text-debug $(LDLIBS)
+	@echo "built $(BIN)-datagen-debug and $(BIN)-bullet2text-debug (ASan+UBSan)"
 
 perft: $(BIN)
 	./$(BIN) perft
@@ -82,7 +106,7 @@ tables:
 
 # Format all C sources in place with the repo .clang-format.
 format:
-	clang-format -i $(SRCS) $(HDRS)
+	clang-format -i $(SRCS) $(HDRS) $(DATAGEN_SRCS) $(DATAGEN_HDRS)
 
 # Enable the versioned git hooks (clang-format pre-commit check). Run once per clone.
 hooks:
