@@ -1403,14 +1403,17 @@ int run_fuzz_check(void)
         test_result_columns(is_rejected, "fuzz", "reject", -1, NULL, -1.0, -1.0,
                             reject_fens[i][0] ? reject_fens[i] : "(empty)");
     }
+    // evaluate() requires a net (HCE is gone); fuzz with the embedded one so the NNUE accumulator and
+    // forward pass are exercised on adversarial positions too (set_fen's incremental adds + refresh).
+    const NnueNetwork *const fuzz_net = nnue_load_embedded();
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
         Position pos;
-        position_init(&pos, NULL);
+        position_init(&pos, fuzz_net);
         const bool is_accepted = position_set_fen(&pos, accept_fens[i]);
         failures += !is_accepted;
         cases++;
-        if (is_accepted)
+        if (is_accepted && fuzz_net != NULL)
         {
             // Exercise the downstream paths that OOB'd before hardening: movegen (buffer cap), the legality
             // oracle, and evaluate() (king_sq / attack tables). Under ASan this catches any residual overrun.
@@ -1421,6 +1424,7 @@ int run_fuzz_check(void)
         }
         test_result_columns(is_accepted, "fuzz", "accept", -1, NULL, -1.0, -1.0, accept_fens[i]);
     }
+    nnue_free(fuzz_net);
     char detail[16];
     snprintf(detail, sizeof detail, "%d/%d", cases - failures, cases);
     test_result_columns(failures == 0, "fuzz", detail, -1, NULL, -1.0, -1.0, "(malformed inputs handled safely)");

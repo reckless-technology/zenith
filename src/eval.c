@@ -10,6 +10,7 @@
  */
 #include "eval.h"
 #include "nnue.h"
+#include <assert.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,7 +61,9 @@ int evaluate(const Position *pos, EvalCache *cache)
     }
 
     // The incrementally-maintained accumulator (kept in sync by make_move/set_fen) makes this a cheap
-    // forward pass. The net is never NULL: engine_new() loads the embedded net before anything searches.
+    // forward pass. The net is never NULL: engine_new() loads the embedded net before anything searches
+    // (and standalone gates bind one explicitly). The assert documents the contract in debug builds.
+    assert(pos->accumulator.net != NULL);
     const int value = nnue_evaluate(&pos->accumulator, pos->color_to_move, nnue_output_bucket(pos));
     if (slot)
     {
