@@ -12,7 +12,7 @@
 
 enum
 {
-    NNUE_HIDDEN = 512 ///< hidden-layer width; must equal HIDDEN_SIZE in nnue.c / features.py
+    NNUE_HIDDEN = 1024 ///< hidden-layer width; must equal HIDDEN_SIZE in nnue.c / features.py
 };
 
 typedef struct NnueNetwork      NnueNetwork;      ///< a loaded quantised net (layout private to nnue.c)
@@ -44,5 +44,5 @@ typedef struct NnueAccumulator
 
 // Both pointers must land in the tail padding the 32-byte alignment already creates — Position's size (and
 // therefore the per-node copy-make cost) must not change: 2*NNUE_HIDDEN*2 bytes of values + 2 ints +
-// 2 pointers + 2 mirror flags = 2074 <= 2080 (the struct's padded size without them).
-_Static_assert(sizeof(NnueAccumulator) == 2080, "accumulator bindings must fit the existing tail padding");
+// 2 pointers + 2 mirror flags = 4122 <= 4128 (the struct's padded size without them).
+_Static_assert(sizeof(NnueAccumulator) == 4128, "accumulator bindings must fit the existing tail padding");

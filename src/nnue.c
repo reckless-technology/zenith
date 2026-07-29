@@ -431,10 +431,13 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
             is_read_ok && read_bytes(loaded->output_weight, sizeof(loaded->output_weight), bytes, size, &offset);
         is_read_ok = is_read_ok && read_bytes(loaded->output_bias, sizeof(loaded->output_bias), bytes, size, &offset);
     }
-    if (!is_read_ok)
+    if (!is_read_ok || offset != size)
     {
         free(loaded);
-        fprintf(stderr, "nnue: truncated data in %s\n", source_name); // the caller's previous net stays intact
+        // Under-read OR over-long: the format has no hidden-size header, so a net built for a different
+        // width shows up as a size mismatch — reject it rather than silently loading garbage weights.
+        fprintf(stderr, "nnue: %s in %s\n", is_read_ok ? "size mismatch (wrong hidden width?)" : "truncated data",
+                source_name);
         return NULL;
     }
     loaded->is_mirrored = !is_v3 && !is_v4; // v5: horizontal mirroring; earlier formats index unmirrored

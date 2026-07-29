@@ -15,7 +15,7 @@ import random
 import struct
 import sys
 
-HIDDEN = 512
+HIDDEN = 1024
 OUTPUT_BUCKETS = 8
 INPUT_FEATURES = 8 * 768  # king buckets x per-bucket features; must match nnue.c
 

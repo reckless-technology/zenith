@@ -136,3 +136,17 @@ bump at epoch 5 (0.0155->0.0162) from streaming shard order recovered fully unde
 don't panic-stop on a single-epoch val regression. Shipped as the embedded default (Makefile NET; bench
 re-pinned 1,469,216 -> 1,421,091). Architecture lever total so far: ob2 +14.7, km1 +14.3 on top —
 input-side AND output-side enrichment both paid off once data was at 1.4B scale. Next: capacity (512->1024).
+
+**Capacity 1024 (cap1): +52 fixed-depth, +14.7 +/- 7.2 TIMED SPRT over km1 — SHIPPED (2026-07-29).**
+Phase 3: hidden 512->1024, same v5 shards/recipe as km1 (capacity the only variable). Val 0.013898 (project
+best by 6x the usual margin — 512 was saturated at 1.4B positions). The timed gate is the story: the eval
+gain outran the DOUBLED accumulator/copy-make cost decisively (contrast kb1, where +21 fixed-depth died to
+a 6% speed tax at 190M-data eval quality). Engine ships NNUE_HIDDEN=1024 (accumulator 2080->4128 bytes);
+bench re-pinned 1,391,394. Loader now rejects size-mismatched nets (the format has no width header — a
+512 engine would otherwise silently mis-parse a 1024 net). Old nets need a matching-width engine build.
+First cap1 training run was killed by a HOST NVIDIA DRIVER UPDATE mid-run (CUDA context wedged, main
+thread spinning in synchronize, 6h silent) — diagnose via per-thread CPU + no epoch cadence; fresh
+contexts worked immediately. Long GPU runs now get a stall watchdog; train.py deserves epoch checkpoints.
+ALSO: never rebuild ./build/zenith while a pipeline consumes it (book builder crashed exec'ing a
+half-written binary) — long-running consumers get dedicated binary copies (data/book/zenith-worker).
+Next lever: SPSA pass 3 (search params tuned for 512-era eval speed), then data refresh.

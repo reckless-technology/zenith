@@ -21,7 +21,7 @@ import numpy as np
 BASE_FEATURES = 768      # per-king-bucket feature block: 2 colors x 6 piece types x 64 squares
 NUM_KING_BUCKETS = 8     # king-input buckets: 4 file-pairs x 2 board-halves, keyed on the perspective king
 INPUT_FEATURES = NUM_KING_BUCKETS * BASE_FEATURES  # 6144 feature-transformer rows
-HIDDEN_SIZE = 512
+HIDDEN_SIZE = 1024
 NUM_OUTPUT_BUCKETS = 8   # output heads, selected by total piece count: bucket = (pieces - 2) // 4
 QUANT_ACCUMULATOR = 255  # QA: feature-transformer weight/accumulator scale
 QUANT_OUTPUT = 64        # QB: output-weight scale
