@@ -37,6 +37,8 @@ make tables            # regenerate src/generated/*.inc (Zobrist/ln/geometry/mag
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
+# books/zenith-book-r3.bin (committed) = Zenith's own self-play-built opening book (tools/build_book.py;
+#   display with tools/show_book.py). OwnBook stays false by default — testing is always bookless.
 ```
 
 `main` is protected (ruleset: PR required, all four CI checks green, no force pushes; the release

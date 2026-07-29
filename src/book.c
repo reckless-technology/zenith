@@ -428,9 +428,9 @@ Move book_probe(Book *book, const Position *pos)
             }
         }
     }
-    if (matched_count == 0)
+    if (matched_count == 0 || total_weight == 0)
     {
-        return MOVE_NONE;
+        return MOVE_NONE; // no playable entry; all-zero weights are informational-only (never our pick)
     }
 
     uint64_t pick = book_rng(book) % total_weight;
