@@ -136,7 +136,7 @@ ground truth (`position_is_move_legal_slow`) by the `legalcheck` gate.
 A single seam — `evaluate(const Position *, EvalCache *)`, centipawns from the side-to-move's
 perspective — is the one call site the network replaces.
 
-- **NNUE (primary):** a king-bucketed **768×8 → 512 → 8 output heads** SCReLU perspective network. A
+- **NNUE (primary):** a king-bucketed **768×8 → 1024 → 8 output heads** SCReLU perspective network. A
   perspective whose own king sits on files e–h is mirrored horizontally (`square ^ 7`) onto files a–d; the
   (mirrored) king square selects one of 8 input buckets (4 files × 2 board-halves), offsetting its
   768-feature block, and the total piece count selects one of 8 material output heads. The accumulator is

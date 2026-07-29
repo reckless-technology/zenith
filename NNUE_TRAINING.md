@@ -39,8 +39,8 @@ king mirroring         : if the perspective's OWN king is on files e-h, the whol
 king buckets           : the (mirrored) king square selects 1 of 8 buckets
                          (4 files {a, b, c, d} × 2 board-halves {ranks 1-4, 5-8}),
                          offsetting the 768 block → 768 × 8 = 6144 feature-transformer rows
-feature transformer    : 6144 → 512     (one 512-wide accumulator per perspective)
-concatenate            : [own(512), opponent(512)] = 1024
+feature transformer    : 6144 → 1024    (one 1024-wide accumulator per perspective)
+concatenate            : [own(1024), opponent(1024)] = 2048
 activation             : SCReLU(x) = clamp(x, 0, 1)²
 output buckets         : 1024 → 8 heads; the head is selected by total piece count
                          ((popcount(occupied) − 2) / 4), dequantised to centipawns
@@ -64,7 +64,7 @@ index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  
         piece_type = 0..5  (pawn..king, 0-based on the wire)
 ```
 
-Hidden size is a knob (`--hidden-size`, default and shipped value **512**); everything else above is fixed
+Hidden size is a knob (`--hidden-size`, default and shipped value **1024**); everything else above is fixed
 by the format.
 
 ---
@@ -79,10 +79,10 @@ QA = 255   feature-transformer weight / accumulator scale
 QB = 64    output-weight scale
 EVALUATION_SCALE = 400   logit → centipawn scale (must equal the trainer loss scale)
 
-FT weights : round(w × QA)      → int16   [6144][512]   (feature-major, king-bucketed: 8 × 768 rows)
-FT bias    : round(b × QA)      → int16   [512]
-OUT weights: round(w × QB)      → int16   [8][1024]      (bucket-major; per bucket: own half [0,512)
-                                                          then opponent half [512,1024))
+FT weights : round(w × QA)      → int16   [6144][1024]  (feature-major, king-bucketed: 8 × 768 rows)
+FT bias    : round(b × QA)      → int16   [1024]
+OUT weights: round(w × QB)      → int16   [8][2048]      (bucket-major; per bucket: own half [0,1024)
+                                                          then opponent half [1024,2048))
 OUT bias   : round(b × QA × QB) → int32   [8]
 ```
 
@@ -126,8 +126,9 @@ The export step prints how many transformer weights saturate `int16` (should be 
 - **SCReLU over clipped ReLU.** `clamp(x,0,1)²` gives a stronger net than plain clipped ReLU at the same
   size and is cheap as an integer kernel (`(h·w)·h`). The clamp bound is exactly `QA`, so quantisation and
   activation share one constant.
-- **Hidden size 512.** Bigger accumulators (e.g. 1024) improve eval but cost proportional per-node time and
-  training memory; 512 is the shipped balance. The trainer uses an `EmbeddingBag(mode="sum")` feature
+- **Hidden size 1024.** Bigger accumulators improve eval but cost proportional per-node time and training
+  memory. 512 was the shipped balance until 1.4B positions saturated it: at that scale 1024 gained +52 Elo
+  at fixed depth and **+14.7 at time control** (cap1) — the eval gain outran the doubled per-node cost. The trainer uses an `EmbeddingBag(mode="sum")` feature
   transformer so a batch never materialises a `[batch, 32, hidden]` intermediate — this is what keeps larger
   hidden sizes trainable on an 8 GB GPU.
 - **WDL blend (`--wdl-lambda`).** The training label is `λ·game_result + (1−λ)·sigmoid(score/400)`: λ→1
