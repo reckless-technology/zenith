@@ -208,8 +208,14 @@ larger than memory. `./build/zenith-datagen` can also generate the engine's own 
 ## Opening book
 
 Standard **Polyglot** `.bin` books are supported (`src/book.c`; the Polyglot Zobrist key computation is
-validated against the official spec vectors by `./build/zenith bookcheck`). No book ships in the repo — supply
-your own, or fetch a free one with `make get-book` (downloads `performance.bin` from the GPL-3.0
+validated against the official spec vectors by `./build/zenith bookcheck`). The repo ships Zenith's own
+book, `books/zenith-book-r3.bin` (321KB, ~9,900 positions) — built entirely from Zenith self-play by
+`tools/build_book.py` (screen/rescore every move with the engine, self-play playouts for near-ties, negamax
+backup over the position DAG), worth ~+30 Elo of clock savings and opening variety in self-play gates.
+Inspect it with `tools/show_book.py` (one SAN line of play per row). Enable via
+`setoption name BookFile value books/zenith-book-r3.bin` + `OwnBook true` (off by default — testing stays
+bookless). Alternatively supply your own book, or fetch a free one with `make get-book` (downloads
+`performance.bin` from the GPL-3.0
 python-chess repo into the gitignored `books/`):
 
 ```
