@@ -109,7 +109,7 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   default, replaced by UCI `EvalFile` (an unloadable file falls back to the embedded net). The hand-crafted
   PeSTO fallback was removed with the embedded default; git history keeps it. This single call site is the
   NNUE seam.
-- **nnue.\*** — quantised **king-bucketed** (768×8 → 512 → 8 output heads) SCReLU perspective net: loader
+- **nnue.\*** — quantised **king-bucketed** (768×8 → 1024 → 8 output heads) SCReLU perspective net: loader
   (`ZNNUE5` magic; still reads `ZNNUE4`/`ZNNUE3` so older nets keep working), feature indexing, and the
   integer forward. A perspective whose own king sits on files e–h is **mirrored horizontally** (`square ^ 7`)
   onto files a–d before indexing; the (mirrored) king square then selects one of **8 king-input buckets**
@@ -166,15 +166,15 @@ detection breaks.
 venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
 
 - **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
-  king-bucketed 768×8→512→8 output heads, horizontal king mirroring, SCReLU). `src/nnue.c` must reproduce
+  king-bucketed 768×8→1024→8 output heads, horizontal king mirroring, SCReLU). `src/nnue.c` must reproduce
   `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). The current best net `nets/zenith-km1.nnue` = horizontal king mirroring
-  (ZNNUE5) + material output buckets + the same 1.4B PlentyChess positions refeaturised under the mirrored
-  contract (+14.3 Elo fixed-depth SPRT over ob2, val loss 0.014691 — the project's best). Lineage:
-  kb2 (+57, 650M) -> kb3 (+8, 1.4B; data returns diminishing) -> ob2 (+14.7, output buckets) -> km1
-  (+14.3, mirroring). `nets/zenith-ob2.nnue` and `nets/zenith-kb3.nnue` are retained for reference.
+  low-RAM, parallelizable). The current best net `nets/zenith-cap1.nnue` = 1024 hidden (ZNNUE5 mirrored
+  architecture, same 1.4B positions/recipe as km1 — capacity was the only variable): +52 Elo fixed-depth,
+  **+14.7 Elo at time control** over km1, val loss 0.013898 (project best). Lineage: kb2 (+57, 650M) ->
+  kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3, mirroring) -> cap1 (+14.7 timed, 1024
+  hidden). Older nets are retained for reference but need a matching-width engine to load.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval

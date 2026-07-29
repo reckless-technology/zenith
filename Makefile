@@ -32,7 +32,7 @@ BIN       = $(BUILD_DIR)/zenith
 # The shipped net (committed). It is embedded into every binary at build time (below) and doubles as the
 # `make check` nnuecheck target: the engine falls back to the embedded copy whenever EvalFile is unset or
 # fails to load, so a bare binary is always full NNUE strength with no external files.
-NET       = nets/zenith-km1.nnue
+NET       = nets/zenith-cap1.nnue
 EMBED_OBJ = $(BUILD_DIR)/embedded_net.o
 
 .PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug
