@@ -363,7 +363,7 @@ static uint16_t polyglot_encode(const Position *pos, const Move move)
     if (move_is_castle(move))
     {
         const int rank = rank_of(from);
-        to             = move_flag(move) == FLAG_CASTLE_KINGSIDE ? make_square(7, rank) : make_square(0, rank);
+        to             = move_is_kingside_castle(move) ? make_square(7, rank) : make_square(0, rank);
     }
     const int promo = move_is_promo(move) ? (int)move_promo_pt(move) - 1 : 0; // KNIGHT(2)..QUEEN(5) -> 1..4
     (void)pos;
