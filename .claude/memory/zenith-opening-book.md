@@ -32,3 +32,13 @@ even when the bookless gate saturates. Judge books head-to-head, not only vs boo
   ./build/zenith under a live consumer crashes it (exec during the non-executable write window).
 - Store is resumable JSON keyed by polyglot key (data/book/store.json); tools/show_book.py displays any
   Polyglot book as SAN lines.
+
+**Round 4 — coverage book (zenith-book-r4.bin, 487KB, ~14k positions), SHIPPED 2026-07-30.** Adds
+opponent coverage: moves within 90cp/top-4 at plies <10 expand (never emitted as our pick unless backup
+promotes them within the 25cp playable margin — which it DID for 1.c4/1.d4 at the root: fresh deep
+rescoring put them 18cp off best, so the book now opens them ~20% each). Gates: r4-vs-r3 self-play equal
+(50.9%); vs pawnstar all three configs (r4/r3/bookless) within noise at 68-70% — **at a +135 Elo skill
+gap, book effects are below the measurement floor** (800 games/config, +/-17 Elo). Coverage value is
+structural, not Elo-provable with available opponents. Ship rationale: strict superset, zero measured
+cost. Lesson: book gates need a NEAR-PEER foreign opponent to resolve anything; self-play gates cannot
+see coverage by construction.
