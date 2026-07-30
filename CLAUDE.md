@@ -177,7 +177,8 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   architecture, same 1.4B positions/recipe as km1 — capacity was the only variable): +52 Elo fixed-depth,
   **+14.7 Elo at time control** over km1, val loss 0.013898 (project best). Lineage: kb2 (+57, 650M) ->
   kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3, mirroring) -> cap1 (+14.7 timed, 1024
-  hidden). Older nets are retained for reference but need a matching-width engine to load.
+  hidden). Superseded nets are deleted from the tree once incompatible with the shipped
+  engine width (git history preserves them); the loader rejects width-mismatched files by size.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval

@@ -8,7 +8,7 @@ self-play match between the theta+ and theta- engines (same binary, different UC
 theta toward whichever side scored better (Simultaneous Perturbation Stochastic Approximation, Spall).
 Standard gain schedule: c_k = c0/k^0.101, a_k = a0/(k+A)^0.602. Checkpoints theta to a file each iteration.
 
-    python tools/spsa.py --engine ./build/zenith-spsa --net nets/zenith-kb3.nnue \
+    python tools/spsa.py --engine ./build/zenith-spsa \
         --openings ~/pawnstar_nnue/openings.epd --fastchess ~/pawnstar_nnue/fastchess/fastchess \
         --iters 800 --games 8 --concurrency 8 --tc 8+0.08 --out tools/spsa_state.json
 """
@@ -48,7 +48,7 @@ def run_match(args, plus, minus):
     """Play args.games games between the theta+ and theta- option sets; return theta+'s points minus
     theta-'s points (draws cancel), i.e. (wins - losses) from theta+'s perspective."""
     def opts(values):
-        out = [f"option.EvalFile={args.net}", "option.Threads=1"]
+        out = ["option.Threads=1"] + ([f"option.EvalFile={args.net}"] if args.net else [])
         for (name, _, _, _), value in zip(PARAMS, values):
             out.append(f"option.{name}={int(round(value))}")
         return out
@@ -75,7 +75,7 @@ def run_match(args, plus, minus):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", required=True)
-    parser.add_argument("--net", required=True)
+    parser.add_argument("--net", default="", help="EvalFile (empty = the embedded net)")
     parser.add_argument("--openings", required=True)
     parser.add_argument("--fastchess", required=True)
     parser.add_argument("--iters", type=int, default=800)

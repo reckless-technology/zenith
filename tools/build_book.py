@@ -383,7 +383,7 @@ def book_match(args, book_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", default="./build/zenith")
-    parser.add_argument("--net", default="nets/zenith-ob2.nnue")
+    parser.add_argument("--net", default="", help="EvalFile for scoring engines (empty = the embedded net)")
     parser.add_argument("--fastchess", default=os.path.expanduser("~/pawnstar_nnue/fastchess/fastchess"))
     parser.add_argument("--state", default="data/book/store.json")
     parser.add_argument("--workers", type=int, default=6)
