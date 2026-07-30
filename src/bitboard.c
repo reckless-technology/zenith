@@ -54,26 +54,8 @@ static Bitboard sliding_attack(const int square, const Bitboard occupancy, const
 static const int RookDirs[4]   = {NORTH, SOUTH, EAST, WEST};
 static const int BishopDirs[4] = {NORTHEAST, NORTHWEST, SOUTHEAST, SOUTHWEST};
 
-typedef struct Magic
-{
-    Bitboard  mask;
-    Bitboard  magic;
-    Bitboard *attacks;
-    unsigned  shift;
-} Magic;
-
-static unsigned magic_index(const Magic *entry, const Bitboard occupancy)
-{
-#ifdef ZENITH_USE_PEXT
-    // BMI2 parallel-bit-extract: pack the masked occupancy bits into a dense index directly, no multiply.
-    return (unsigned)_pext_u64(occupancy, entry->mask);
-#else
-    return (unsigned)(((occupancy & entry->mask) * entry->magic) >> entry->shift);
-#endif
-}
-
-static Magic    RookMagics[64];
-static Magic    BishopMagics[64];
+Magic           RookMagics[64];      // extern in bitboard.h: the inline lookups index these
+Magic           BishopMagics[64];    // extern in bitboard.h
 static Bitboard RookTable[0x19000];  // 102400
 static Bitboard BishopTable[0x1480]; // 5248
 
@@ -122,18 +104,6 @@ static void init_magics(const Bitboard magic_numbers[64], Bitboard *table, Magic
 
         attack_base += subset_count;
     }
-}
-
-Bitboard bishop_attacks(const int square, const Bitboard occupancy)
-{
-    const Magic *const entry = &BishopMagics[square];
-    return entry->attacks[magic_index(entry, occupancy)];
-}
-
-Bitboard rook_attacks(const int square, const Bitboard occupancy)
-{
-    const Magic *const entry = &RookMagics[square];
-    return entry->attacks[magic_index(entry, occupancy)];
 }
 
 void init_bitboards(void)

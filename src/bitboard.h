@@ -15,6 +15,9 @@
  */
 #pragma once
 #include "types.h"
+#ifdef ZENITH_USE_PEXT
+#include <immintrin.h> // _pext_u64 (BMI2)
+#endif
 
 // Generated compile-time constants (tools/generate_tables.py -> src/generated/bitboard_tables.inc).
 extern const Bitboard PawnAttacks[NUM_COLORS][64]; ///< pawn attacks by [color][square]
@@ -23,10 +26,45 @@ extern const Bitboard KingAttacks[64];             ///< king attacks by square
 extern const Bitboard BetweenBB[64][64];           ///< squares strictly between two aligned squares (exclusive), else 0
 extern const Bitboard LineBB[64][64];              ///< the whole rank/file/diagonal through two aligned squares, else 0
 
-/** @brief Bishop sliding attacks from @p square given @p occupancy (magic-bitboard lookup). */
-Bitboard bishop_attacks(int square, Bitboard occupancy);
-/** @brief Rook sliding attacks from @p square given @p occupancy (magic-bitboard lookup). */
-Bitboard rook_attacks(int square, Bitboard occupancy);
+/** @brief One square's magic-lookup entry: masked-occupancy hashing into its slice of the attack table. */
+typedef struct Magic
+{
+    Bitboard  mask;    ///< relevant occupancy bits for this square
+    Bitboard  magic;   ///< the multiplier (offline-generated constant; unused in the PEXT build)
+    Bitboard *attacks; ///< this square's slice of the shared attack table
+    unsigned  shift;   ///< 64 - popcount(mask): the multiply-shift index width
+} Magic;
+
+/// The per-square magic entries, filled once by init_bitboards() (the ~850KB attack tables stay
+/// file-scope in bitboard.c); exposed only so the lookups below can inline into the movegen hot path.
+extern Magic RookMagics[64];
+extern Magic BishopMagics[64];
+
+/** @brief Dense index of @p occupancy within @p entry's attack-table slice. */
+static inline unsigned magic_index(const Magic *entry, const Bitboard occupancy)
+{
+#ifdef ZENITH_USE_PEXT
+    // BMI2 parallel-bit-extract: pack the masked occupancy bits into a dense index directly, no multiply.
+    return (unsigned)_pext_u64(occupancy, entry->mask);
+#else
+    return (unsigned)(((occupancy & entry->mask) * entry->magic) >> entry->shift);
+#endif
+}
+
+/** @brief Bishop sliding attacks from @p square given @p occupancy (magic-bitboard lookup).
+ *  Inline: this is the hottest load in move generation — no LTO required to keep it call-free. */
+static inline Bitboard bishop_attacks(const int square, const Bitboard occupancy)
+{
+    const Magic *const entry = &BishopMagics[square];
+    return entry->attacks[magic_index(entry, occupancy)];
+}
+
+/** @brief Rook sliding attacks from @p square given @p occupancy (magic-bitboard lookup). Inline, as above. */
+static inline Bitboard rook_attacks(const int square, const Bitboard occupancy)
+{
+    const Magic *const entry = &RookMagics[square];
+    return entry->attacks[magic_index(entry, occupancy)];
+}
 
 /** @brief Queen sliding attacks (bishop | rook) from @p square given @p occupancy. */
 static inline Bitboard queen_attacks(int square, Bitboard occupancy)
