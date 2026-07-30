@@ -2,9 +2,9 @@ name: Release
 
 # Manually promote the current main commit to a formal GitHub Release.
 # Builds portable per-microarch Linux binaries, verifies them with the correctness gates, publishes the
-# release, then bumps the minor version in src/version.h for the next development cycle. macOS builds and
-# verifies here (release candidates only — its runners bill 10x, so it is deliberately absent from ci.yml);
-# the release-macos job attaches an arm64 tarball and asserts the bench signature cross-platform.
+# release, then bumps the minor version in src/version.h for the next development cycle. macOS and Windows
+# build and verify here as release-only jobs (macOS runners bill 10x, Windows 2x): each attaches its
+# artifacts to the release made by the linux job and asserts the bench signature cross-platform.
 on:
   workflow_dispatch:
     inputs:
@@ -94,7 +94,7 @@ jobs:
           {
             echo "Zenith ${tag} — UCI chess engine (C17, king-bucketed NNUE)."
             echo
-            echo "Prebuilt Linux x86-64 binaries:"
+            echo "Prebuilt binaries (Linux tarballs, Windows zips, macOS arm64 tarball):"
             echo "- \`x86-64-v2\` — broad compatibility (magic bitboards), runs on essentially any modern x86-64."
             echo "- \`x86-64-v3-pext\` — requires AVX2/BMI2 (Intel Haswell+ / AMD Zen3+); faster PEXT sliding attacks."
             echo
@@ -159,3 +159,69 @@ jobs:
           tar -C pkg -czf "zenith-${tag}-macos-arm64.tar.gz" zenith README.md LICENSE
           shasum -a 256 "zenith-${tag}-macos-arm64.tar.gz" > "zenith-${tag}-macos-arm64.tar.gz.sha256"
           gh release upload "$tag" "zenith-${tag}-macos-arm64.tar.gz" "zenith-${tag}-macos-arm64.tar.gz.sha256"
+
+  # Windows: release candidates only, mirroring the CI leg's msys2/CLANG64 toolchain. Runs the full gate
+  # suite (bench node-signature assertion included — the cross-platform reproducibility guarantee), then
+  # attaches zips for both microarch variants to the release made above. Runners bill 2x: fine for releases.
+  release-windows:
+    needs: release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: "msys2 {0}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: the version banner's build number is the commit count
+
+      - name: Set up MSYS2 + clang toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            make
+            git
+            python
+            zip
+
+      - name: Resolve tag (must match the release job's computation)
+        id: ver
+        run: |
+          major=$(sed -n 's/^#define ZENITH_VERSION_MAJOR \([0-9]*\).*/\1/p' src/version.h)
+          minor=$(sed -n 's/^#define ZENITH_VERSION_MINOR \([0-9]*\).*/\1/p' src/version.h)
+          build=$(git rev-list --count HEAD)
+          echo "tag=v${major}.${minor}.${build}" >> "$GITHUB_OUTPUT"
+
+      - name: Build x86-64-v2 (baseline, magic) + correctness gates
+        run: |
+          make ARCH=x86-64-v2
+          make check ARCH=x86-64-v2
+
+      - name: Package x86-64-v2
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          install -d pkg && install build/zenith.exe pkg/zenith.exe && cp README.md LICENSE pkg/
+          (cd pkg && zip -q "../zenith-${tag}-windows-x86-64-v2.zip" zenith.exe README.md LICENSE)
+
+      - name: Build x86-64-v3 (PEXT/BMI2) + bench signature
+        run: |
+          make clean && make ARCH=x86-64-v3 pext
+          ./build/zenith-pext bench
+
+      - name: Package x86-64-v3-pext and attach both to the release
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          rm -rf pkg && install -d pkg && install build/zenith-pext.exe pkg/zenith.exe && cp README.md LICENSE pkg/
+          (cd pkg && zip -q "../zenith-${tag}-windows-x86-64-v3-pext.zip" zenith.exe README.md LICENSE)
+          sha256sum zenith-${tag}-windows-*.zip > "zenith-${tag}-windows-SHA256SUMS.txt"
+
+      - name: Upload assets
+        shell: bash # Git Bash: gh is on the runner PATH here, unlike inside the msys2 shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=${{ steps.ver.outputs.tag }}
+          gh release upload "$tag" zenith-${tag}-windows-*.zip "zenith-${tag}-windows-SHA256SUMS.txt"
