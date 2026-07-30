@@ -90,7 +90,9 @@ void tt_free(TranspositionTable *tt);
 /** @brief Advance @p tt's generation so older entries become replaceable. Call once at the start of a search. */
 static inline void tt_new_search(TranspositionTable *tt)
 {
-    tt->generation++;
+    // Wrap at the entry field's width (gen : 6): beyond 63 a raw increment would store truncated values
+    // while comparing against the full counter, making fresh entries look stale (and hashfull report 0).
+    tt->generation = (tt->generation + 1) & 63;
 }
 
 /** @brief Probe @p tt for @p key. @return true on a key hit with a real entry, copying the payload into @p out. */
