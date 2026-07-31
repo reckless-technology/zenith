@@ -16,3 +16,4 @@ One line per memory. Full content lives in the linked file.
 - [setwise-elegance-nonregression-gate](setwise-elegance-nonregression-gate.md) — elegance refactors ship on non-regression SPRT (ELO0=-5 ELO1=0), not the gain test
 - [zenith-opening-book](zenith-opening-book.md) — self-play-built Polyglot book: recipe, gates, head-to-head lesson
 - [prefer-simple-config-solutions](prefer-simple-config-solutions.md) — for config tweaks, a close-enough setting beats invasive file patching
+- [sprt-progress-reporting](sprt-progress-reporting.md) — SPRTs report progress live; pin Threads/Hash/OwnBook explicitly on both engines

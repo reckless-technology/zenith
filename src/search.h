@@ -19,12 +19,12 @@ typedef struct SearchLimits
 {
     int64_t time[2];          ///< wtime, btime (ms); 0 = not given
     int64_t inc[2];           ///< winc, binc (ms)
-    int     movestogo;        ///< moves until the next time control (0 = sudden death / unspecified)
-    int64_t movetime;         ///< fixed ms/move
+    int     moves_to_go;      ///< moves until the next time control (0 = sudden death / unspecified)
+    int64_t move_time;        ///< fixed ms/move
     int     depth;            ///< fixed depth
     int64_t nodes;            ///< node cap
     bool    is_infinite;      ///< search until "stop"
-    bool    has_time_control; ///< a clock/movetime token was given (so a 0/negative clock ⇒ move now, not hang)
+    bool    has_time_control; ///< a clock/move_time token was given (so a 0/negative clock ⇒ move now, not hang)
 } SearchLimits;
 
 /** @brief Zero-initialise @p limits (all fields off / no limit). */
@@ -57,12 +57,12 @@ enum
 /** @brief One search thread's complete state (~2.4 MB; heap-allocate these). */
 typedef struct Searcher
 {
-    Engine  *engine;        ///< the owning engine instance (shared TT; every pool thread points at the same one)
-    uint64_t nodes;         ///< nodes searched this search
-    int      seldepth;      ///< greatest ply reached (selective depth)
-    int64_t  move_overhead; ///< ms subtracted from the clock to cover I/O latency
-    bool     is_silent;     ///< suppress UCI info lines (datagen / bench batches)
-    int      root_score;    ///< score (cp, root stm POV) of the last completed iteration — for datagen labels
+    Engine  *engine;          ///< the owning engine instance (shared TT; every pool thread points at the same one)
+    uint64_t nodes;           ///< nodes searched this search
+    int      selective_depth; ///< greatest ply reached (selective depth)
+    int64_t  move_overhead;   ///< ms subtracted from the clock to cover I/O latency
+    bool     is_silent;       ///< suppress UCI info lines (datagen / bench batches)
+    int      root_score;      ///< score (cp, root stm POV) of the last completed iteration — for datagen labels
 
     /// Repetition/50-move context: keys of positions played before the root (from UCI), extended in-tree.
     uint64_t hist_keys[SEARCH_HIST_CAP]; ///< pre-root + in-tree position keys
