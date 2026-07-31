@@ -1,0 +1,19 @@
+name: macOS check
+
+# Manual compile+gate check on macOS. Exists because macOS is deliberately absent from per-push CI
+# (10x billing) and builds only at release time — which let two Darwin-only breakages reach release
+# runs. Dispatch this before cutting when platform-sensitive code changed. Cost: ~2 macOS minutes.
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build (Apple clang, arm64 — no -march)
+        run: make ARCH=
+      - name: Correctness gates + bench signature
+        run: make check
