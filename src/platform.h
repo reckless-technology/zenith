@@ -97,13 +97,27 @@ static inline int64_t platform_now_ms(void)
     return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
+/** @brief Logical CPUs the OS reports (>= 1). */
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+
+// Darwin hides _SC_NPROCESSORS_ONLN (an XSI extension) under strict _POSIX_C_SOURCE, so use the native
+// sysctl. Broke the release-only macOS build unnoticed: CI never compiles for macOS (10x billing).
+static inline int platform_cpu_count(void)
+{
+    int    count = 0;
+    size_t size  = sizeof count;
+    return sysctlbyname("hw.logicalcpu", &count, &size, NULL, 0) == 0 && count > 0 ? count : 1;
+}
+#else
 #include <unistd.h>
 
-/** @brief Logical CPUs the OS reports (>= 1). */
 static inline int platform_cpu_count(void)
 {
     const long count = sysconf(_SC_NPROCESSORS_ONLN);
     return count > 0 ? (int)count : 1;
 }
+#endif
 
 #endif
