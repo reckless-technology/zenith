@@ -1,8 +1,10 @@
 # Zenith build (C17). Single-shot whole-program compile so LTO sees everything (the engine is small).
 # A shipped build would fan out per microarch (x86-64-v2/v3/v4); -march=native is for local dev.
 # -D_POSIX_C_SOURCE is needed for clock_gettime/strtok_r under strict -std=c17 (not gnu17).
+# -D_DARWIN_C_SOURCE undoes that macro's visibility RESTRICTION on Apple headers (sys/sysctl.h needs the
+# BSD types u_int/u_char that strict POSIX hides); it is inert on every other platform.
 CC        = clang
-STD       = -std=c17 -D_POSIX_C_SOURCE=200809L
+STD       = -std=c17 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
 # Target microarch. Default 'native' for local dev; a release fans out per microarch (e.g. ARCH=x86-64-v2
 # for broad compatibility, ARCH=x86-64-v3 which guarantees BMI2 for `make pext`). See .github/workflows/release.yml.
 # ARCH= (empty) omits -march entirely — a portable baseline, needed on Apple-clang arm64 (no -march=native).
