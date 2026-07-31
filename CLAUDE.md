@@ -39,8 +39,8 @@ make hooks             # enable the clang-format pre-commit hook (once per clone
 make get-book          # download a free Polyglot book -> books/ (gitignored); print the setoption lines
 # books/zenith-book-r4.bin (committed) = Zenith's own self-play-built opening book with opponent coverage
 #   EMBEDDED in every binary (Makefile BOOK_BIN -> tools/embed_book.py), so `OwnBook true` needs no
-#   BookFile; OwnBook stays false — testing is bookless. (tools/build_book.py;
-#   display with tools/show_book.py). OwnBook stays false by default — testing is always bookless.
+#   BookFile; OwnBook stays false by default — testing is always bookless. Built by tools/build_book.py;
+#   display with tools/show_book.py.
 ```
 
 `main` is protected (ruleset: PR required, all four CI checks green, no force pushes; the release
