@@ -201,7 +201,7 @@ void position_make_move(Position *pos, const Move move)
     if (move_is_castle(move))
     {
         const int rank = rank_of(from);
-        if (move_flag(move) == FLAG_CASTLE_KINGSIDE)
+        if (move_is_kingside_castle(move))
         {
             move_piece(pos, make_square(7, rank), make_square(5, rank));
         }

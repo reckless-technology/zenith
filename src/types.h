@@ -113,8 +113,7 @@ enum
 {
     FLAG_QUIET                    = 0,
     FLAG_PAWN_DOUBLE_PUSH         = 1,
-    FLAG_CASTLE_KINGSIDE          = 2,
-    FLAG_CASTLE_QUEENSIDE         = 3,
+    FLAG_CASTLE                   = 2, ///< both castle kinds (CPW uses 2/3; the to-square disambiguates)
     FLAG_CAPTURE                  = 4,
     FLAG_EP                       = 5,
     FLAG_PROMOTION_KNIGHT         = 8, ///< promotion base; +1/+2/+3 -> bishop/rook/queen
@@ -167,7 +166,13 @@ static inline bool move_is_ep(Move move)
 
 static inline bool move_is_castle(Move move)
 {
-    return move_flag(move) == FLAG_CASTLE_KINGSIDE || move_flag(move) == FLAG_CASTLE_QUEENSIDE;
+    return move_flag(move) == FLAG_CASTLE;
+}
+
+/** @brief Whether a castle move is kingside: the king always travels toward h (g > e > c on the back rank). */
+static inline bool move_is_kingside_castle(Move move)
+{
+    return move_to(move) > move_from(move);
 }
 
 static inline bool move_is_double(Move move)

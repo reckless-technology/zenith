@@ -276,13 +276,13 @@ static inline int generate_moves(const Position *pos, Move *moves, const bool is
         if ((pos->castling_rights & kingside_flag) && (empty & sq_bb(f_square)) && (empty & sq_bb(g_square)) &&
             !position_is_attacked_by(pos, f_square, opponent) && !position_is_attacked_by(pos, g_square, opponent))
         {
-            *out++ = move_make(e_square, g_square, FLAG_CASTLE_KINGSIDE);
+            *out++ = move_make(e_square, g_square, FLAG_CASTLE);
         }
         if ((pos->castling_rights & queenside_flag) && (empty & sq_bb(d_square)) && (empty & sq_bb(c_square)) &&
             (empty & sq_bb(b_square)) && !position_is_attacked_by(pos, d_square, opponent) &&
             !position_is_attacked_by(pos, c_square, opponent))
         {
-            *out++ = move_make(e_square, c_square, FLAG_CASTLE_QUEENSIDE);
+            *out++ = move_make(e_square, c_square, FLAG_CASTLE);
         }
     }
 
