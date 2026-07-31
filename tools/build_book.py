@@ -189,8 +189,48 @@ def expand_position(args, pool, store, fen, ply):
     moves = {}
     for move, child, score in candidates:
         moves[move] = {"score": score, "child": None, "weight": 0, "playout": [0.0, 0]}
+    if args.cover_margin > 0 and ply < args.cover_ply:
+        add_coverage(args, pool, moves, scored, best_score)
     positions[key] = {"fen": fen, "ply": ply, "expanded": True, "value": best_score, "moves": moves}
     return key
+
+
+def add_coverage(args, pool, moves, screened, best_score):
+    """Attach opponent-coverage candidates: screened moves outside the kept set but within --cover-margin
+    of the best. Never emitted as our pick (unless backup later proves one near-best); their children give
+    the book prepared replies to lines Zenith would not choose itself."""
+    extras = [(move, child, -screen) for move, child, screen in screened
+              if move not in moves and -screen >= best_score - args.cover_margin][: args.cover_max]
+    if not extras:
+        return
+    rescored = pool.map_scores([(child, args.rescore_nodes // 2) for _, child, _ in extras])
+    for (move, child, _), score in zip(extras, rescored):
+        moves[move] = {"score": -score, "child": None, "weight": 0, "playout": [0.0, 0], "coverage": True}
+
+
+def widen_positions(args, pool, store):
+    """Retrofit coverage moves onto already-expanded positions inside the coverage horizon."""
+    pending = [(key, position) for key, position in store["positions"].items()
+               if position["expanded"] and position["moves"] and position["ply"] < args.cover_ply
+               and not position.get("widened")]
+    pending.sort(key=lambda item: item[1]["ply"])
+    widened = 0
+    for key, position in pending[: args.widen]:
+        legal_moves = run_cli(args.engine, "moves", position["fen"]).split()
+        candidates = [move for move in legal_moves if move not in position["moves"]]
+        if candidates:
+            child_fens = [run_cli(args.engine, "applymoves", position["fen"], move) for move in candidates]
+            screens = pool.map_scores([(child, args.screen_nodes) for child in child_fens])
+            best = position["value"]
+            scored = sorted(zip(candidates, child_fens, screens), key=lambda item: item[2])
+            add_coverage(args, pool, position["moves"], scored, best)
+        position["widened"] = True
+        widened += 1
+        if widened % 50 == 0:
+            save_store(store, args.state)
+            log(f"widen: {widened}/{min(args.widen, len(pending))} positions retrofitted")
+    save_store(store, args.state)
+    log(f"widen pass complete: {widened} positions retrofitted with coverage")
 
 
 def backup_values(store):
@@ -241,16 +281,31 @@ def frontier(store, args):
             continue
         total_weight = sum(d["weight"] for d in position["moves"].values()) or 1
         for move, data in position["moves"].items():
-            if data["child"] and data["weight"] > 0:
+            if not data["child"]:
+                continue
+            if data["weight"] > 0:
                 share = my_reach * data["weight"] / total_weight
-                reach[data["child"]] = max(reach.get(data["child"], 0.0), share)
+            elif data.get("coverage"):
+                gap = max(0, position["value"] - data["score"])
+                share = my_reach * 0.35 * math.exp(-gap / 60.0)
+            else:
+                continue
+            reach[data["child"]] = max(reach.get(data["child"], 0.0), share)
     pending = []
     for key, position in positions.items():
         if position["ply"] >= args.max_ply or abs(position["value"]) > args.abandon_cp:
             continue
         for move, data in position["moves"].items():
-            if data["child"] is None and data["weight"] > 0:
+            if data["child"] is not None:
+                continue
+            if data["weight"] > 0:
                 pending.append((reach.get(key, 0.0) * data["weight"] / 100.0, key, move))
+            elif data.get("coverage"):
+                # Opponent-plausibility model: reasonable-but-not-our-choice moves get played by
+                # opponents roughly in proportion to how close they are to best.
+                gap = max(0, position["value"] - data["score"])
+                plausibility = 0.35 * math.exp(-gap / 60.0)
+                pending.append((reach.get(key, 0.0) * plausibility, key, move))
     pending.sort(reverse=True)
     return pending
 
@@ -262,7 +317,8 @@ def playout_near_ties(args, store, key):
     if len(moves) < 2 or args.playout_games <= 0:
         return
     best = max(data["score"] for data in moves.values())
-    tied = [(move, data) for move, data in moves.items() if best - data["score"] <= args.playout_margin]
+    tied = [(move, data) for move, data in moves.items()
+            if best - data["score"] <= args.playout_margin and not data.get("coverage")]
     if len(tied) < 2:
         return
     for move, data in tied:
@@ -396,6 +452,13 @@ def main():
     parser.add_argument("--max-candidates", type=int, default=4)
     parser.add_argument("--abandon-cp", type=int, default=150, help="stop expanding lines this far gone")
     parser.add_argument("--playout-margin", type=int, default=15)
+    parser.add_argument("--cover-margin", type=int, default=0,
+                        help="ALSO expand opponent-plausible moves within this cp of the best (0 = off). "
+                             "Coverage moves are never emitted as our pick; their children get replies.")
+    parser.add_argument("--cover-max", type=int, default=4, help="max coverage moves per position")
+    parser.add_argument("--cover-ply", type=int, default=10, help="coverage only inside this ply horizon")
+    parser.add_argument("--widen", type=int, default=0,
+                        help="retrofit coverage moves onto up to N already-expanded positions this run")
     parser.add_argument("--playout-games", type=int, default=0, help="game pairs per near-tie candidate (0 = off)")
     parser.add_argument("--playout-nodes", type=int, default=50_000)
     parser.add_argument("--emit", default=None, help="write the Polyglot .bin here after expanding")
@@ -406,6 +469,12 @@ def main():
     args = parser.parse_args()
 
     store = load_store(args.state)
+    if args.widen > 0:
+        pool = EnginePool(args.engine, args.net, args.workers)
+        try:
+            widen_positions(args, pool, store)
+        finally:
+            pool.quit()
     if args.expand > 0:
         pool = EnginePool(args.engine, args.net, args.workers)
         try:
