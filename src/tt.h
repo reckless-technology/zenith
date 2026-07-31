@@ -100,7 +100,7 @@ bool tt_probe(const TranspositionTable *tt, uint64_t key, TTData *out);
 /** @brief Store a result under @p key (depth-preferred replacement with generation aging). */
 void tt_store(TranspositionTable *tt, uint64_t key, int score, int eval, int depth, Bound bound, Move move, int ply);
 /** @brief Approximate fill of @p tt (per mille) over a 1000-slot sample, of the current generation. */
-int tt_hashfull(const TranspositionTable *tt);
+int tt_hash_full(const TranspositionTable *tt);
 
 /**
  * @brief Prefetch @p key's slot into cache to hide the probe's memory latency.
