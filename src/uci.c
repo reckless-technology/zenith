@@ -545,6 +545,15 @@ static void set_option(UciSession *session, char **save_ptr)
     else if (strcmp(option_name, "ownbook") == 0)
     {
         session->is_own_book_enabled = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        // Enabling with no book loaded means the embedded one — OwnBook works with no BookFile at all.
+        if (session->is_own_book_enabled && !book_is_loaded(&session->book))
+        {
+            if (book_load_embedded(&session->book))
+            {
+                printf("info string using the embedded book\n");
+            }
+            fflush(stdout);
+        }
     }
     else if (strcmp(option_name, "bookfile") == 0)
     {
@@ -640,7 +649,7 @@ void uci_loop(Engine *engine)
             printf("option name Clear Hash type button\n");
             printf("option name EvalFile type string default <embedded>\n");
             printf("option name OwnBook type check default false\n");
-            printf("option name BookFile type string default <none>\n");
+            printf("option name BookFile type string default <embedded>\n");
             // Tunable search parameters (SPSA); defaults reproduce the shipped engine.
             printf("option name RfpMargin type spin default %d min 20 max 200\n",
                    session.engine->search.params.rfp_margin);
