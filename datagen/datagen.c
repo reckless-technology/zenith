@@ -307,13 +307,14 @@ int run_bullet2text(const int argc, char **argv)
 {
     if (argc < 3)
     {
-        fprintf(stderr, "usage: %s <in.data> <out.txt> [maxRecords] [stride]\n", argv[0]);
+        fprintf(stderr, "usage: %s <in.data> <out.txt> [maxRecords] [stride] [offset]\n", argv[0]);
         return 1;
     }
     const char *const in_path     = argv[1];
     const char *const out_path    = argv[2];
     uint64_t          max_records = argc > 3 ? strtoull(argv[3], NULL, 10) : ~0ULL;
     uint64_t          stride      = 1;
+    uint64_t          offset      = 0;
     if (argc > 4)
     {
         stride = strtoull(argv[4], NULL, 10);
@@ -321,6 +322,13 @@ int run_bullet2text(const int argc, char **argv)
         {
             stride = 1;
         }
+    }
+    // Offset selects WHICH residue class of the stride to keep (default 0 — the historical behavior).
+    // Different offsets of the same file share zero records, so a dataset already sampled at stride 4
+    // offset 0 can be grown with offsets 1..3 without duplicating a single position.
+    if (argc > 5)
+    {
+        offset = strtoull(argv[5], NULL, 10) % stride;
     }
     if (max_records == 0)
     {
@@ -341,7 +349,7 @@ int run_bullet2text(const int argc, char **argv)
     char              line[128];
     while (written < max_records && fread(record, 1, 32, in) == 32)
     {
-        if ((read_count++ % stride) != 0)
+        if ((read_count++ % stride) != offset)
         {
             continue; // subsample the (5.7B-position) dataset for a diverse manageable slice
         }
