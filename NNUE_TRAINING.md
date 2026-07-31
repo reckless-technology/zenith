@@ -257,7 +257,7 @@ A verified net is only *correct*, not necessarily *stronger*. Gate it with a sel
 
 ```bash
 # new net vs the current release net
-CAND_NET=nets/zenith-new.nnue BASE_NET=nets/zenith-kb3.nnue tools/sprt.sh
+CAND_NET=nets/zenith-new.nnue BASE_NET=nets/zenith-cap1.nnue tools/sprt.sh
 # new net vs the embedded net (BASE_NET unset)
 CAND_NET=nets/zenith-new.nnue tools/sprt.sh
 ```
@@ -289,16 +289,21 @@ failure) ⇒ the build-time-embedded net.
 
 ## 9. Current release net
 
-`nets/zenith-kb3.nnue` — king-bucketed **768×8 → 512** SCReLU, trained with the streaming trainer on **1.4B**
-PlentyChess positions. Progression of the eval:
+`nets/zenith-cap1.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads** SCReLU (ZNNUE5),
+trained with the streaming trainer on **1.4B** PlentyChess positions. It is embedded in every binary at
+build time (`Makefile NET`). Progression of the eval (each step SPRT-gated):
 
 | net | arch / data | result |
 |---|---|---|
 | pc2 | 768→512, 190M | baseline |
 | kb2 | + king buckets, 650M | **+57 Elo** over pc2 (self-play) |
-| kb3 | + 1.4B | +8 over kb2 — **data returns now diminishing** |
+| kb3 | + 1.4B positions | +8 over kb2 — data returns diminishing |
+| ob2 | + material output buckets (ZNNUE4) | +14.7 over kb3 (fixed depth) |
+| km1 | + horizontal king mirroring (ZNNUE5) | +14.3 over ob2 (fixed depth) |
+| cap1 | hidden 512 → **1024** | +52 fixed depth, **+14.7 timed** over km1 |
 
-With this net Zenith beats its reference opponent (pawnstar) at every tested configuration — **+78 Elo
-single-thread and +107 at 8 threads** (TC 8+0.08, single-threaded and bookless on both sides; pawnstar's
-defaults `Threads=32`/`OwnBook=true` must be overridden or the measurement is meaningless). The
-highest-leverage remaining lever is eval quality — more/cleaner data — not engine changes.
+Superseded nets are deleted from the tree once the shipped engine width can no longer load them (git
+history preserves them; the loader rejects width-mismatched files by size). With the current net Zenith
+beats its reference opponent (pawnstar) decisively — ~**+135 Elo** single-thread at 8+0.08, bookless on
+both sides (pawnstar's defaults `Threads=32`/`OwnBook=true` must be overridden or the measurement is
+meaningless).
