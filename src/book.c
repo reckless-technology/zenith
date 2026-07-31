@@ -289,6 +289,41 @@ static uint16_t read_be16(const unsigned char *bytes)
     return (uint16_t)((bytes[0] << 8) | bytes[1]);
 }
 
+/** @brief Decode a raw Polyglot image (big-endian 16-byte records) into @p book. The format has no
+ *  magic or checksum, so validate the two invariants it does have: a positive multiple of the record
+ *  size, and ascending key order (probing binary-searches — an unsorted book would silently miss).
+ *  @return false without touching @p book on any violation. */
+static bool book_parse(Book *book, const unsigned char *raw, const size_t size)
+{
+    if (size == 0 || size % 16 != 0 || size / 16 > SIZE_MAX / sizeof(BookEntry))
+    {
+        return false;
+    }
+    const size_t     count   = size / 16;
+    BookEntry *const entries = malloc(count * sizeof(BookEntry));
+    if (entries == NULL)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < count; i++)
+    {
+        const unsigned char *const record = raw + 16 * i;
+        entries[i].key                    = read_be64(record);
+        entries[i].move                   = read_be16(record + 8);
+        entries[i].weight                 = read_be16(record + 10);
+        entries[i].learn                  = 0; // unused
+        if (i > 0 && entries[i].key < entries[i - 1].key)
+        {
+            free(entries); // out of order: not a valid Polyglot book
+            return false;
+        }
+    }
+    free(book->entries);
+    book->entries = entries;
+    book->count   = count;
+    return true;
+}
+
 bool book_load(Book *book, const char *path)
 {
     FILE *const file = fopen(path, "rb");
@@ -299,9 +334,7 @@ bool book_load(Book *book, const char *path)
     fseek(file, 0, SEEK_END);
     const long size = ftell(file);
     fseek(file, 0, SEEK_SET);
-    // Reject non-multiples of the 16-byte entry size, and bound the entry count so `count * sizeof(BookEntry)`
-    // cannot overflow the allocation size for a hostile (huge) book file.
-    if (size <= 0 || size % 16 != 0 || (size_t)(size / 16) > SIZE_MAX / sizeof(BookEntry))
+    if (size <= 0)
     {
         fclose(file);
         return false;
@@ -314,29 +347,14 @@ bool book_load(Book *book, const char *path)
         return false;
     }
     fclose(file);
-
-    // Decode the big-endian entries into native order once, so probing is a plain binary search.
-    const size_t     count   = (size_t)size / 16;
-    BookEntry *const entries = malloc(count * sizeof(BookEntry));
-    if (entries == NULL)
-    {
-        free(raw);
-        return false;
-    }
-    for (size_t i = 0; i < count; i++)
-    {
-        const unsigned char *const record = raw + 16 * i;
-        entries[i].key                    = read_be64(record);
-        entries[i].move                   = read_be16(record + 8);
-        entries[i].weight                 = read_be16(record + 10);
-        entries[i].learn                  = 0; // unused
-    }
+    const bool is_loaded = book_parse(book, raw, (size_t)size);
     free(raw);
+    return is_loaded;
+}
 
-    free(book->entries);
-    book->entries = entries;
-    book->count   = count;
-    return true;
+bool book_load_embedded(Book *book)
+{
+    return book_parse(book, embedded_book_data, embedded_book_size);
 }
 
 bool book_is_loaded(const Book *book)

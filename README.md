@@ -215,9 +215,10 @@ backup over the position DAG), worth ~+30 Elo of clock savings and opening varie
 Beyond the moves Zenith plays, it carries **opponent coverage**: prepared replies to plausible moves
 Zenith would not choose itself (1. d4, 1. c4, and ~14k others), so it stays in book against foreign
 repertoires. The previous, coverage-free `zenith-book-r3.bin` is retained alongside.
-Inspect it with `tools/show_book.py` (one SAN line of play per row). Enable via
-`setoption name BookFile value books/zenith-book-r3.bin` + `OwnBook true` (off by default — testing stays
-bookless). Alternatively supply your own book, or fetch a free one with `make get-book` (downloads
+Inspect it with `tools/show_book.py` (one SAN line of play per row). The book is **embedded in every
+binary** (like the net), so `setoption name OwnBook value true` alone enables it — no BookFile needed;
+`BookFile` loads an external book instead. OwnBook stays **off by default**: testing is bookless.
+Alternatively supply your own book, or fetch a free one with `make get-book` (downloads
 `performance.bin` from the GPL-3.0
 python-chess repo into the gitignored `books/`):
 

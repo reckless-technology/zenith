@@ -12,6 +12,7 @@
 #pragma once
 #include "position.h"
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct BookEntry BookEntry; ///< decoded Polyglot entry (layout private to book.c)
 
@@ -25,6 +26,13 @@ typedef struct Book
 
 /** @brief Load a .bin book fully into @p book (replacing any previous contents). @return false on failure. */
 bool book_load(Book *book, const char *path);
+/** @brief Load the book embedded in the binary at build time (tools/embed_book.py; Makefile BOOK_BIN).
+ *  Lets `OwnBook true` work with no BookFile. @return false only on allocation failure. */
+bool book_load_embedded(Book *book);
+
+/// The shipped Polyglot book, generated into a C array at build time (build/embedded_book.c).
+extern const unsigned char embedded_book_data[];
+extern const size_t        embedded_book_size;
 /** @brief Whether @p book holds a non-empty book. */
 bool book_is_loaded(const Book *book);
 /** @brief Pick a book move for @p pos (advances @p book's pick PRNG).
