@@ -35,3 +35,12 @@ SingularMargin/AspirationDelta never moved. New bench signature 2657379. Consist
 options, node-identical) passed. Ops lesson: launch the tuner detached (setsid) in its OWN Bash call —
 never put pkill and the launch in one command (the pattern matches the launch line's text and kills the
 wrapper); monitor liveness by checkpoint-file mtime, never pgrep.
+
+**Pass 3 (2026-07-31, cap1-era): NO BAKE — optimum confirmed stable.** 800 iterations at 8+0.08 against
+the 1024-hidden engine; converged theta moved only a few percent of range (NmpDivisor 199->186,
+FutilityMargin 98->107, LmrBase 90->84, LmrDivisor 220->230, SeeCaptureMargin 97->102, AspirationDelta
+21->19; four params returned exactly to defaults). Validation SPRT [0,5] ran the full 10,000-game cap:
+50.07%, +0.5 +/- 4.8 Elo, LLR -0.70 — unproven, defaults stand. Conclusion: the pass-2 parameters are
+robust across BOTH the mirroring and the 2x-capacity eval changes; SPSA is tapped out for this engine
+generation (pass 1 +26.5, pass 2 +11.1, pass 3 ~0). Next tuning should wait for a structural search
+change, not an eval swap.
