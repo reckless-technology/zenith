@@ -267,23 +267,23 @@ static void set_time(Searcher *searcher, const Position *root, const SearchLimit
     searcher->is_time_limited = false;
     searcher->soft_ms = searcher->hard_ms = 0;
     searcher->node_limit                  = lim->nodes;
-    if (lim->movetime > 0)
+    if (lim->move_time > 0)
     {
         searcher->is_time_limited = true;
-        searcher->hard_ms = searcher->soft_ms = max_value(1, lim->movetime - searcher->move_overhead);
+        searcher->hard_ms = searcher->soft_ms = max_value(1, lim->move_time - searcher->move_overhead);
     }
     else if (lim->time[root->color_to_move] > 0)
     {
         searcher->is_time_limited = true;
         const int64_t remaining = lim->time[root->color_to_move], increment = lim->inc[root->color_to_move];
-        const int     moves_to_go = lim->movestogo > 0 ? lim->movestogo : 30;
+        const int     moves_to_go = lim->moves_to_go > 0 ? lim->moves_to_go : 30;
         const int64_t budget      = remaining / moves_to_go + increment * 3 / 4;
         searcher->soft_ms         = max_value(1, budget - searcher->move_overhead);
         searcher->hard_ms         = max_value(1, min_value(remaining - searcher->move_overhead, searcher->soft_ms * 4));
     }
     else if (lim->has_time_control)
     {
-        // A clock/movetime token was given but the side-to-move time is non-positive (flag fall, or a GUI
+        // A clock/move_time token was given but the side-to-move time is non-positive (flag fall, or a GUI
         // that sent a zero/negative time). Move immediately on a minimal budget instead of searching
         // unbounded — the distinction from a bare `go` needs the explicit flag (wtime 0 reads as time 0).
         searcher->is_time_limited = true;
@@ -312,9 +312,9 @@ static int qsearch(Searcher *searcher, const Position *pos, int alpha, const int
         return 0; // is_time_up() already set the shared stop for the main thread
     }
     searcher->nodes++;
-    if (ply > searcher->seldepth)
+    if (ply > searcher->selective_depth)
     {
-        searcher->seldepth = ply;
+        searcher->selective_depth = ply;
     }
     if (ply >= MAX_PLY - 1)
     {
@@ -920,8 +920,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
         atomic_store_explicit(&searcher->engine->search.is_stop_requested, false, memory_order_relaxed);
         // ^ clear the shared stop before a new search (helpers are launched after this)
     }
-    searcher->nodes    = 0;
-    searcher->seldepth = 0;
+    searcher->nodes           = 0;
+    searcher->selective_depth = 0;
     memset(searcher->killers, 0, sizeof(searcher->killers));
     memset(searcher->history, 0, sizeof(searcher->history));
     memset(searcher->correction_history, 0, sizeof(searcher->correction_history));
@@ -1000,8 +1000,8 @@ Move searcher_go(Searcher *searcher, Position root, const SearchLimits *lim, con
                 snprintf(score_str, sizeof score_str, "cp %d", score);
             }
             printf("info depth %d seldepth %d score %s nodes %llu nps %llu time %lld hashfull %d pv", depth,
-                   searcher->seldepth, score_str, (unsigned long long)searcher->nodes,
-                   (unsigned long long)nodes_per_second, (long long)elapsed_ms, tt_hashfull(&searcher->engine->tt));
+                   searcher->selective_depth, score_str, (unsigned long long)searcher->nodes,
+                   (unsigned long long)nodes_per_second, (long long)elapsed_ms, tt_hash_full(&searcher->engine->tt));
             for (int pv_index = 0; pv_index < searcher->pv_len[0]; pv_index++)
             {
                 char uci_buf[8];

@@ -115,7 +115,7 @@ void tt_store(TranspositionTable *tt, const uint64_t key, const int score, const
     }
 }
 
-int tt_hashfull(const TranspositionTable *tt)
+int tt_hash_full(const TranspositionTable *tt)
 {
     int       used   = 0;
     const int sample = tt->slot_count < 1000 ? (int)tt->slot_count : 1000;

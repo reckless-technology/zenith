@@ -421,12 +421,12 @@ static void go(UciSession *session, char **save_ptr)
         }
         else if (strcmp(token, "movestogo") == 0)
         {
-            limits.movestogo        = atoi(value);
+            limits.moves_to_go      = atoi(value);
             limits.has_time_control = true;
         }
         else if (strcmp(token, "movetime") == 0)
         {
-            limits.movetime         = strtoll(value, NULL, 10);
+            limits.move_time        = strtoll(value, NULL, 10);
             limits.has_time_control = true;
         }
         else if (strcmp(token, "depth") == 0)
