@@ -297,8 +297,17 @@ def stream_train(args):
     shard_paths = sorted(glob.glob(os.path.join(args.shard_dir, "*.npz")))
     if not shard_paths:
         raise SystemExit(f"no shard .npz files in {args.shard_dir}")
-    validation_path = shard_paths[-1]
-    train_paths = shard_paths[:-1] if len(shard_paths) > 1 else shard_paths
+    # --validation-shard pins the held-out shard by name; the last-sorted default silently CHANGES when
+    # shards are added (the cap2 run initially validated on a brand-new shard instead of the historical
+    # s15, breaking loss comparability) — pin it for any run that must be comparable.
+    if args.validation_shard:
+        matches = [path for path in shard_paths if os.path.basename(path) == args.validation_shard]
+        if not matches:
+            raise SystemExit(f"--validation-shard {args.validation_shard} not found in {args.shard_dir}")
+        validation_path = matches[0]
+    else:
+        validation_path = shard_paths[-1]
+    train_paths = [path for path in shard_paths if path != validation_path] or shard_paths
 
     use_cuda = args.device == "cuda" and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -368,6 +377,8 @@ def main():
     parser.add_argument("--featurise-shard", nargs=2, metavar=("TEXT", "NPZ"),
                         help="featurise a single text shard into NPZ and exit (for parallel featurisation)")
     parser.add_argument("--shard-dir", help="directory of per-shard .npz caches for streaming training")
+    parser.add_argument("--validation-shard", default=None,
+                        help="basename of the held-out shard (default: last sorted; pin for comparable runs)")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--lr", type=float, default=1e-3)
