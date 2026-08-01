@@ -150,3 +150,14 @@ contexts worked immediately. Long GPU runs now get a stall watchdog; train.py de
 ALSO: never rebuild ./build/zenith while a pipeline consumes it (book builder crashed exec'ing a
 half-written binary) — long-running consumers get dedicated binary copies (data/book/zenith-worker).
 Next lever: SPSA pass 3 (search params tuned for 512-era eval speed), then data refresh.
+
+**Data refresh at 1024 (cap2): +10 Elo fixed-depth SPRT over cap1, H1 at 5,754 games (2026-08-01).**
+Phase 4a: same architecture/recipe, data 1.4B -> 2.15B via bullet2text OFFSET extraction (stride-4
+offset-2 of the same binpacks — disjoint by construction, no new downloads). Val 0.013746 (best; cap1
+0.013898). KEY FINDING: data returns REOPENED at 1024 hidden — kb3 had shown "diminishing" (+8) at 512,
+but that was capacity saturation, not data exhaustion. Offsets 1 and 3 (~1.5B more) remain if wanted;
+expect smaller returns. Training-run ops: SECOND CUDA wedge (USB/network re-enumeration storm) killed the
+first attempt at epoch 6 -> train.py now checkpoints per epoch with --resume (PR #35), and
+--validation-shard pins the held-out shard (PR #34; the default last-sorted shard SILENTLY CHANGES when
+shards are added — nearly corrupted comparability). Rerun reproduced the lost curve exactly (epoch-seeded
+shuffle). Shipped as embedded default; bench 1,390,606.

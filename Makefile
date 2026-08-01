@@ -34,7 +34,7 @@ BIN       = $(BUILD_DIR)/zenith
 # The shipped net (committed). It is embedded into every binary at build time (below) and doubles as the
 # `make check` nnuecheck target: the engine falls back to the embedded copy whenever EvalFile is unset or
 # fails to load, so a bare binary is always full NNUE strength with no external files.
-NET       = nets/zenith-cap1.nnue
+NET       = nets/zenith-cap2.nnue
 EMBED_OBJ = $(BUILD_DIR)/embedded_net.o
 # The shipped opening book (committed), embedded the same way: `setoption name OwnBook value true` works
 # with no BookFile (OwnBook still defaults false — testing stays bookless).

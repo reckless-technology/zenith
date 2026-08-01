@@ -174,12 +174,13 @@ venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
   `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). The current best net `nets/zenith-cap1.nnue` = 1024 hidden (ZNNUE5 mirrored
-  architecture, same 1.4B positions/recipe as km1 — capacity was the only variable): +52 Elo fixed-depth,
-  **+14.7 Elo at time control** over km1, val loss 0.013898 (project best). Lineage: kb2 (+57, 650M) ->
-  kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3, mirroring) -> cap1 (+14.7 timed, 1024
-  hidden). Superseded nets are deleted from the tree once incompatible with the shipped
-  engine width (git history preserves them); the loader rejects width-mismatched files by size.
+  low-RAM, parallelizable). The current best net `nets/zenith-cap2.nnue` = cap1's 1024 ZNNUE5 architecture
+  retrained on **2.15B** positions (the same 1.4B plus 760M disjoint offset-2 records of the same binpacks
+  — data volume the only variable): **+10 Elo fixed-depth SPRT over cap1**, val loss 0.013746 (project
+  best). Lineage: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3,
+  mirroring) -> cap1 (+14.7 timed, 1024 hidden) -> cap2 (+10, 2.15B data). Data returns REOPENED at 1024
+  hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
+  shipped engine width (git history preserves them); the loader rejects width-mismatched files by size.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
