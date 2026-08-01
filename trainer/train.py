@@ -227,6 +227,20 @@ def train(args):
     optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs)
 
+    # Per-epoch checkpointing: a wedged/killed run resumes at the last completed epoch instead of from
+    # scratch (two 10h+ GPU runs have died mid-flight to host-level CUDA wedges). The checkpoint restores
+    # model/optimiser/scheduler state exactly; the shard shuffle is epoch-seeded, so a resumed run walks
+    # the same shard order it would have. Written atomically; removed on successful export.
+    checkpoint_path = args.out + ".ckpt"
+    start_epoch = 0
+    if args.resume and os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model"])
+        optimiser.load_state_dict(checkpoint["optimiser"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        start_epoch = checkpoint["epoch"]
+        print(f"resumed from {checkpoint_path}: {start_epoch} epochs already complete", flush=True)
+
     # Deterministic train/validation split so val loss is comparable across runs (overfit detector).
     position_count = own_indices.shape[0]
     shuffle = torch.randperm(position_count, generator=torch.Generator().manual_seed(0))
@@ -248,7 +262,7 @@ def train(args):
                 seen += batch.numel()
         return total / max(seen, 1)
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         permutation = train_index[torch.randperm(train_index.numel())]
         running_loss = 0.0
@@ -320,6 +334,20 @@ def stream_train(args):
     optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs)
 
+    # Per-epoch checkpointing: a wedged/killed run resumes at the last completed epoch instead of from
+    # scratch (two 10h+ GPU runs have died mid-flight to host-level CUDA wedges). The checkpoint restores
+    # model/optimiser/scheduler state exactly; the shard shuffle is epoch-seeded, so a resumed run walks
+    # the same shard order it would have. Written atomically; removed on successful export.
+    checkpoint_path = args.out + ".ckpt"
+    start_epoch = 0
+    if args.resume and os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model"])
+        optimiser.load_state_dict(checkpoint["optimiser"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        start_epoch = checkpoint["epoch"]
+        print(f"resumed from {checkpoint_path}: {start_epoch} epochs already complete", flush=True)
+
     # Fixed validation subset (deterministic) so val loss is comparable across runs.
     val_own, val_opponent, val_target = _load_shard_npz(validation_path, args.wdl_lambda)
     val_limit = min(val_own.shape[0], 1_000_000)
@@ -338,7 +366,7 @@ def stream_train(args):
                 seen += val_own[start:stop].shape[0]
         return total / max(seen, 1)
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         shard_order = torch.randperm(len(train_paths), generator=torch.Generator().manual_seed(epoch)).tolist()
         running_loss, batches, positions = 0.0, 0, 0
@@ -365,9 +393,14 @@ def stream_train(args):
         print(f"epoch {epoch + 1:3d}/{args.epochs}  train {running_loss / max(batches, 1):.6f}  "
               f"val {validation_loss():.6f}  lr {scheduler.get_last_lr()[0]:.2e}  {positions:,} pos  "
               f"{time.time() - epoch_start:.0f}s", flush=True)
+        torch.save({"epoch": epoch + 1, "model": model.state_dict(), "optimiser": optimiser.state_dict(),
+                    "scheduler": scheduler.state_dict()}, checkpoint_path + ".tmp")
+        os.replace(checkpoint_path + ".tmp", checkpoint_path)
 
     torch.save(model.state_dict(), args.out.replace(".nnue", ".pt"))
     export_quantised_net(model, args.out)
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path) # the exported net supersedes it
 
 
 def main():
@@ -377,6 +410,8 @@ def main():
     parser.add_argument("--featurise-shard", nargs=2, metavar=("TEXT", "NPZ"),
                         help="featurise a single text shard into NPZ and exit (for parallel featurisation)")
     parser.add_argument("--shard-dir", help="directory of per-shard .npz caches for streaming training")
+    parser.add_argument("--resume", action="store_true",
+                        help="continue from <out>.nnue.ckpt if present (written after every epoch)")
     parser.add_argument("--validation-shard", default=None,
                         help="basename of the held-out shard (default: last sorted; pin for comparable runs)")
     parser.add_argument("--epochs", type=int, default=30)
