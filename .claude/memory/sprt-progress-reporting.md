@@ -16,7 +16,7 @@ he asked for status repeatedly during a silent 8-hour validation run and then sa
 
 **How to apply:** never pipe a long fastchess run through a filter that discards interim output. Retain
 the FULL fastchess log (`> run.log 2>&1`), then attach a Monitor that emits the periodic
-`Games:`/`Elo`/`LLR:` lines at a sane cadence (e.g. every ~500 games: match `Games: [0-9]*[05]00,`) plus
+`Games:`/`Elo`/`LLR:` lines every 50 games (Jonny's stated cadence: `Games: [0-9]*[05]0,`) plus
 the final `SPRT (` verdict line. Relay each milestone to Jonny in one line. Same pattern for SPSA
 (per-100-iteration lines) and training (per-epoch lines) — already standard; SPRT was the gap.
 
