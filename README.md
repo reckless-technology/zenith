@@ -60,6 +60,7 @@ make check                          # build + run every gate below
 ./build/zenith fuzzcheck            # malformed-FEN/UCI hardening (memory safety; run the `make debug` build under ASan)
 ./build/zenith nnuecheck <net.nnue> # incremental accumulator == full refresh, bit-identical
 ./build/zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
+./build/zenith embookcheck          # the build-time-embedded book: blob, entry invariants, probe path
 ```
 
 `main` is protected: changes land via pull request with all CI checks green (the release workflow's
@@ -180,7 +181,7 @@ All the pruning/reduction margins live in `SearchParams`, exposed as UCI spin op
 The protocol loop (`uci.c`) runs the search on a coordinator thread that spawns the Lazy-SMP helpers;
 `stop` sets a shared atomic. Options: `Hash`, `Clear Hash`, `Threads`, `Move Overhead`, `EvalFile`,
 `OwnBook`/`BookFile`, plus the tunable search parameters. The same binary exposes the CLI self-tests
-(`bench`, `perft`, `legalcheck`, `seecheck`, `fuzzcheck`, `bookcheck`, `nnuecheck`) and the NNUE
+(`bench`, `perft`, `legalcheck`, `seecheck`, `fuzzcheck`, `bookcheck`, `embookcheck`, `nnuecheck`) and the NNUE
 verification helper (`nnueeval`); the training-data tools are separate executables built by `make datagen`.
 
 ## NNUE training pipeline

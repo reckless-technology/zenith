@@ -75,6 +75,9 @@ jobs:
       - name: Polyglot book keys (9 official spec vectors)
         run: ./${{ matrix.bin }} bookcheck
 
+      - name: Embedded opening book (blob, entry invariants, probe path — the artifact `OwnBook true` plays from)
+        run: ./${{ matrix.bin }} embookcheck
+
       - name: Adversarial-input hardening (malformed FEN/UCI)
         run: ./${{ matrix.bin }} fuzzcheck
 
@@ -129,6 +132,9 @@ jobs:
         run: ./build/zenith-debug legalcheck
       - name: Adversarial-input fuzz under ASan/UBSan (memory-safety gate)
         run: ./build/zenith-debug fuzzcheck
+
+      - name: Embedded opening book under ASan/UBSan (the blob is parsed into heap entries)
+        run: ./build/zenith-debug embookcheck
       - name: UCI smoke under ASan/UBSan (threaded search — coordinator + Lazy SMP helper)
         run: |
           printf 'setoption name Threads value 2\nposition startpos\ngo depth 9\nquit\n' | ./build/zenith-debug > uci_smoke.out

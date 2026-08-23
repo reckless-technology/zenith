@@ -515,6 +515,11 @@ int nnue_eval_fens_from_stdin(const char *net_path)
     return 0;
 }
 
+enum
+{
+    SELF_CHECK_DEPTH = 4 ///< plies walked per position
+};
+
 /** @brief Tallies for one accumulator self-check walk (passed down the recursion, no file-scope state). */
 typedef struct SelfCheckTally
 {
@@ -523,8 +528,8 @@ typedef struct SelfCheckTally
     int      maxdiff;    ///< largest per-lane absolute difference seen
 } SelfCheckTally;
 
-/** @brief Recurse to @p depth comparing the incrementally-maintained accumulator against a full refresh. */
-static void self_check_walk(const Position *position, const int depth, SelfCheckTally *tally)
+/** @brief Compare @p position's incrementally-maintained accumulator against a full refresh, lane by lane. */
+static void self_check_node(const Position *position, SelfCheckTally *tally)
 {
     NnueAccumulator fresh;
     fresh.net   = position->accumulator.net;
@@ -546,6 +551,12 @@ static void self_check_walk(const Position *position, const int depth, SelfCheck
         }
     }
     tally->nodes++;
+}
+
+/** @brief Recurse to @p depth applying self_check_node at every position reached. */
+static void self_check_walk(const Position *position, const int depth, SelfCheckTally *tally)
+{
+    self_check_node(position, tally);
     if (depth == 0)
     {
         return;
@@ -557,6 +568,27 @@ static void self_check_walk(const Position *position, const int depth, SelfCheck
         Position child = *position;
         position_make_move(&child, moves[index]);
         self_check_walk(&child, depth - 1, tally);
+    }
+}
+
+/**
+ * @brief self_check_walk over @p position, refreshing the tty progress line once per root move.
+ *
+ * The root ply is expanded here rather than reporting from inside self_check_walk, for the same reason
+ * run_legal_check does it: a progress path in the hot recursive frame costs real throughput.
+ */
+static void self_check_position(const Position *position, SelfCheckTally *tally, const char *case_detail,
+                                const int64_t start_ms)
+{
+    self_check_node(position, tally);
+    Move root_moves[MAX_MOVES];
+    generate_legal(position, root_moves, false);
+    for (int index = 0; root_moves[index] != MOVE_NONE; index++)
+    {
+        Position child = *position;
+        position_make_move(&child, root_moves[index]);
+        self_check_walk(&child, SELF_CHECK_DEPTH - 1, tally);
+        test_progress("nnue", case_detail, (int64_t)tally->nodes, (double)(platform_now_ms() - start_ms) / 1000.0);
     }
 }
 
@@ -572,10 +604,12 @@ int nnue_run_self_check(const char *net_path)
     // is in a real search thread; the walk's copy-make children inherit it.
     NnueRefreshCache refresh_cache;
     memset(&refresh_cache, 0, sizeof refresh_cache);
+    // Cheapest-first (see the same note in run_legal_check): the heavy position runs last so the table does not
+    // stall right after its first line.
     const char *const fens[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
     };
     const size_t fen_count   = sizeof(fens) / sizeof(fens[0]);
     uint64_t     total_nodes = 0, total_mismatches = 0;
@@ -588,10 +622,13 @@ int nnue_run_self_check(const char *net_path)
         position_init(&position, net);
         position.accumulator.cache = &refresh_cache;
         position_set_fen(&position, fens[fen_index]);
+        char case_detail[16];
+        snprintf(case_detail, sizeof case_detail, "#%zu/%zu", fen_index + 1, fen_count);
         SelfCheckTally tally    = {0};
         const int64_t  start_ms = platform_now_ms();
-        self_check_walk(&position, 4, &tally);
+        self_check_position(&position, &tally, case_detail, start_ms);
         const double secs = (platform_now_ms() - start_ms) / 1000.0;
+        test_progress_clear();
         total_nodes += tally.nodes;
         total_mismatches += tally.mismatches;
         total_secs += secs;

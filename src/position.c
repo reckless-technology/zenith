@@ -269,12 +269,18 @@ void position_make_null(Position *pos)
     update_checkers(pos); // null move only made when not in check, but the new stm's checkers must be current
 }
 
-bool position_is_move_legal_slow(const Position *pos, const Move move)
+bool position_is_move_legal_slow_child(const Position *pos, const Move move, Position *child_out)
 {
     const Color side = pos->color_to_move;
-    Position    copy = *pos;
-    position_make_move(&copy, move);
-    return !position_is_attacked_by(&copy, copy.king_location[side], enemy_of(side));
+    position_copy_for_make(child_out, pos);
+    position_make_move(child_out, move);
+    return !position_is_attacked_by(child_out, child_out->king_location[side], enemy_of(side));
+}
+
+bool position_is_move_legal_slow(const Position *pos, const Move move)
+{
+    Position child;
+    return position_is_move_legal_slow_child(pos, move, &child);
 }
 
 Bitboard position_pinned_to_king(const Position *pos)

@@ -46,3 +46,11 @@ uint64_t polyglot_key(const Position *pos);
 
 /** @brief Validate polyglot_key() against the 9 official spec test vectors. @return non-zero on failure. */
 int run_book_check(void);
+
+/**
+ * @brief Validate the build-time-embedded book: blob, parse, entry invariants, and the probe path.
+ *
+ * The embedded book is what `OwnBook true` plays from when no BookFile is set, so it is a shipped artifact
+ * with no other gate behind it. @return non-zero on failure.
+ */
+int run_embedded_book_check(void);

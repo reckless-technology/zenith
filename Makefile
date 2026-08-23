@@ -115,9 +115,12 @@ check: $(BIN)
 	@echo "== seecheck ==";    ./$(BIN) seecheck
 	@echo "== fuzzcheck ==";   ./$(BIN) fuzzcheck
 	@echo "== bookcheck ==";   ./$(BIN) bookcheck
-	@echo "== embedded book =="; printf 'setoption name OwnBook value true\nposition startpos\ngo depth 1\nquit\n' \
+	@echo "== embedded book =="; ./$(BIN) embookcheck
+	@#  ...plus the end-to-end UCI path the gate above cannot reach: OwnBook wiring -> bestmove from the book.
+	@printf 'setoption name OwnBook value true\nposition startpos\ngo depth 1\nquit\n' \
 	  | ./$(BIN) | grep -qE 'bestmove (e2e4|d2d4|c2c4|g1f3)' \
-	  && echo "  [PASS] embedded book probes from startpos" || { echo "embedded book FAILED"; exit 1; }
+	  && echo "[PASS] embook uci                             bestmove from book                              (setoption OwnBook true -> go)" \
+	  || { echo "[FAIL] embook uci                             no book bestmove                                (setoption OwnBook true -> go)"; exit 1; }
 	@echo "== nnuecheck ==";   if [ -f $(NET) ]; then ./$(BIN) nnuecheck $(NET); else echo "  SKIP (no $(NET))"; fi
 	@echo "make check: all gates passed"
 
