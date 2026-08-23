@@ -23,7 +23,7 @@ make clean
 ./build/zenith        # interactive UCI loop
 
 make check             # run EVERY gate below (perft, bench-signature, legalcheck, seecheck, fuzzcheck,
-                       #   bookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
+                       #   bookcheck, embookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
 ./build/zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
 ./build/zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
 ./build/zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
@@ -31,6 +31,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
 ./build/zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
 ./build/zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
+./build/zenith embookcheck   # the EMBEDDED book: blob, entry invariants, probe path (11 checks)
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
 tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
 make tables            # regenerate src/generated/*.inc (Zobrist/ln/geometry/magic constants) — deliberate
@@ -142,8 +143,8 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   SEE pruning, IIR), check + singular extensions, mate-distance pruning, and a pawn-keyed eval
   **correction history**. All margins live in `SearchParams` (UCI-exposed spins, **SPSA-tuned** defaults;
   re-tune with `tools/spsa.py`). `static_exchange_eval()` is the local SEE.
-- **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`nnueeval`/
-  `nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
+- **uci.\*** — protocol loop + the CLI subcommands (`bench`/`perft`/`legalcheck`/`bookcheck`/`embookcheck`/
+  `nnueeval`/`nnuecheck`). Search runs on a coordinator thread (`platform.h` shim); `stop`
   sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256; default = half the logical CPUs, so each thread gets a real core on SMT machines),
   `Move Overhead`, `EvalFile`, `OwnBook`/`BookFile` (Polyglot; OwnBook defaults false — testing stays
   bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:

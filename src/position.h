@@ -8,6 +8,7 @@
 #include "accumulator.h"
 #include "types.h"
 
+#include <stddef.h>
 #include <string.h>
 
 /**
@@ -53,6 +54,32 @@ typedef struct Position
     /// Copy-make copies it to the child, which make_move then updates by the moved/captured/promoted deltas.
     NnueAccumulator accumulator;
 } Position;
+
+// The accumulator must stay the final member for position_copy_for_make's prefix copy to cover every other
+// field. sizeof(Position) is the accumulator's offset plus its size — no trailing padding to miss.
+_Static_assert(offsetof(Position, accumulator) + sizeof(NnueAccumulator) == sizeof(Position),
+               "the NNUE accumulator must be Position's last member (position_copy_for_make copies the prefix)");
+
+/**
+ * @brief Copy @p src to @p dst ahead of a position_make_move — the copy half of copy-make.
+ *
+ * A net-bound position gets the plain struct copy (the accumulator must reach the child, which make_move then
+ * updates incrementally). A position with no net — perft, the legality/SEE gates; see position_init — never
+ * reads the accumulator, and it is ~95% of sizeof(Position), so the copy skips it: only the prefix is copied
+ * and `values` is left indeterminate (never read, because the net binding stays NULL and every accumulator
+ * update is guarded on it). That alone makes the eval-free walks ~2.4x faster.
+ */
+static inline void position_copy_for_make(Position *dst, const Position *src)
+{
+    if (src->accumulator.net != NULL)
+    {
+        *dst = *src;
+        return;
+    }
+    memcpy(dst, src, offsetof(Position, accumulator));
+    dst->accumulator.net   = NULL;
+    dst->accumulator.cache = NULL;
+}
 
 /**
  * @brief Initialise @p pos to an empty board bound to @p net: White to move, zeroed keys, both cached king
@@ -126,6 +153,14 @@ void position_make_null(Position *pos);
 /** @brief Whether a pseudo-legal @p move is legal, tested via copy-make — the slow reference oracle (ground
  *  truth for the `legalcheck` gate). Prefer position_is_move_legal, the copy-free path movegen and the search use. */
 bool position_is_move_legal_slow(const Position *pos, Move move);
+/**
+ * @brief position_is_move_legal_slow, additionally handing back the position it built in @p child_out.
+ *
+ * The oracle's copy-make child is also the ground truth for other post-move properties (notably
+ * `child_out->checkers`, the gives-check truth). Taking it from here lets `legalcheck` check both oracles per
+ * move off ONE copy-make instead of three — the copy dominates the gate's runtime.
+ */
+bool position_is_move_legal_slow_child(const Position *pos, Move move, Position *child_out);
 
 /**
  * @brief Our pieces pinned to our own king.

@@ -2,13 +2,15 @@
 // Copyright (C) 2026 Jonny Reckless
 /**
  * @file
- * @brief Thin portability shim: threads + a monotonic millisecond clock.
+ * @brief Thin portability shim: threads, a monotonic millisecond clock, and stdout terminal queries.
  *
  * On POSIX toolchains with C11 threads (glibc >= 2.28) we wrap <threads.h>; on Apple and toolchains that
  * ship no <threads.h> (e.g. mingw-w64 clang on Windows) we fall back to pthreads (winpthreads on Windows).
  */
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 typedef int (*zen_thread_fn)(void *); ///< thread entry point (return value ignored)
 
@@ -119,5 +121,57 @@ static inline int platform_cpu_count(void)
     return count > 0 ? (int)count : 1;
 }
 #endif
+
+#endif
+
+// Stdout terminal queries, for output that only makes sense on a terminal (the test gates' in-place progress
+// lines). Windows has no <sys/ioctl.h>/TIOCGWINSZ, which is why these live behind the shim rather than in the
+// caller — a raw ioctl in a shared header broke the Windows build (CI's only non-Linux compile).
+#if defined(_WIN32)
+
+#include <io.h>
+
+/** @brief Whether stdout is a terminal rather than a pipe or file. */
+static inline bool platform_stdout_is_terminal(void)
+{
+    return _isatty(_fileno(stdout)) != 0;
+}
+
+/** @brief Stdout's width in columns (80 when it cannot be determined). */
+static inline int platform_terminal_columns(void)
+{
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info))
+    {
+        const int columns = info.srWindow.Right - info.srWindow.Left + 1;
+        if (columns > 0)
+        {
+            return columns;
+        }
+    }
+    return 80;
+}
+
+#else
+
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+/** @brief Whether stdout is a terminal rather than a pipe or file. */
+static inline bool platform_stdout_is_terminal(void)
+{
+    return isatty(fileno(stdout)) != 0;
+}
+
+/** @brief Stdout's width in columns (80 when it cannot be determined). */
+static inline int platform_terminal_columns(void)
+{
+    struct winsize window;
+    if (ioctl(fileno(stdout), TIOCGWINSZ, &window) == 0 && window.ws_col > 0)
+    {
+        return (int)window.ws_col;
+    }
+    return 80;
+}
 
 #endif
