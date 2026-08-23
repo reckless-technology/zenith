@@ -11,8 +11,12 @@
 #pragma once
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 /** @brief Print one result line: "[PASS] "/"[FAIL] " then the formatted detail, with a trailing newline. */
 static inline void test_result(const bool is_pass, const char *fmt, ...)
@@ -78,6 +82,79 @@ static inline void test_result_columns(const bool is_pass, const char *name, con
     char line[192];
     test_result(is_pass, "%s", test_columns(line, name, detail, nodes, aux, secs, mnps, tail));
 }
+
+/// @name In-place progress for the long-running walks
+/// @{
+
+enum
+{
+    TEST_TAG_WIDTH = 7 ///< width of the leading "[PASS] " / "[FAIL] " / "[ .. ] " tag, common to every line
+};
+
+/** @brief The terminal's width in columns (80 if it cannot be determined). */
+static inline size_t test_terminal_columns(void)
+{
+    struct winsize window;
+    if (ioctl(fileno(stdout), TIOCGWINSZ, &window) == 0 && window.ws_col > 0)
+    {
+        return (size_t)window.ws_col;
+    }
+    return 80;
+}
+
+/**
+ * @brief Rewrite an in-place progress line for a gate that is mid-case, on the shared column grid.
+ *
+ * The deep differential walks (legalcheck, nnuecheck) spend seconds inside a single position and otherwise
+ * print nothing until it finishes, which reads as a hang. This keeps a live node count on screen meanwhile.
+ *
+ * Formatted through test_columns, so the node and time columns sit exactly where the [PASS] result lines put
+ * them and the progress line reads as the same table mid-flight. Trailing blank columns are trimmed so the
+ * cursor parks just after the last populated field. @p detail carries the case counter ("#3/8") in the column
+ * the summary line uses for passed/total.
+ *
+ * Emitted ONLY to a terminal: redirected output (CI logs, `make check | tee`) stays byte-for-byte identical to
+ * a run without progress. The '\r' rewrite cannot undo a wrapped line, so if the full grid would not fit the
+ * terminal this drops the time column, and if even that would not fit it prints nothing.
+ */
+static inline void test_progress(const char *name, const char *detail, const int64_t nodes, const double secs)
+{
+    if (!isatty(fileno(stdout)))
+    {
+        return;
+    }
+    const size_t columns = test_terminal_columns();
+    // Widest form first (nodes + elapsed); on a narrow terminal retry with the time column blanked, which the
+    // trailing-blank trim below then drops entirely.
+    for (int attempt = 0; attempt < 2; attempt++)
+    {
+        char   line[192];
+        size_t length = strlen(test_columns(line, name, detail, nodes, NULL, attempt == 0 ? secs : -1.0, -1.0, NULL));
+        while (length > 0 && line[length - 1] == ' ')
+        {
+            length--;
+        }
+        if (TEST_TAG_WIDTH + length <= columns)
+        {
+            printf("\r[ .. ] %.*s\033[K", (int)length, line); // \033[K: erase the previous, longer line's tail
+            fflush(stdout);
+            return;
+        }
+    }
+}
+
+/** @brief Erase a test_progress line so the result line that follows starts on clean columns. */
+static inline void test_progress_clear(void)
+{
+    if (!isatty(fileno(stdout)))
+    {
+        return;
+    }
+    fputs("\r\033[K", stdout);
+    fflush(stdout);
+}
+
+/// @}
 
 /**
  * @brief Write @p value as a thousands-grouped decimal string into @p out (needs >= 27 bytes). @return @p out.

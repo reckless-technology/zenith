@@ -1263,6 +1263,11 @@ int run_perft_suite(void)
 // --- CLI: legalcheck — the copy-free position_is_move_legal must agree with position_is_move_legal_slow on every
 // pseudo-legal move ---
 
+enum
+{
+    LEGAL_CHECK_DEPTH = 4 ///< plies walked per position
+};
+
 /** @brief Tallies for one legalcheck walk (passed down the recursion instead of file-scope counters). */
 typedef struct LegalCheckTally
 {
@@ -1270,8 +1275,8 @@ typedef struct LegalCheckTally
     uint64_t mismatches; ///< disagreements found (first few are printed with their FEN)
 } LegalCheckTally;
 
-/** @brief Recurse to @p depth checking position_is_move_legal / gives_check_fast against copy-make ground truth. */
-static void legal_check_walk(const Position *pos, const int depth, LegalCheckTally *tally)
+/** @brief Check both copy-free oracles against copy-make ground truth for every pseudo-legal move of @p pos. */
+static void legal_check_node(const Position *pos, LegalCheckTally *tally)
 {
     Move pseudo[MAX_MOVES];
     generate_pseudo(pos, pseudo, false);
@@ -1281,23 +1286,26 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
     for (int index = 0; pseudo[index] != MOVE_NONE; index++)
     {
         const Move move = pseudo[index];
-        if (position_is_move_legal(pos, move, pinned) != position_is_move_legal_slow(pos, move))
+        // ONE copy-make feeds both oracles: the child the legality oracle builds is also the position whose
+        // `checkers` is the gives-check ground truth. Testing them separately meant three copies of a
+        // ~4KB Position per move and cost ~5x the gate's runtime.
+        Position   child;
+        const bool legal_truth = position_is_move_legal_slow_child(pos, move, &child);
+        const bool legal_fast  = position_is_move_legal(pos, move, pinned);
+        if (legal_fast != legal_truth)
         {
             if (tally->mismatches < 8)
             {
                 char fen_buf[128];
-                printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n",
-                       position_is_move_legal(pos, move, pinned), position_is_move_legal_slow(pos, move),
-                       move_from(move), move_to(move), move_flag(move), position_fen(pos, fen_buf));
+                printf("  MISMATCH fast=%d slow=%d move=%d->%d flag=%d  %s\n", legal_fast, legal_truth, move_from(move),
+                       move_to(move), move_flag(move), position_fen(pos, fen_buf));
             }
             tally->mismatches++;
         }
         // gives_check_fast: for legal QUIET non-castle moves it must equal the copy-make ground truth
         // (castling is allowed to conservatively report true — it is only a pruning guard).
-        if (move_is_quiet(move) && !move_is_castle(move) && position_is_move_legal_slow(pos, move))
+        if (move_is_quiet(move) && !move_is_castle(move) && legal_truth)
         {
-            Position child = *pos;
-            position_make_move(&child, move);
             const bool is_check_truth = (child.checkers != 0);
             const bool is_check_fast  = position_gives_check_fast(pos, move, discovered, enemy_king_square);
             if (is_check_fast != is_check_truth)
@@ -1313,6 +1321,12 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
         }
     }
     tally->nodes++;
+}
+
+/** @brief Recurse to @p depth applying legal_check_node at every position reached. */
+static void legal_check_walk(const Position *pos, const int depth, LegalCheckTally *tally)
+{
+    legal_check_node(pos, tally);
     if (depth == 0)
     {
         return;
@@ -1321,9 +1335,33 @@ static void legal_check_walk(const Position *pos, const int depth, LegalCheckTal
     generate_legal(pos, legal, false);
     for (int index = 0; legal[index] != MOVE_NONE; index++)
     {
-        Position child = *pos;
+        Position child;
+        position_copy_for_make(&child, pos);
         position_make_move(&child, legal[index]);
         legal_check_walk(&child, depth - 1, tally);
+    }
+}
+
+/**
+ * @brief legal_check_walk over @p pos, refreshing the tty progress line once per root move.
+ *
+ * The root ply is expanded here rather than reporting from inside legal_check_walk: a progress path in that
+ * hot recursive frame cost ~60% throughput (its buffers and printf call inflate the frame the recursion pays
+ * for at every node). Out here it is free, and one root move — ~1/40th of the walk — is a fine granularity.
+ */
+static void legal_check_position(const Position *pos, LegalCheckTally *tally, const char *case_detail,
+                                 const int64_t start_ms)
+{
+    legal_check_node(pos, tally);
+    Move root_moves[MAX_MOVES];
+    generate_legal(pos, root_moves, false);
+    for (int index = 0; root_moves[index] != MOVE_NONE; index++)
+    {
+        Position child;
+        position_copy_for_make(&child, pos);
+        position_make_move(&child, root_moves[index]);
+        legal_check_walk(&child, LEGAL_CHECK_DEPTH - 1, tally);
+        test_progress("legal", case_detail, (int64_t)tally->nodes, (double)(platform_now_ms() - start_ms) / 1000.0);
     }
 }
 
@@ -1331,15 +1369,19 @@ int run_legal_check(void)
 {
     // Positions chosen to hammer pins, checks, king moves, castling and en passant (incl. the EP discovered-
     // check case that position_is_move_legal defers to the slow path).
+    //
+    // Ordered cheapest-first (27k -> 4.2M nodes at depth 4 — a 155x spread). The order is cosmetic, but a
+    // heavyweight position early buys a long silence right after the first result line, which reads as a hang;
+    // this way most of the table lands in the first second and the slow one finishes last.
     const char *const fens[] = {
-        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
-        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
         "8/8/3p4/1Pp4r/1K3p1k/8/4P1P1/1R6 w - c6 0 1",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
         "B6b/8/8/8/2K5/4k3/8/b6B w - - 0 1",
         "7k/RR6/8/8/8/8/rr6/7K w - - 0 1",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
     };
     const size_t fen_count   = sizeof(fens) / sizeof(fens[0]);
     uint64_t     total_nodes = 0, total_mismatches = 0;
@@ -1350,10 +1392,13 @@ int run_legal_check(void)
         Position pos;
         position_init(&pos, NULL); // legality oracles are eval-free
         position_set_fen(&pos, fens[fen_index]);
+        char case_detail[16];
+        snprintf(case_detail, sizeof case_detail, "#%zu/%zu", fen_index + 1, fen_count);
         LegalCheckTally tally    = {0};
         const int64_t   start_ms = platform_now_ms();
-        legal_check_walk(&pos, 4, &tally);
+        legal_check_position(&pos, &tally, case_detail, start_ms);
         const double secs = (platform_now_ms() - start_ms) / 1000.0;
+        test_progress_clear();
         total_nodes += tally.nodes;
         total_mismatches += tally.mismatches;
         total_secs += secs;
