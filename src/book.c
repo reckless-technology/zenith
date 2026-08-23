@@ -512,3 +512,288 @@ int run_book_check(void)
     test_result_columns(failures == 0, "book", detail, -1, NULL, -1.0, -1.0, "(polyglot key spec vectors)");
     return failures ? 1 : 0;
 }
+
+// ---- embedded-book gate ------------------------------------------------------------------------------
+// The book baked into every binary by tools/embed_book.py is a shipped artifact: `OwnBook true` plays out of
+// it with no BookFile, so a truncated blob, a mis-sorted key, or an entry that decodes to an illegal move
+// would silently cost opening strength with nothing else failing. These checks cover the blob, the parse, and
+// the probe path against the real embedded data — no external .bin needed.
+
+enum
+{
+    EMBEDDED_BOOK_RECORD_SIZE = 16,  ///< bytes per Polyglot record: key u64 + move u16 + weight u16 + learn u32
+    EMBEDDED_BOOK_SAMPLES     = 256, ///< startpos probes drawn for the weighted-pick spread check
+    EMBEDDED_BOOK_WALK_CAP    = 128, ///< ply cap on the in-book walk, so a cyclic book cannot spin forever
+    EMBEDDED_BOOK_MIN_PLIES   = 4    ///< the shipped book must carry at least this much theory from startpos
+};
+
+/// Fixed pick seed: book_rng seeds itself from the clock for opening variety, which would make this gate's
+/// output differ run to run. Every probe below runs off this seed instead, so the results are reproducible.
+static const uint64_t EMBEDDED_BOOK_SEED = 0x9E3779B97F4A7C15ULL;
+
+/** @brief Whether @p move is among @p pos's legal moves. */
+static bool is_legal_in(const Position *pos, const Move move)
+{
+    Move legal[MAX_MOVES];
+    generate_legal(pos, legal, false);
+    for (int i = 0; legal[i] != MOVE_NONE; i++)
+    {
+        if (legal[i] == move)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Collect the book moves stored for @p pos that are legal there, into @p out (capacity @p cap).
+ * @return the count.
+ *
+ * The independent reference for what book_probe is allowed to return: a plain linear scan rather than
+ * book_probe's binary search, so a broken search cannot hide behind an equally broken expectation.
+ */
+static int book_moves_for(const Book *book, const Position *pos, Move *out, const int cap)
+{
+    const uint64_t key   = polyglot_key(pos);
+    int            count = 0;
+    Move           legal[MAX_MOVES];
+    generate_legal(pos, legal, false);
+    for (size_t i = 0; i < book->count && count < cap; i++)
+    {
+        if (book->entries[i].key != key)
+        {
+            continue;
+        }
+        for (int m = 0; legal[m] != MOVE_NONE; m++)
+        {
+            if (polyglot_encode(pos, legal[m]) == book->entries[i].move)
+            {
+                out[count++] = legal[m];
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+/**
+ * @brief Whether @p pick is a valid book answer for @p pos: a real move, legal there, and one of the
+ * @p count moves in @p allowed (the entries the book actually stores for the position).
+ *
+ * Membership is the part that matters — a probe that returns a legal move the book never stored is exactly
+ * the key-aliasing bug the gate exists to catch, and "legal" alone would wave it through.
+ */
+static bool is_book_pick(const Position *pos, const Move *allowed, const int count, const Move pick)
+{
+    if (pick == MOVE_NONE || !is_legal_in(pos, pick))
+    {
+        return false;
+    }
+    for (int i = 0; i < count; i++)
+    {
+        if (allowed[i] == pick)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @brief Set up @p pos from @p fen, unevaluated (the book path needs no net). */
+static void book_position(Position *pos, const char *fen)
+{
+    position_init(pos, NULL);
+    position_set_fen(pos, fen);
+}
+
+int run_embedded_book_check(void)
+{
+    static const char *const START_FEN     = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    static const char *const AFTER_E4_FEN  = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
+    static const char *const BARE_KING_FEN = "8/8/4k3/8/8/4K3/8/8 w - - 0 1"; // no opening book holds this
+    int                      failures = 0, checks = 0;
+
+    // Counts go in the free-form aux column, not the shared node column — that one is labelled "nodes".
+    char aux[32], commas[27];
+
+    // 1. The blob itself: present, and a whole number of 16-byte Polyglot records.
+    const bool size_ok = embedded_book_size > 0 && embedded_book_size % EMBEDDED_BOOK_RECORD_SIZE == 0;
+    failures += !size_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "%s bytes", u64_commas(embedded_book_size, commas));
+    test_result_columns(size_ok, "embook", "blob", -1, aux, -1.0, -1.0,
+                        "(embedded blob is a whole number of 16-byte records)");
+
+    // 2. It parses. book_parse rejects a descending key, so a successful load already proves the sort order
+    //    that book_probe's binary search depends on — check 3 re-derives it here rather than trusting that.
+    Book       book   = {0};
+    const bool loaded = book_load_embedded(&book) && book_is_loaded(&book);
+    failures += !loaded;
+    checks++;
+    snprintf(aux, sizeof aux, "%s entries", loaded ? u64_commas(book.count, commas) : "no");
+    test_result_columns(loaded, "embook", "load", -1, aux, -1.0, -1.0,
+                        "(book_load_embedded -> book_is_loaded, no BookFile)");
+    if (!loaded)
+    {
+        // Nothing downstream is meaningful without entries; report the remaining checks as failures.
+        test_result_columns(false, "embook", "abort", -1, NULL, -1.0, -1.0, "(no embedded book: later checks skipped)");
+        book_free(&book);
+        return 1;
+    }
+
+    // 3. Keys ascending, and the record count agrees with the blob size.
+    bool   sorted        = true;
+    size_t distinct_keys = book.count ? 1 : 0;
+    for (size_t i = 1; i < book.count; i++)
+    {
+        sorted &= book.entries[i].key >= book.entries[i - 1].key;
+        distinct_keys += book.entries[i].key != book.entries[i - 1].key;
+    }
+    const bool count_ok = book.count == embedded_book_size / EMBEDDED_BOOK_RECORD_SIZE;
+    failures += !(sorted && count_ok);
+    checks++;
+    snprintf(aux, sizeof aux, "%s keys ascending", u64_commas(book.count, commas));
+    test_result_columns(sorted && count_ok, "embook", "sorted", -1, aux, -1.0, -1.0,
+                        "(binary-search precondition in book_probe)");
+
+    // 4. Distinct positions — reported for visibility, and a book of one position would be a build failure.
+    const bool positions_ok = distinct_keys > 1;
+    failures += !positions_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "%s distinct keys", u64_commas(distinct_keys, commas));
+    test_result_columns(positions_ok, "embook", "positions", -1, aux, -1.0, -1.0,
+                        "(book covers more than a single position)");
+
+    // 5. Every entry is pickable: book_probe treats weight 0 as 1 but an all-zero key would be unreachable, so
+    //    a zero weight means the builder emitted something it never intended to be played.
+    uint16_t min_weight = UINT16_MAX;
+    for (size_t i = 0; i < book.count; i++)
+    {
+        if (book.entries[i].weight < min_weight)
+        {
+            min_weight = book.entries[i].weight;
+        }
+    }
+    const bool weights_ok = min_weight > 0;
+    failures += !weights_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "min weight %u", (unsigned)min_weight);
+    test_result_columns(weights_ok, "embook", "weights", -1, aux, -1.0, -1.0, "(every entry is pickable)");
+
+    // 6. No duplicate (key, move) pair — a repeat silently double-weights that move. Entries are key-sorted,
+    //    so a duplicate can only sit inside one key's run.
+    size_t duplicates = 0;
+    for (size_t i = 1; i < book.count; i++)
+    {
+        for (size_t j = i; j-- > 0 && book.entries[j].key == book.entries[i].key;)
+        {
+            duplicates += book.entries[j].move == book.entries[i].move;
+        }
+    }
+    failures += duplicates != 0;
+    checks++;
+    snprintf(aux, sizeof aux, "%llu duplicates", (unsigned long long)duplicates);
+    test_result_columns(duplicates == 0, "embook", "unique", -1, aux, -1.0, -1.0, "(no key+move pair stored twice)");
+
+    // 7. Startpos probes, and the pick is a legal move the book actually stores for that position.
+    Position start;
+    book_position(&start, START_FEN);
+    Move      expected[64];
+    const int expected_count = book_moves_for(&book, &start, expected, 64);
+    book.rng_state           = EMBEDDED_BOOK_SEED;
+    const Move first_move    = book_probe(&book, &start);
+    const bool first_ok      = is_book_pick(&start, expected, expected_count, first_move);
+    failures += !first_ok;
+    checks++;
+    char move_buf[8];
+    snprintf(aux, sizeof aux, "picked %s of %d", first_move != MOVE_NONE ? move_to_uci(first_move, move_buf) : "(none)",
+             expected_count);
+    test_result_columns(first_ok, "embook", "startpos", -1, aux, -1.0, -1.0, START_FEN);
+
+    // 8. The weighted pick spreads over the stored moves and never leaves them: 256 draws must all be legal
+    //    book moves, and must not collapse onto one when the position offers several.
+    int  distinct_picks = 0;
+    Move seen[64];
+    bool all_in_book = true;
+    book.rng_state   = EMBEDDED_BOOK_SEED;
+    for (int sample = 0; sample < EMBEDDED_BOOK_SAMPLES; sample++)
+    {
+        const Move pick = book_probe(&book, &start);
+        all_in_book &= is_book_pick(&start, expected, expected_count, pick);
+        bool is_new = true;
+        for (int i = 0; i < distinct_picks; i++)
+        {
+            is_new &= seen[i] != pick;
+        }
+        if (is_new && distinct_picks < 64)
+        {
+            seen[distinct_picks++] = pick;
+        }
+    }
+    const bool spread_ok = all_in_book && distinct_picks >= (expected_count >= 2 ? 2 : 1);
+    failures += !spread_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "%d draws hit %d of %d", EMBEDDED_BOOK_SAMPLES, distinct_picks, expected_count);
+    test_result_columns(spread_ok, "embook", "spread", -1, aux, -1.0, -1.0,
+                        "(weighted picks stay inside the stored moves)");
+
+    // 9. Opponent coverage: the book answers as Black too (what tools/build_book.py's reply pass is for), so
+    //    playing with OwnBook does not leave the book after one move.
+    Position after_e4;
+    book_position(&after_e4, AFTER_E4_FEN);
+    Move      replies[64];
+    const int reply_count = book_moves_for(&book, &after_e4, replies, 64);
+    book.rng_state        = EMBEDDED_BOOK_SEED;
+    const Move reply      = book_probe(&book, &after_e4);
+    const bool reply_ok   = is_book_pick(&after_e4, replies, reply_count, reply);
+    failures += !reply_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "picked %s of %d", reply != MOVE_NONE ? move_to_uci(reply, move_buf) : "(none)",
+             reply_count);
+    test_result_columns(reply_ok, "embook", "reply", -1, aux, -1.0, -1.0, AFTER_E4_FEN);
+
+    // 10. A miss returns MOVE_NONE rather than a stray entry — the search must not alias a neighbouring key.
+    Position bare_kings;
+    book_position(&bare_kings, BARE_KING_FEN);
+    book.rng_state     = EMBEDDED_BOOK_SEED;
+    const Move stray   = book_probe(&book, &bare_kings);
+    const bool miss_ok = stray == MOVE_NONE;
+    failures += !miss_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "returned %s", miss_ok ? "MOVE_NONE" : move_to_uci(stray, move_buf));
+    test_result_columns(miss_ok, "embook", "miss", -1, aux, -1.0, -1.0, BARE_KING_FEN);
+
+    // 11. Walk the book from startpos until it runs out: every move legal, and deep enough to be worth having.
+    Position walk;
+    book_position(&walk, START_FEN);
+    book.rng_state  = EMBEDDED_BOOK_SEED;
+    int  plies      = 0;
+    bool walk_legal = true;
+    for (; plies < EMBEDDED_BOOK_WALK_CAP; plies++)
+    {
+        const Move move = book_probe(&book, &walk);
+        if (move == MOVE_NONE)
+        {
+            break;
+        }
+        if (!is_legal_in(&walk, move))
+        {
+            walk_legal = false;
+            break;
+        }
+        position_make_move(&walk, move);
+    }
+    const bool walk_ok = walk_legal && plies >= EMBEDDED_BOOK_MIN_PLIES && plies < EMBEDDED_BOOK_WALK_CAP;
+    failures += !walk_ok;
+    checks++;
+    snprintf(aux, sizeof aux, "%d plies in book", plies);
+    test_result_columns(walk_ok, "embook", "depth", -1, aux, -1.0, -1.0,
+                        "(deterministic walk from startpos to a miss)");
+
+    book_free(&book);
+    char detail[16];
+    snprintf(detail, sizeof detail, "%d/%d", checks - failures, checks);
+    test_result_columns(failures == 0, "embook", detail, -1, NULL, -1.0, -1.0, "(embedded opening book)");
+    return failures ? 1 : 0;
+}

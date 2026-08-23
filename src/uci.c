@@ -737,6 +737,10 @@ int uci_run(Engine *engine, int argc, char **argv)
         {
             return run_book_check(); // polyglot key vs the 9 official spec vectors
         }
+        if (!strcmp(argv[1], "embookcheck"))
+        {
+            return run_embedded_book_check(); // the build-time-embedded book: blob, entry invariants, probing
+        }
         if (!strcmp(argv[1], "fuzzcheck"))
         {
             return run_fuzz_check(); // malformed-input hardening (meaningful under an ASan/UBSan build)
@@ -878,7 +882,7 @@ int uci_run(Engine *engine, int argc, char **argv)
         fprintf(stderr,
                 "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck moves "
                 "polykey "
-                "seecheck fuzzcheck bookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
+                "seecheck fuzzcheck bookcheck embookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
                 "see `make datagen`)\n",
                 argv[1]);
     }
