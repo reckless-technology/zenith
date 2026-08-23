@@ -9,14 +9,14 @@
  * readability. Keeping this in one place is what makes `make check` read as one clean table.
  */
 #pragma once
+#include "platform.h" // stdout terminal queries (no <sys/ioctl.h> on Windows)
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 
 /** @brief Print one result line: "[PASS] "/"[FAIL] " then the formatted detail, with a trailing newline. */
 static inline void test_result(const bool is_pass, const char *fmt, ...)
@@ -91,17 +91,6 @@ enum
     TEST_TAG_WIDTH = 7 ///< width of the leading "[PASS] " / "[FAIL] " / "[ .. ] " tag, common to every line
 };
 
-/** @brief The terminal's width in columns (80 if it cannot be determined). */
-static inline size_t test_terminal_columns(void)
-{
-    struct winsize window;
-    if (ioctl(fileno(stdout), TIOCGWINSZ, &window) == 0 && window.ws_col > 0)
-    {
-        return (size_t)window.ws_col;
-    }
-    return 80;
-}
-
 /**
  * @brief Rewrite an in-place progress line for a gate that is mid-case, on the shared column grid.
  *
@@ -119,11 +108,11 @@ static inline size_t test_terminal_columns(void)
  */
 static inline void test_progress(const char *name, const char *detail, const int64_t nodes, const double secs)
 {
-    if (!isatty(fileno(stdout)))
+    if (!platform_stdout_is_terminal())
     {
         return;
     }
-    const size_t columns = test_terminal_columns();
+    const size_t columns = (size_t)platform_terminal_columns();
     // Widest form first (nodes + elapsed); on a narrow terminal retry with the time column blanked, which the
     // trailing-blank trim below then drops entirely.
     for (int attempt = 0; attempt < 2; attempt++)
@@ -146,7 +135,7 @@ static inline void test_progress(const char *name, const char *detail, const int
 /** @brief Erase a test_progress line so the result line that follows starts on clean columns. */
 static inline void test_progress_clear(void)
 {
-    if (!isatty(fileno(stdout)))
+    if (!platform_stdout_is_terminal())
     {
         return;
     }
