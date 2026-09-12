@@ -165,7 +165,7 @@ jobs:
   # attaches zips for both microarch variants to the release made above. Runners bill 2x: fine for releases.
   release-windows:
     needs: release
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     defaults:
       run:
         shell: "msys2 {0}"
@@ -178,6 +178,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
+          release: false # self-hosted runner reckless-ci-win-0: use its preinstalled C:msys64 instead of downloading MSYS2 each run
           update: true
           install: >-
             mingw-w64-clang-x86_64-clang
