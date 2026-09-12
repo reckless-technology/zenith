@@ -22,7 +22,7 @@ jobs:
       matrix:
         include:
           - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
-          - { label: windows, os: windows-latest, shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
+          - { label: windows, os: [self-hosted, Windows, X64], shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
     defaults:
       run:
         shell: ${{ matrix.shell }}
@@ -40,6 +40,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
+          release: false # self-hosted runner reckless-ci-win-0: use its preinstalled C:\msys64 instead of downloading MSYS2 each run
           update: true
           install: >-
             mingw-w64-clang-x86_64-clang
