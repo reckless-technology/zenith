@@ -128,9 +128,10 @@ jobs:
   # macOS: release candidates only (excluded from per-push CI on cost grounds). Runs the FULL gate suite —
   # including the bench node-signature assertion, which is where the cross-platform reproducibility
   # guarantee is now enforced — then attaches the arm64 tarball + checksum to the release made above.
+  # Runs on the org's Apple-silicon runner (reckless-ci-mac-1), not a hosted macos-latest runner.
   release-macos:
     needs: release
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
         with:
