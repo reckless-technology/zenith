@@ -7,6 +7,10 @@ on:
     branches: [main]
 
 jobs:
+  # The Linux half of the matrix, the sanitizer job and the format gate run on the org's self-hosted Linux
+  # runners ([self-hosted, Linux, X64]: reckless-ci-lin-0 and reckless-ci-lin-1), not hosted ubuntu-latest.
+  # They apt-install clang, so both runners need a sudo that asks for no password.
+
   # Build + run the correctness gates on Linux and Windows, and upload the binaries as artifacts.
   # Windows builds with the MSYS2 CLANG64 toolchain (a POSIX-ish clang: strtok_r, winpthreads, lld/LTO).
   # macOS is EXCLUDED here on cost grounds (its runners bill 10x on private repos): it builds and runs the
@@ -21,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux,   os: ubuntu-latest,  shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
+          - { label: linux,   os: [self-hosted, Linux, X64],  shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
           - { label: windows, os: [self-hosted, Windows, X64], shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
     defaults:
       run:
@@ -120,7 +124,7 @@ jobs:
   # AddressSanitizer + UBSan build and memory-safety gates (Linux only — the sanitizer build is where OOB /
   # UB regressions surface; the movegen/legality/fuzz walks are the highest-value things to run under it).
   sanitizers:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
       - name: Install clang
@@ -154,7 +158,7 @@ jobs:
           [ -s datagen_smoke.txt ] || { echo '::error::datagen produced no records'; exit 1; }
 
   format-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
       - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)

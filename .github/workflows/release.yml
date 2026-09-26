@@ -22,8 +22,12 @@ permissions:
   contents: write # create the release and push the version-bump commit
 
 jobs:
+  # The release job runs on the org's self-hosted Linux runners ([self-hosted, Linux, X64]:
+  # reckless-ci-lin-0 and reckless-ci-lin-1), not hosted ubuntu-latest; both carry the gh CLI and jq that
+  # its steps drive.
+
   release:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
         with:
