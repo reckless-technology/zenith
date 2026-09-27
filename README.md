@@ -37,7 +37,7 @@ make get-book        # download a free Polyglot opening book -> books/ (gitignor
 make tables          # regenerate the committed constant tables (src/generated/*.inc: Zobrist, Q28 ln,
                      #   bitboard geometry, magic multipliers) — a
                      #   deliberate step, never a build side effect; the bench signature guards the values
-make format          # clang-format all sources in place (src/ and datagen/)
+make format          # clang-format all sources in place (src/ and datagen/) — use clang-format 22.1.8
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make doc             # -> doc/html/index.html (Doxygen API reference)
 make clean           # remove build outputs (binaries + doc/html)
