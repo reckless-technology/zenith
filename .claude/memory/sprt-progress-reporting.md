@@ -26,5 +26,5 @@ Ponder option; fastchess does not ponder — re-verify if either changes). Defau
 made OwnBook semantics richer; pawnstar's Threads=32/OwnBook=true burned a whole measurement once).
 Verify the pins landed via /proc/<fastchess>/cmdline, not by trusting the launcher script.
 
-Related hazard when restarting such runs: [[pgrep-wait-loop-self-match]] — kill by PID, never by
+Related hazard when restarting such runs (now in `reckless-technology/claude-skills`, skill `reckless-working-practice`): a `pgrep -f` wait loop matches itself — kill by PID, never by
 `pkill -f` patterns that appear in your own command line.
