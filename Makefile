@@ -7,7 +7,9 @@ CC        = clang
 STD       = -std=c17 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
 # Target microarch. Default 'native' for local dev; a release fans out per microarch (e.g. ARCH=x86-64-v2
 # for broad compatibility, ARCH=x86-64-v3 which guarantees BMI2 for `make pext`). See .github/workflows/release.yml.
-# ARCH= (empty) omits -march entirely — a portable baseline, needed on Apple-clang arm64 (no -march=native).
+# ARCH= (empty) omits -march entirely — a portable baseline, and what macos-check.yml uses. Apple clang used to
+# reject -march=native on arm64; Apple clang 21 (Xcode 26) accepts it and resolves it to the host CPU
+# (apple-m1 on an M1 Pro), so the default target builds on Apple silicon too. Keep ARCH= for portability.
 ARCH      ?= native
 ARCH_FLAG  = $(if $(ARCH),-march=$(ARCH))
 OPT       = -O3 $(ARCH_FLAG) -funroll-loops -flto -DNDEBUG
