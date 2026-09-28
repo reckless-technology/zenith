@@ -51,6 +51,13 @@ version-bump deploy key is the only bypass). Land changes via branch → `gh pr 
 A versioned pre-commit hook (`.githooks/pre-commit`, enabled via `make hooks`) rejects commits whose staged
 `src/*.{c,h}` are not clang-format-clean — always keep sources formatted (run `make format`).
 
+**Use clang-format 22.1.8.** `make format` runs whatever `clang-format` is first on your PATH, and the
+major version matters: a different one restyles code that is already correct, and then the hook refuses
+files that were fine. The organisation standardised on 22.1.8 on 2026-09-26 (Zenith's tree measured clean
+under it, so no reformat was needed here; apt's `clang-format-18` is *not* it, and on Linux `~/.local/bin`
+must precede `/usr/bin` for the right one to win). See `reckless-technology/claude-skills`, skill
+`reckless-working-practice`.
+
 The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
 `tools/sprt.sh` runs **fastchess** (cutechess-cli is not installed here) with an openings EPD (`$OPENINGS`, default
