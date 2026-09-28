@@ -6,9 +6,11 @@
 # Enable it in a clone with:  make hooks   (sets core.hooksPath to .githooks)
 set -euo pipefail
 
-# Prefer the clang-format version CI pins, so local and CI agree.
+# Prefer the clang-format version CI pins, so local and CI agree. That is 22.1.8 org-wide since
+# 2026-09-26; it was 18 before, and a leftover clang-format-18 earlier in this list used to win here
+# silently. Plain `clang-format` is the PyPI wheel on a development machine.
 CF=""
-for candidate in clang-format-18 clang-format; do
+for candidate in clang-format-22 clang-format; do
     if command -v "$candidate" >/dev/null 2>&1; then
         CF="$candidate"
         break
@@ -16,6 +18,17 @@ for candidate in clang-format-18 clang-format; do
 done
 if [ -z "$CF" ]; then
     echo "pre-commit: clang-format not found — skipping format check (CI still enforces it)." >&2
+    exit 0
+fi
+
+# A different major restyles code that is already correct, so a mismatch would reject clean files.
+# Say so and defer to CI rather than refusing work the developer cannot fix by editing.
+cf_major=$("$CF" --version | sed -n 's/.*version \([0-9][0-9]*\).*/\1/p')
+if [ "$cf_major" != "22" ]; then
+    echo "pre-commit: $CF is major ${cf_major:-unknown}, but this repo is formatted with 22.1.8." >&2
+    echo "pre-commit: skipping the format check (CI still enforces it). Install the pinned version with:" >&2
+    echo "  python3 -m venv ~/.venvs/clang-format-22 && ~/.venvs/clang-format-22/bin/pip install 'clang-format==22.1.8'" >&2
+    echo "  ln -sf ~/.venvs/clang-format-22/bin/clang-format ~/.local/bin/clang-format" >&2
     exit 0
 fi
 
