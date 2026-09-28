@@ -161,7 +161,21 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang-format-18 (pinned to match local; clang-format output is not stable across versions)
-        run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      # clang-format is version-sensitive - a different major restyles code that is already correct - so the
+      # version is pinned, and since 2026-09-26 it is pinned to the same 22.1.8 across the whole organisation
+      # (see reckless-technology/claude-skills, skill reckless-working-practice). It was 18 here until then,
+      # which disagreed with this repo's own README and CLAUDE.md. Not apt: Ubuntu carries no clang-format-22,
+      # and the PyPI wheel is what the development machines run, so CI and a developer's pre-commit hook agree.
+      # The venv is kept in the runner's tool cache, and shares its name with pawnstar's so a runner that has
+      # built either repo already has it.
+      - name: clang-format 22.1.8, from the kept venv
+        run: |
+          venv="$RUNNER_TOOL_CACHE/reckless-clang-format-venv"
+          [ -x "$venv/bin/clang-format" ] || python3 -m venv "$venv"
+          "$venv/bin/pip" install --quiet --upgrade pip
+          "$venv/bin/pip" install --quiet 'clang-format==22.1.8'
+          echo "$venv/bin" >> "$GITHUB_PATH"
       - name: Check formatting (repo .clang-format)
-        run: clang-format-18 --dry-run --Werror src/*.c src/*.h datagen/*.c datagen/*.h
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror src/*.c src/*.h datagen/*.c datagen/*.h
