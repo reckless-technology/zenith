@@ -51,6 +51,36 @@
       "setupCommands": [
         { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
       ]
+    },
+    // macOS: no gdb exists on Darwin, so the cppdbg/MIMode-gdb configs above cannot run there.
+    // These use lldb through the CodeLLDB extension (vadimcn.vscode-lldb) and are otherwise the
+    // same three shapes: sanitiser debug build, release build, and attach.
+    {
+      "name": "macOS: Launch zenith (debug build, ASan+UBSan)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/zenith-debug",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "ASAN_OPTIONS": "abort_on_error=1:detect_leaks=0", "UBSAN_OPTIONS": "print_stacktrace=1" },
+      "terminal": "integrated",
+      "preLaunchTask": "make debug"
+    },
+    {
+      "name": "macOS: Launch zenith (release build)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/zenith",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "terminal": "integrated",
+      "preLaunchTask": "make"
+    },
+    {
+      "name": "macOS: Attach to running zenith",
+      "type": "lldb",
+      "request": "attach",
+      "program": "${workspaceFolder}/build/zenith"
     }
   ]
 }
