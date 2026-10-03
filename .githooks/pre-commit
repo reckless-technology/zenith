@@ -2,9 +2,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Jonny Reckless
 #
-# Pre-commit hook: reject commits whose staged C sources are not clang-format-clean.
+# Pre-commit hook: reject a commit made under any identity but Jonny Reckless <jonny@recklesstechnology.com> -
+# every commit's in the reckless-technology organisation; the pre-push hook checks the commits a rebase or a
+# cherry-pick makes - and commits whose staged C sources are not clang-format-clean.
 # Enable it in a clone with:  make hooks   (sets core.hooksPath to .githooks)
 set -euo pipefail
+
+identity="jonny@recklesstechnology.com"
+for role in AUTHOR COMMITTER; do
+    email=$(git var "GIT_${role}_IDENT" 2>/dev/null | sed -n 's/.*<\(.*\)>.*/\1/p' || true)
+    if [ "$email" != "$identity" ]; then
+        echo "pre-commit: this commit's $(echo "$role" | tr 'A-Z' 'a-z') would be <$email>; every commit here is <$identity>." >&2
+        echo "pre-commit:   git config user.name 'Jonny Reckless' && git config user.email $identity" >&2
+        exit 1
+    fi
+done
 
 # Prefer the clang-format version CI pins, so local and CI agree. That is 22.1.8 org-wide since
 # 2026-09-26; it was 18 before, and a leftover clang-format-18 earlier in this list used to win here
