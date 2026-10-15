@@ -41,7 +41,7 @@ make format          # clang-format all sources in place (src/ and datagen/) —
 make hooks           # install the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
 make doc             # -> doc/html/index.html (Doxygen API reference)
 make clean           # remove build outputs (binaries + doc/html)
-./build/zenith       # interactive UCI (prints "Zenith <major>.<minor>.<git commit count>")
+./build/zenith       # interactive UCI (prints "Zenith <major>.<minor>.<build>"; see Versions and releases)
 ```
 
 ## Verify
@@ -63,13 +63,51 @@ make check                          # build + run every gate below
 ./build/zenith embookcheck          # the build-time-embedded book: blob, entry invariants, probe path
 ```
 
-`main` is protected: changes land via pull request with all CI checks green (the release workflow's
-version-bump commit is the one sanctioned exception, via a scoped deploy key).
+`main` is protected: changes land via pull request with all CI checks green.
 
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
 so any unintended change to search behaviour shows up immediately, and a pure-speed change is proven safe
 by leaving it identical. `tools/sprt.sh` runs a self-play SPRT (via **fastchess**) to decide whether a
 change that *does* alter the signature is actually a strength gain — no strength change lands on intuition.
+
+## Versions and releases
+
+The version is `MAJOR.MINOR.BUILD`, from git alone, the rule all of reckless-technology's projects follow:
+
+- `MAJOR.MINOR` is the nearest annotated tag `vMAJOR.MINOR` reachable from the commit built (a *version mark*, made by
+  hand on `main`);
+- `BUILD` is the number of commits since that tag, the tagged commit itself being 0.
+
+`tools/version.sh` works it out (`git describe --tags --match 'v*.*' --exclude 'v*.*.*'`). The `Makefile` compiles it in
+as `ZENITH_VERSION_STRING`, and rebuilds when it changes. The engine reports it: `id name Zenith 2.0.0`, and in the
+banner. Nothing in the tree holds a version to edit, so no version-bump commit follows a release. A tree with no mark
+reachable (a source tarball, a shallow clone, a fork without the tags) builds as `0.0.0`.
+
+`.github/workflows/release.yml` makes a release:
+
+- **Pushing a mark** (`git tag -a v2.1 -m "Zenith 2.1" && git push origin v2.1`) releases `2.1.0`.
+- **Running it by hand** on `main` (`gh workflow run release.yml --ref main`) releases `main`'s head as
+  `MAJOR.MINOR.BUILD`. `-f dry_run=true`, from any branch, builds, tests and signs the macOS engine but publishes
+  nothing.
+
+It refuses a mark that isn't `vMAJOR.MINOR`, a commit not on `main`, and a version already released. Each platform is
+built from nothing on the organisation's self-hosted runners. `make check` runs on the portable build of each, and the
+bench signature on the PEXT build, and each engine shipped must report the version. The workflow creates the release
+`vMAJOR.MINOR.BUILD` and its tag itself. It never runs for a pull request.
+
+| File | What it is |
+|---|---|
+| `zenith-v<version>-windows-x86-64-v2.zip`, `-windows-x86-64-v3-pext.zip` | `zenith.exe` Authenticode-signed through SSL.com eSigner (Jonathan Reckless) |
+| `zenith-v<version>-macos-arm64.zip` | the engine for Apple silicon, signed with a Developer ID (hardened runtime) and notarised by Apple |
+| `zenith-v<version>-linux-x86-64-v2.tar.gz`, `-linux-x86-64-v3-pext.tar.gz` | the engine for Linux |
+| `zenith-v<version>-SHA256SUMS.txt` | the checksums of every archive |
+
+Each archive holds the engine, `README.md` and `LICENSE`. `x86-64-v2` runs on essentially any modern x86-64;
+`x86-64-v3-pext` needs AVX2 and BMI2 (Intel Haswell+, AMD Zen 3+). A bare macOS binary can't carry a stapled
+notarisation ticket, so Gatekeeper looks its ticket up online. The signing runs from `tools/sign-macos.sh` and
+`tools/sign-windows.ps1`, with the organisation's signing secrets (the same ones as its other apps). The Windows engines
+are signed only in a run that publishes, since every signing spends the eSigner account's allowance. A publishing run
+that would ship an unsigned engine fails.
 
 ## Architecture
 
@@ -97,7 +135,7 @@ PRNG — before any thread exists.
 `src/tt.*`         | lockless transposition table ({key^data, data} slots, bit-field payload)
 `src/search.*`     | iterative deepening, PVS, quiescence, the pruning/reduction/extension stack, Lazy SMP
 `src/uci.*`        | the UCI protocol loop, time manager, and CLI self-test subcommands
-`src/version.h`    | major.minor + build number (git commit count, stamped by the Makefile)
+`src/version.h`    | the version string, MAJOR.MINOR.BUILD from the git tags (`tools/version.sh`, stamped by the Makefile)
 `src/main.c`       | entry + CLI dispatch
 `datagen/*`        | standalone training-data tools (`make datagen`): self-play generation + a bulletformat-to-text converter
 

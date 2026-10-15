@@ -44,9 +44,17 @@ make get-book          # download a free Polyglot book -> books/ (gitignored); p
 #   display with tools/show_book.py.
 ```
 
-`main` is protected (ruleset: PR required, all four CI checks green, no force pushes; the release
-version-bump deploy key is the only bypass). Land changes via branch → `gh pr create` →
-`gh pr merge --auto`; direct pushes to main are rejected.
+`main` is protected (ruleset: PR required, all four CI checks green on a branch up to date with `main`, no force
+pushes). Land changes via branch → `gh pr create` → `gh pr merge --rebase` (never squash or a merge commit: GitHub
+would commit as itself); direct pushes to main are rejected.
+
+**Versions and releases** (README, "Versions and releases"): the version is `MAJOR.MINOR.BUILD` from git alone - the
+nearest annotated `vMAJOR.MINOR` tag and the commits since it (`tools/version.sh`, compiled in by the Makefile as
+`ZENITH_VERSION_STRING`); nothing in the tree is edited to release and no bump commit follows. Pushing a mark (`v2.1`)
+runs `.github/workflows/release.yml`: built and gated on Linux, Windows and Apple silicon, the Windows engines
+eSigner-signed (publishing runs only - each signing spends the allowance), the macOS one Developer ID-signed and
+notarised, published as `v2.1.0`. `gh workflow run release.yml --ref <branch> -f dry_run=true` proves a change to it
+without publishing or spending a Windows signing.
 
 A versioned pre-commit hook (`.githooks/pre-commit`, enabled via `make hooks`) rejects commits whose staged
 `src/*.{c,h}` are not clang-format-clean — always keep sources formatted (run `make format`).
@@ -155,7 +163,7 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
   sets the shared atomic `g_stop`. Options: `Hash`, `Clear Hash`, `Threads` (Lazy SMP, 1–256; default = half the logical CPUs, so each thread gets a real core on SMT machines),
   `Move Overhead`, `EvalFile`, `OwnBook`/`BookFile` (Polyglot; OwnBook defaults false — testing stays
   bookless), plus the SPSA-tunable search parameters. Prints a version banner (`src/version.h`:
-  major.minor.<git commit count>, stamped by the Makefile).
+  MAJOR.MINOR.BUILD from the git tags, stamped by the Makefile).
 
 ### Copy-make, not an undo stack
 
