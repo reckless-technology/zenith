@@ -14,9 +14,13 @@ ARCH      ?= native
 ARCH_FLAG  = $(if $(ARCH),-march=$(ARCH))
 OPT       = -O3 $(ARCH_FLAG) -funroll-loops -flto -DNDEBUG
 WARN      = -Wall -Wextra -Wpedantic -Werror -Wshadow -Wno-unused-parameter
-# Build number = git commit count (globally reproducible per commit; 0 outside a git checkout).
-BUILD_NUM = $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
-VERSION   = -DZENITH_BUILD_NUMBER=$(BUILD_NUM)
+# The version, MAJOR.MINOR.BUILD, from git alone (tools/version.sh): the nearest annotated vMAJOR.MINOR tag and the
+# commits since it; 0.0.0 with no such tag reachable. Compiled in as ZENITH_VERSION_STRING (src/version.h); nothing in
+# the tree is edited to release. Evaluated once per make run (:=), so its warning shows once.
+ZENITH_VERSION := $(shell tools/version.sh)
+VERSION   = -DZENITH_VERSION_STRING='"$(ZENITH_VERSION)"'
+# Rewritten only when the version changes, and a prerequisite of every binary, so a new commit or tag rebuilds them.
+VERSION_STAMP = build/version.txt
 CFLAGS    = $(STD) $(OPT) $(WARN) $(VERSION)
 LDLIBS    = -lm -pthread
 SRCS      = $(wildcard src/*.c)
@@ -43,12 +47,15 @@ EMBED_OBJ = $(BUILD_DIR)/embedded_net.o
 BOOK_BIN  = books/zenith-book-r4.bin
 EMBED_BOOK_OBJ = $(BUILD_DIR)/embedded_book.o
 
-.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug
+.PHONY: all debug clean perft bench baseline doc check format hooks get-book pext tables datagen datagen-debug FORCE
 
 all: $(BIN)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+$(VERSION_STAMP): FORCE | $(BUILD_DIR)
+	@[ "$$(cat $@ 2>/dev/null)" = "$(ZENITH_VERSION)" ] || echo "$(ZENITH_VERSION)" > $@
 
 # The embedded net: .nnue -> generated C array -> one cached object file. Regenerated/recompiled only
 # when the net (or the generator) changes, so the 6.3MB array costs nothing on normal rebuilds. Plain
@@ -62,12 +69,12 @@ $(BUILD_DIR)/embedded_book.c: $(BOOK_BIN) tools/embed_book.py | $(BUILD_DIR)
 $(EMBED_BOOK_OBJ): $(BUILD_DIR)/embedded_book.c
 	$(CC) $(STD) -O1 -c $< -o $@
 
-$(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
+$(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
 DEBUG_FLAGS = $(STD) $(VERSION) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(WARN)
-debug: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
+debug: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
 	$(CC) $(DEBUG_FLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-debug $(LDLIBS)
 
 # PEXT (BMI2) sliding-attack lookups instead of magic bitboards -> ./build/zenith-pext. Output is bit-identical
@@ -75,7 +82,7 @@ debug: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
 # AMD Zen3+, but MUCH slower on AMD Zen1/Zen2 (microcoded pext) — so it is opt-in and magic stays the
 # portable default. Needs a BMI2 target (the default -march=native provides it; a real release enables it
 # only for the x86-64-v3+ microarch variants).
-pext: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
+pext: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-pext $(LDLIBS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
 
@@ -83,7 +90,7 @@ pext: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
 # (they replaced the old `datagen`/`bullet2text` engine subcommands), same single-shot whole-program compile
 # as the engine: the self-play generator runs real searches, so both link the engine core (LTO drops what
 # the converter never calls). -Isrc lets datagen/ include the engine headers by name.
-datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
+datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-datagen $(LDLIBS)
 	$(CC) $(CFLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-bullet2text $(LDLIBS)
 	@echo "built $(BIN)-datagen (self-play generator) and $(BIN)-bullet2text (bulletformat -> text)"
@@ -91,7 +98,7 @@ datagen: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(E
 # Correctness builds of the datagen tools (ASan+UBSan, -O1). The tool sources live outside src/, so
 # `make debug` no longer compiles them — this keeps them under the same sanitizers (CI builds this and
 # smoke-runs the generator).
-datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) | $(BUILD_DIR)
+datagen-debug: $(ENGINE_CORE_SRCS) $(HDRS) $(INCS) $(DATAGEN_SRCS) $(DATAGEN_HDRS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
 	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/datagen_main.c $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-datagen-debug $(LDLIBS)
 	$(CC) $(DEBUG_FLAGS) -Isrc $(ENGINE_CORE_SRCS) datagen/datagen.c datagen/bullet2text_main.c $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-bullet2text-debug $(LDLIBS)
 	@echo "built $(BIN)-datagen-debug and $(BIN)-bullet2text-debug (ASan+UBSan)"

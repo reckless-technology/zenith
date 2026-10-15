@@ -1,189 +1,254 @@
+# Cut a release: push a version mark - an annotated two-component tag vMAJOR.MINOR on a commit of main - and the engine
+# is built and tested on Linux, Windows and macOS (Apple silicon), signed, each binary checked to report the version,
+# then published as GitHub release vMAJOR.MINOR.0. Run it by hand (workflow_dispatch) on main to release main's head
+# as vMAJOR.MINOR.BUILD. The version is tools/version.sh's rule, which the Makefile compiles into the binary, so the
+# release and the binaries agree by construction: MAJOR.MINOR from the nearest vMAJOR.MINOR tag, BUILD the commits
+# since it. The workflow creates the three-component tag itself; only two-component tags are version marks. A version
+# already released is refused. Nothing in the tree is edited to release, so no version-bump commit follows.
+#
+# A dry run (workflow_dispatch with dry_run, from any branch) builds, tests, signs and notarises the macOS engine -
+# which costs nothing - and publishes nothing; it leaves the Windows engines unsigned, since every eSigner signing spends
+# the SSL.com account's allowance. With no vMAJOR.MINOR tag reachable a dry run carries on as 0.0.0 (tools/version.sh's
+# fallback); a publishing run refuses.
+#
+# The organisation's other apps (vst-plugins, ir-capture) and the Pawnstar engines are released the same way, with the
+# same organisation secrets for signing:
+#   - Windows: zenith.exe in each zip is Authenticode-signed through SSL.com's eSigner (CodeSignTool pinned by version
+#     and hash, in the runner's tool cache; tools/sign-windows.ps1), the account checked before the build, which spends
+#     no signing. Only a publishing run signs, and only the two engines it ships.
+#   - macOS: the engine is signed with the Developer ID Application identity, the hardened runtime and a secure
+#     timestamp on a keychain of the job's own (tools/sign-macos.sh), and its zip notarised by Apple. A bare binary can
+#     carry no stapled ticket; Gatekeeper finds its ticket online, as the release checks it does.
+#   A publishing run that would ship an unsigned engine fails instead.
+#
+# The files, each archive holding the engine, README.md and LICENSE: zenith-v<version>-linux-x86-64-v2.tar.gz and
+# -linux-x86-64-v3-pext.tar.gz, -windows-x86-64-v2.zip and -windows-x86-64-v3-pext.zip, -macos-arm64.zip, and
+# -SHA256SUMS.txt over them all. verify opens the release as a draft and each job uploads straight onto it; publish
+# writes the checksums (in a dry run too), checks every archive is on the draft as built, pushes the tag and takes the
+# draft public. A failed job can be run again; a run that fails before it publishes leaves only a draft, which the next
+# run replaces.
+#
+# The gates each platform runs are at least the ones the release ran before: make check (perft, the bench signature,
+# legality, SEE, fuzz, book, embedded book, NNUE on the shipped net) on the portable build of each, and the bench
+# signature on the PEXT build. Every job runs on the organisation's self-hosted runners, never a hosted image, and never
+# for a pull request: this workflow holds the signing secrets.
 name: Release
 
-# Manually promote the current main commit to a formal GitHub Release.
-# Builds portable per-microarch Linux binaries, verifies them with the correctness gates, publishes the
-# release, then bumps the minor version in src/version.h for the next development cycle. macOS and Windows
-# build and verify here as release-only jobs (macOS runners bill 10x, Windows 2x): each attaches its
-# artifacts to the release made by the linux job and asserts the bench signature cross-platform.
 on:
+  push:
+    tags: ['v[0-9]*']
   workflow_dispatch:
     inputs:
-      notes:
-        description: "Extra release notes (optional; appended to the auto summary)"
-        required: false
-        default: ""
-      prerelease:
-        description: "Mark as a pre-release"
+      dry_run:
+        description: "Build, test and sign the macOS engine only; publish nothing (the Windows engines unsigned)"
         type: boolean
-        required: false
         default: false
 
 permissions:
-  contents: write # create the release and push the version-bump commit
+  contents: write # the draft, the tag and the release
+
+# One release at a time: a tag push and a dispatch at once would each replace and publish drafts under the other. A run
+# waits for the one in progress rather than cancel it, which could leave a half-uploaded draft behind.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  # The release job runs on the org's self-hosted Linux runners ([self-hosted, Linux, X64]:
-  # reckless-ci-lin-0 and reckless-ci-lin-1), not hosted ubuntu-latest; both carry the gh CLI and jq that
-  # its steps drive.
-
-  release:
+  verify:
+    name: version and commit
     runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish: ${{ steps.version.outputs.publish }}
+      release_id: ${{ steps.version.outputs.release_id }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history: correct build number (commit count) + ability to push the bump
+          fetch-depth: 0 # the tags and the commits since the nearest one are the version
+          fetch-tags: true
+      - name: The version from the tags, the commit on main, and the draft
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          is_dry_run=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            is_dry_run=true
+          fi
+          if [ "${{ github.ref_type }}" = "tag" ] && ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$GITHUB_REF_NAME is not a version mark vMAJOR.MINOR; the three-component release tags are made by this workflow"
+            exit 1
+          fi
+          # main and nowhere else, but for a dry run, which publishes nothing and may prove a change to the release
+          # from its branch before it merges.
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if [ "$is_dry_run" = false ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "::error::a release is cut from main, not $GITHUB_REF"
+              exit 1
+            fi
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
+              { echo "::error::$GITHUB_SHA is not on main: tag a commit of main"; exit 1; }
+          fi
+          describe=$(git describe --tags --long --match 'v[0-9]*.[0-9]*' --exclude 'v*.*.*' 2> /dev/null || true)
+          if [[ "$describe" =~ ^v([0-9]+)\.([0-9]+)-([0-9]+)-g[0-9a-f]+$ ]]; then
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          elif [ "$is_dry_run" = true ]; then
+            echo "::warning::no vMAJOR.MINOR tag is reachable from $GITHUB_SHA: a dry run as 0.0.0, tools/version.sh's fallback"
+            version=0.0.0
+          else
+            echo "::error::no vMAJOR.MINOR tag is reachable from $GITHUB_SHA (git describe: '$describe'): tag main and push the tag"
+            exit 1
+          fi
+          tag="v$version"
+          publish=true
+          [ "$is_dry_run" = true ] && publish=false
+          release_id=""
+          if [ "$publish" = true ]; then
+            if is_draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2> /dev/null); then
+              if [ "$is_draft" = true ]; then
+                echo "A draft of $tag is left from a run that did not publish; replacing it"
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+              else
+                echo "::error::$tag is already released: push a commit (the build number moves on) or tag the next vMAJOR.MINOR"
+                exit 1
+              fi
+            fi
+            changes=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$tag" \
+              -f target_commitish="$GITHUB_SHA" --jq .body)
+            {
+              echo "Zenith $version: a UCI chess engine (C17, king-bucketed NNUE), built and tested at commit \`$GITHUB_SHA\`"
+              echo "by run [#$GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+              echo
+              echo "- **Windows (x86-64):** \`zenith-$tag-windows-x86-64-v2.zip\` and \`-x86-64-v3-pext.zip\`; \`zenith.exe\` in each"
+              echo "  is Authenticode-signed (Jonathan Reckless)."
+              echo "- **macOS (Apple silicon):** \`zenith-$tag-macos-arm64.zip\`; the engine is signed with a Developer ID and"
+              echo "  notarised by Apple."
+              echo "- **Linux (x86-64):** \`zenith-$tag-linux-x86-64-v2.tar.gz\` and \`-x86-64-v3-pext.tar.gz\`."
+              echo
+              echo "\`x86-64-v2\` runs on essentially any modern x86-64 (magic bitboards); \`x86-64-v3-pext\` needs AVX2 and BMI2"
+              echo "(Intel Haswell+, AMD Zen 3+) and uses faster PEXT sliding attacks. Each archive holds the engine, README.md"
+              echo "and LICENSE; verify downloads against \`zenith-$tag-SHA256SUMS.txt\`. The search is bit-identical on"
+              echo "every platform (the bench node signature, checked on each)."
+              echo
+              echo "$changes"
+            } > "$RUNNER_TEMP/notes.md"
+            # The REST API's answer carries the draft's numeric id, which the build jobs upload to: a draft has no tag
+            # to be found by.
+            release_id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$tag" \
+              -f target_commitish="$GITHUB_SHA" -f name="Zenith $tag" -F draft=true \
+              -F body=@"$RUNNER_TEMP/notes.md" --jq .id)
+            echo "draft release $tag opened: id $release_id"
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+            echo "release_id=$release_id"
+          } >> "$GITHUB_OUTPUT"
+          echo "Zenith $version (git describe: ${describe:-none}); publish=$publish"
 
+  # Linux: the two portable x86-64 builds, make check on the baseline and the bench signature on the PEXT build.
+  linux:
+    name: build + test (linux x86-64)
+    needs: verify
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      PUBLISH: ${{ needs.verify.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tools/version.sh reads the version from the tags
+          fetch-tags: true
+      - name: Start from nothing
+        run: rm -rf build out stage
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y clang
-
-      - name: Resolve version
-        id: ver
+      - name: Build x86-64-v2 (baseline, magic) + every gate
         run: |
-          major=$(grep -oP '#define ZENITH_VERSION_MAJOR \K[0-9]+' src/version.h)
-          minor=$(grep -oP '#define ZENITH_VERSION_MINOR \K[0-9]+' src/version.h)
-          build=$(git rev-list --count HEAD)
-          tag="v${major}.${minor}.${build}"
-          echo "major=$major"   >> "$GITHUB_OUTPUT"
-          echo "minor=$minor"   >> "$GITHUB_OUTPUT"
-          echo "build=$build"   >> "$GITHUB_OUTPUT"
-          echo "tag=$tag"       >> "$GITHUB_OUTPUT"
-          echo "Releasing $tag"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::error::release $tag already exists"; exit 1
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      # Two portable variants: x86-64-v2 runs on essentially any modern x86-64 (magic bitboards);
-      # x86-64-v3 guarantees BMI2, so it ships the faster PEXT sliding-attack build.
-      - name: Build x86-64-v2 (baseline, magic)
-        run: |
-          make clean && make ARCH=x86-64-v2
-          mv build/zenith zenith-x86-64-v2
-
-      - name: Build x86-64-v3 (PEXT/BMI2)
+          make clean && make check ARCH=x86-64-v2
+          mkdir -p stage/x86-64-v2 && cp build/zenith stage/x86-64-v2/zenith
+      - name: Build x86-64-v3 (PEXT/BMI2) + bench signature
         run: |
           make clean && make ARCH=x86-64-v3 pext
-          mv build/zenith-pext zenith-x86-64-v3-pext
-
-      # Verify the shipped binary with the arch-independent correctness gates (perft/legality/SEE/book are
-      # exact integer checks — no cross-arch float sensitivity). The bench-signature determinism guard runs
-      # on every push in ci.yml; a release is cut from an already-green main.
-      - name: Verify (correctness gates on the v2 binary)
+          ./build/zenith-pext bench
+          mkdir -p stage/x86-64-v3-pext && cp build/zenith-pext stage/x86-64-v3-pext/zenith
+      - name: The engines report the version
         run: |
-          cp zenith-x86-64-v2 zenith
-          ./zenith perft
-          ./zenith legalcheck
-          ./zenith seecheck
-          ./zenith bookcheck
-          ./zenith fuzzcheck
-
+          set -o pipefail
+          for engine in stage/*/zenith; do
+            name=$(printf 'uci\nquit\n' | "$engine" | grep -m1 '^id name' || true)
+            echo "$engine: $name"
+            [ "$name" = "id name Zenith $VERSION" ] || { echo "::error::$engine says '$name', not Zenith $VERSION"; exit 1; }
+          done
       - name: Package
         run: |
-          tag=${{ steps.ver.outputs.tag }}
+          mkdir -p out
           for variant in x86-64-v2 x86-64-v3-pext; do
-            install -D "zenith-$variant" "pkg/zenith"
-            cp README.md LICENSE pkg/
-            tar -C pkg -czf "zenith-${tag}-linux-${variant}.tar.gz" zenith README.md LICENSE
-            rm -rf pkg
+            cp README.md LICENSE "stage/$variant/"
+            tar -C "stage/$variant" --owner=0 --group=0 --numeric-owner -czf "out/zenith-$TAG-linux-$variant.tar.gz" zenith README.md LICENSE
           done
-          sha256sum zenith-${tag}-linux-*.tar.gz > "zenith-${tag}-SHA256SUMS.txt"
-          ls -la zenith-${tag}-linux-*.tar.gz
-
-      - name: Create GitHub Release
+          ls -l out
+      - name: Upload to the draft release
+        if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.verify.outputs.release_id }}
         run: |
-          tag=${{ steps.ver.outputs.tag }}
-          {
-            echo "Zenith ${tag} — UCI chess engine (C17, king-bucketed NNUE)."
-            echo
-            echo "Prebuilt binaries (Linux tarballs, Windows zips, macOS arm64 tarball):"
-            echo "- \`x86-64-v2\` — broad compatibility (magic bitboards), runs on essentially any modern x86-64."
-            echo "- \`x86-64-v3-pext\` — requires AVX2/BMI2 (Intel Haswell+ / AMD Zen3+); faster PEXT sliding attacks."
-            echo
-            echo "Verify downloads against \`SHA256SUMS.txt\`. Bit-identical search to the tagged source (bench signature guarded in CI)."
-            if [ -n "${{ github.event.inputs.notes }}" ]; then echo; echo "${{ github.event.inputs.notes }}"; fi
-          } > notes.md
-          gh release create "$tag" \
-            zenith-${tag}-linux-*.tar.gz "zenith-${tag}-SHA256SUMS.txt" \
-            --title "Zenith ${tag}" \
-            --notes-file notes.md \
-            ${{ github.event.inputs.prerelease == 'true' && '--prerelease' || '' }}
-
-      - name: Bump minor version for the next cycle
-        # main requires PRs + green CI (ruleset "protect-main"); this one mechanical commit is the sanctioned
-        # exception, pushed with the RELEASE_BUMP_KEY deploy key, which is the ruleset's only bypass actor.
-        env:
-          DEPLOY_KEY: ${{ secrets.RELEASE_BUMP_KEY }}
-        run: |
-          major=${{ steps.ver.outputs.major }}
-          next=$(( ${{ steps.ver.outputs.minor }} + 1 ))
-          sed -i -E "s/(#define ZENITH_VERSION_MINOR )[0-9]+/\1${next}/" src/version.h
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/version.h
-          git commit -m "chore: bump version to ${major}.${next} after ${{ steps.ver.outputs.tag }} release"
-          mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/release_bump && chmod 600 ~/.ssh/release_bump
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/release_bump -o IdentitiesOnly=yes" \
-            git push git@github.com:jonny-reckless/zenith.git HEAD:main
-
-  # macOS: release candidates only (excluded from per-push CI on cost grounds). Runs the FULL gate suite —
-  # including the bench node-signature assertion, which is where the cross-platform reproducibility
-  # guarantee is now enforced — then attaches the arm64 tarball + checksum to the release made above.
-  # Runs on the org's Apple-silicon runner (reckless-ci-mac-1), not a hosted macos-latest runner.
-  release-macos:
-    needs: release
-    runs-on: [self-hosted, macOS, ARM64]
-    steps:
-      - uses: actions/checkout@v4
+          set -o pipefail
+          for file in out/*; do
+            name=$(basename "$file")
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
+            # runner has gh; a first attempt needs no removal).
+            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
+            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
+            done
+            curl --fail-with-body --silent --show-error -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name" |
+              grep -o '"browser_download_url": *"[^"]*"'
+          done
+      - uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0 # full history: the version banner's build number is the commit count
+          name: linux
+          path: out/*
+          retention-days: 1
+      - name: The workspace left clean
+        if: always()
+        run: rm -rf out stage
 
-      - name: Resolve tag (must match the release job's computation)
-        id: ver
-        run: |
-          major=$(sed -n 's/^#define ZENITH_VERSION_MAJOR \([0-9]*\).*/\1/p' src/version.h)
-          minor=$(sed -n 's/^#define ZENITH_VERSION_MINOR \([0-9]*\).*/\1/p' src/version.h)
-          build=$(git rev-list --count HEAD)
-          echo "tag=v${major}.${minor}.${build}" >> "$GITHUB_OUTPUT"
-
-      - name: Build (Apple clang, arm64 — no -march)
-        run: make ARCH=
-
-      - name: Correctness gates + bench signature
-        run: make check
-
-      - name: Package and attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=${{ steps.ver.outputs.tag }}
-          install -d pkg && install build/zenith pkg/zenith && cp README.md LICENSE pkg/
-          tar -C pkg -czf "zenith-${tag}-macos-arm64.tar.gz" zenith README.md LICENSE
-          shasum -a 256 "zenith-${tag}-macos-arm64.tar.gz" > "zenith-${tag}-macos-arm64.tar.gz.sha256"
-          gh release upload "$tag" "zenith-${tag}-macos-arm64.tar.gz" "zenith-${tag}-macos-arm64.tar.gz.sha256"
-
-  # Windows: release candidates only, mirroring the CI leg's msys2/CLANG64 toolchain. Runs the full gate
-  # suite (bench node-signature assertion included — the cross-platform reproducibility guarantee), then
-  # attaches zips for both microarch variants to the release made above. Runners bill 2x: fine for releases.
-  release-windows:
-    needs: release
+  # Windows: the same two builds with the MSYS2 CLANG64 toolchain CI uses, both engines signed in a publishing run.
+  windows:
+    name: build + test (windows x86-64)
+    needs: verify
     runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      PUBLISH: ${{ needs.verify.outputs.publish }}
     defaults:
       run:
         shell: "msys2 {0}"
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history: the version banner's build number is the commit count
-
+          fetch-depth: 0 # tools/version.sh reads the version from the tags
+          fetch-tags: true
       - name: Set up MSYS2 + clang toolchain
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
-          release: false # self-hosted runner reckless-ci-win-0: use its preinstalled C:\msys64 instead of downloading MSYS2 each run
+          release: false # use the runner's preinstalled C:\msys64 instead of downloading MSYS2 each run
           update: true
           install: >-
             mingw-w64-clang-x86_64-clang
@@ -192,42 +257,266 @@ jobs:
             git
             python
             zip
-
-      - name: Resolve tag (must match the release job's computation)
-        id: ver
+      - name: Start from nothing
+        run: rm -rf build out stage
+      # SSL.com's CodeSignTool, pinned by version and hash and kept in the tool cache, and the account signed in to and
+      # its certificate listed - which spends no signing - before the build rides on it.
+      - name: eSigner's signing tool, and the account checked
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
         run: |
-          major=$(sed -n 's/^#define ZENITH_VERSION_MAJOR \([0-9]*\).*/\1/p' src/version.h)
-          minor=$(sed -n 's/^#define ZENITH_VERSION_MINOR \([0-9]*\).*/\1/p' src/version.h)
-          build=$(git rev-list --count HEAD)
-          echo "tag=v${major}.${minor}.${build}" >> "$GITHUB_OUTPUT"
-
-      - name: Build x86-64-v2 (baseline, magic) + correctness gates
+          if (-not $env:ESIGNER_USERNAME) { throw "no eSigner secrets: a release's Windows engines are signed" }
+          $version = 'v1.3.2'
+          $sha256 = '4afc32e8b7f79bbe1de7e4e7049aaad4e0f754357613b9bbec0e3052f06fd36b'
+          $dir = Join-Path $env:RUNNER_TOOL_CACHE "codesigntool\$version"
+          if (-not (Test-Path (Join-Path $dir 'CodeSignTool.bat'))) {
+            $zip = Join-Path $env:RUNNER_TEMP 'codesigntool.zip'
+            Invoke-WebRequest -UseBasicParsing -OutFile $zip `
+              -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/$version/CodeSignTool-$version-windows.zip"
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            if ($hash -ne $sha256) { throw "CodeSignTool $version is $hash, not the pinned $sha256" }
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dir
+            Expand-Archive -Path $zip -DestinationPath $dir
+            Remove-Item -Force $zip
+          }
+          "RECKLESS_CODESIGNTOOL=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $env:RECKLESS_CODESIGNTOOL = $dir
+          pwsh -NoProfile -File tools/sign-windows.ps1 -Check
+          if ($LASTEXITCODE -ne 0) { throw "the eSigner account is not ready to sign" }
+      - name: Build x86-64-v2 (baseline, magic) + every gate
         run: |
           make ARCH=x86-64-v2
           make check ARCH=x86-64-v2
-
-      - name: Package x86-64-v2
-        run: |
-          tag=${{ steps.ver.outputs.tag }}
-          install -d pkg && install build/zenith.exe pkg/zenith.exe && cp README.md LICENSE pkg/
-          (cd pkg && zip -q "../zenith-${tag}-windows-x86-64-v2.zip" zenith.exe README.md LICENSE)
-
+          mkdir -p stage/x86-64-v2 && cp build/zenith.exe stage/x86-64-v2/zenith.exe
       - name: Build x86-64-v3 (PEXT/BMI2) + bench signature
         run: |
           make clean && make ARCH=x86-64-v3 pext
           ./build/zenith-pext bench
-
-      - name: Package x86-64-v3-pext and attach both to the release
+          mkdir -p stage/x86-64-v3-pext && cp build/zenith-pext.exe stage/x86-64-v3-pext/zenith.exe
+      - name: Sign (a publishing run)
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
         run: |
-          tag=${{ steps.ver.outputs.tag }}
-          rm -rf pkg && install -d pkg && install build/zenith-pext.exe pkg/zenith.exe && cp README.md LICENSE pkg/
-          (cd pkg && zip -q "../zenith-${tag}-windows-x86-64-v3-pext.zip" zenith.exe README.md LICENSE)
-          sha256sum zenith-${tag}-windows-*.zip > "zenith-${tag}-windows-SHA256SUMS.txt"
-
-      - name: Upload assets
-        shell: bash # Git Bash: gh is on the runner PATH here, unlike inside the msys2 shell
+          pwsh -NoProfile -File tools/sign-windows.ps1 stage/x86-64-v2/zenith.exe stage/x86-64-v3-pext/zenith.exe
+          if ($LASTEXITCODE -ne 0) { throw "the Windows engines were not signed" }
+      - name: The engines report the version
+        run: |
+          set -o pipefail
+          for engine in stage/*/zenith.exe; do
+            name=$(printf 'uci\nquit\n' | "$engine" | grep -m1 '^id name' || true)
+            echo "$engine: $name"
+            [ "$name" = "id name Zenith $VERSION" ] || { echo "::error::$engine says '$name', not Zenith $VERSION"; exit 1; }
+          done
+      - name: Nothing unsigned ships
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        run: |
+          foreach ($engine in 'stage/x86-64-v2/zenith.exe', 'stage/x86-64-v3-pext/zenith.exe') {
+            $signature = Get-AuthenticodeSignature -FilePath $engine
+            "$engine : $($signature.Status), $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne 'Valid') { throw "$engine is not validly signed: $($signature.StatusMessage)" }
+          }
+      - name: Package
+        run: |
+          mkdir -p out
+          for variant in x86-64-v2 x86-64-v3-pext; do
+            cp README.md LICENSE "stage/$variant/"
+            (cd "stage/$variant" && zip -q "../../out/zenith-$TAG-windows-$variant.zip" zenith.exe README.md LICENSE)
+          done
+          ls -l out
+      - name: Upload to the draft release
+        if: env.PUBLISH == 'true'
+        shell: bash # Git Bash: gh and curl are on the runner's PATH here
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.verify.outputs.release_id }}
         run: |
-          tag=${{ steps.ver.outputs.tag }}
-          gh release upload "$tag" zenith-${tag}-windows-*.zip "zenith-${tag}-windows-SHA256SUMS.txt"
+          set -o pipefail
+          for file in out/*; do
+            name=$(basename "$file")
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
+            # runner has gh; a first attempt needs no removal).
+            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
+            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
+            done
+            curl --fail-with-body --silent --show-error -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name" |
+              grep -o '"browser_download_url": *"[^"]*"'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          retention-days: 1
+      - name: The workspace left clean
+        if: always()
+        run: rm -rf out stage
+
+  # macOS (Apple silicon): the portable build (no -march) and every gate, the engine signed and its zip notarised.
+  macos:
+    name: build + test (macos arm64)
+    needs: verify
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 240 # Apple's notary service
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      PUBLISH: ${{ needs.verify.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tools/version.sh reads the version from the tags
+          fetch-tags: true
+      - name: Start from nothing
+        run: rm -rf build out stage
+      - name: Build (Apple clang, arm64 — no -march) + every gate
+        run: |
+          make ARCH=
+          make check ARCH=
+          mkdir -p stage && cp build/zenith stage/zenith && cp README.md LICENSE stage/
+      - name: Open the signing keychain
+        env:
+          MACOS_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: tools/sign-macos.sh open
+      - name: Sign, package and notarise
+        env:
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          tools/sign-macos.sh sign --identifier com.recklesstechnology.zenith stage/zenith
+          mkdir -p out
+          # ditto, as Finder makes a zip: the executable bit and the signature come out as they went in.
+          ditto -c -k stage "out/zenith-$TAG-macos-arm64.zip"
+          tools/sign-macos.sh notarize "out/zenith-$TAG-macos-arm64.zip"
+          tools/sign-macos.sh check stage/zenith
+      # What ships is what is checked: the engine as the zip holds it.
+      - name: The shipped engine reports the version
+        run: |
+          set -o pipefail
+          rm -rf "$RUNNER_TEMP/unzipped" && mkdir "$RUNNER_TEMP/unzipped"
+          ditto -x -k "out/zenith-$TAG-macos-arm64.zip" "$RUNNER_TEMP/unzipped"
+          ls -l "$RUNNER_TEMP/unzipped"
+          codesign --verify --strict --verbose=2 "$RUNNER_TEMP/unzipped/zenith"
+          name=$(printf 'uci\nquit\n' | "$RUNNER_TEMP/unzipped/zenith" | grep -m1 '^id name' || true)
+          echo "$name"
+          [ "$name" = "id name Zenith $VERSION" ] || { echo "::error::the engine says '$name', not Zenith $VERSION"; exit 1; }
+      - name: Upload to the draft release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.verify.outputs.release_id }}
+        run: |
+          set -o pipefail
+          for file in out/*; do
+            name=$(basename "$file")
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
+            # runner has gh; a first attempt needs no removal).
+            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
+            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
+            done
+            curl --fail-with-body --silent --show-error -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name" |
+              grep -o '"browser_download_url": *"[^"]*"'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+          retention-days: 1
+      - name: Close the signing keychain
+        if: always()
+        run: tools/sign-macos.sh close
+      - name: The workspace left clean
+        if: always()
+        run: rm -rf out stage "$RUNNER_TEMP/unzipped"
+
+  # The checksums over every archive, made in a dry run too; then, in a publishing run, the draft checked against the
+  # archives as built and published. Every step is safe to run again.
+  publish:
+    name: checksums, publish
+    needs: [verify, linux, windows, macos]
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      PUBLISH: ${{ needs.verify.outputs.publish }}
+      RELEASE_ID: ${{ needs.verify.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Start from nothing
+        run: rm -rf assets
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: The checksums
+        run: |
+          set -euo pipefail
+          (cd assets && sha256sum zenith-"$TAG"-*.tar.gz zenith-"$TAG"-*.zip > "zenith-$TAG-SHA256SUMS.txt")
+          cat "assets/zenith-$TAG-SHA256SUMS.txt"
+          [ "$(wc -l < "assets/zenith-$TAG-SHA256SUMS.txt")" -eq 5 ] || { echo "::error::expected five archives"; exit 1; }
+      - name: Onto the draft, and published
+        if: env.PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+          release="repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          name="zenith-$TAG-SHA256SUMS.txt"
+          for stale in $(gh api "$release/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
+          done
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: text/plain" --data-binary "@assets/$name" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name" |
+            grep -o '"browser_download_url": *"[^"]*"'
+          draft_tag=$(gh api "$release" --jq .tag_name)
+          [ "$draft_tag" = "$TAG" ] || { echo "::error::the draft (id $RELEASE_ID) is for $draft_tag, not $TAG"; exit 1; }
+          # Every archive on the draft at the size it was built: what the checksums cover is what ships.
+          on_draft=$(gh api "$release" --jq '.assets[] | "\(.name) \(.size)"')
+          missing=""
+          for file in assets/*; do
+            entry="$(basename "$file") $(wc -c < "$file" | tr -d ' ')"
+            grep -qx "$entry" <<< "$on_draft" || { echo "::error::$entry is not on the draft $TAG"; missing="$missing $file"; }
+          done
+          [ -z "$missing" ] || exit 1
+          # The release's own tag on the commit built, made with git and pushed. The tagger is named on the command
+          # alone: the runner keeps this clone, and an identity written into its config would outlive the job.
+          git tag -d "$TAG" > /dev/null 2>&1 || true
+          if git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null; then
+            [ "$(git rev-parse "$TAG^{commit}")" = "$GITHUB_SHA" ] ||
+              { echo "::error::$TAG already names another commit than $GITHUB_SHA"; exit 1; }
+          else
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              tag -a "$TAG" "$GITHUB_SHA" -m "Zenith $VERSION"
+            git push origin "$TAG"
+          fi
+          gh api -X PATCH "$release" -F draft=false -f make_latest=true --jq .html_url
+          gh api "$release" --jq '.assets[] | "  \(.name)  \(.size) bytes"'
+          echo "### Released [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
+      - name: The workspace left clean
+        if: always()
+        run: rm -rf assets
