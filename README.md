@@ -137,7 +137,9 @@ bench signature on the PEXT build, and each engine shipped must report the versi
 | `zenith-v<version>-SHA256SUMS.txt` | the checksums of every archive |
 
 Each archive holds the engine, `README.md` and `LICENSE`. `x86-64-v2` runs on essentially any modern x86-64;
-`x86-64-v3-pext` needs AVX2 and BMI2 (Intel Haswell+, AMD Zen 3+). A bare macOS binary can't carry a stapled
+`x86-64-v3-pext` needs AVX2 and BMI2 (Intel Haswell+, AMD Zen 3+) and is the one to run where it can: the NNUE's
+SIMD is AVX2, so the `x86-64-v2` engine evaluates in scalar code and searches about a third slower (bench 1.30 against
+1.95 Mnps on one P-core of an i9-13900HX). A bare macOS binary can't carry a stapled
 notarisation ticket, so Gatekeeper looks its ticket up online. The signing runs from `tools/sign-macos.sh` and
 `tools/sign-windows.ps1`, with the organisation's signing secrets (the same ones as its other apps). The Windows engines
 are signed only in a run that publishes, since every signing spends the eSigner account's allowance. A publishing run
