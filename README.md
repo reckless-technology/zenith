@@ -44,6 +44,17 @@ make clean           # remove build outputs (binaries + doc/html)
 ./build/zenith       # interactive UCI (prints "Zenith <major>.<minor>.<build>"; see Versions and releases)
 ```
 
+**Windows** builds natively in [MSYS2](https://www.msys2.org/)'s CLANG64 environment, as CI's Windows job does:
+install MSYS2 at `C:\msys64`, then `pacman -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-lld
+mingw-w64-clang-x86_64-python make git` (and `mingw-w64-clang-x86_64-gdb` to debug), and every target above runs as written
+from a CLANG64 shell, `make debug`'s AddressSanitizer and UBSan included. The binaries are `build/zenith.exe` and
+friends; they load `libwinpthread-1.dll` (and the debug build the ASan runtime) from `C:\msys64\clang64\bin`, which a
+CLANG64 shell has on its PATH. MSVC is not supported.
+
+**VS Code** works on all three platforms: `.vscode/tasks.json` runs these make targets (on Windows in MSYS2's CLANG64
+bash), `.vscode/launch.json` has the debug, release and attach launches per platform (gdb on Linux and Windows, lldb
+through CodeLLDB on macOS), and `.vscode/c_cpp_properties.json` gives IntelliSense each platform's compiler.
+
 ## Verify
 
 Every correctness property has an executable gate. `make check` runs them all; CI runs the same gates on

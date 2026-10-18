@@ -1,0 +1,31 @@
+{
+  // IntelliSense per platform, picked by name: the compiler each platform builds with and the Makefile's defines.
+  // On Windows that is MSYS2's CLANG64 clang (MinGW-w64 headers, winpthreads), as the build uses.
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": ["${workspaceFolder}/src"],
+      "defines": ["_POSIX_C_SOURCE=200809L", "_DARWIN_C_SOURCE"],
+      "compilerPath": "/usr/bin/clang",
+      "cStandard": "c17",
+      "intelliSenseMode": "linux-clang-x64"
+    },
+    {
+      "name": "Mac",
+      "includePath": ["${workspaceFolder}/src"],
+      "defines": ["_POSIX_C_SOURCE=200809L", "_DARWIN_C_SOURCE"],
+      "compilerPath": "/usr/bin/clang",
+      "cStandard": "c17",
+      "intelliSenseMode": "macos-clang-arm64"
+    },
+    {
+      "name": "Win32",
+      "includePath": ["${workspaceFolder}/src"],
+      "defines": ["_POSIX_C_SOURCE=200809L", "_DARWIN_C_SOURCE"],
+      "compilerPath": "C:/msys64/clang64/bin/clang.exe",
+      "cStandard": "c17",
+      "intelliSenseMode": "windows-clang-x64"
+    }
+  ],
+  "version": 4
+}
