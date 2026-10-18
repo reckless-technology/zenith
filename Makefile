@@ -56,6 +56,14 @@ $(BUILD_DIR):
 
 $(VERSION_STAMP): FORCE | $(BUILD_DIR)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(ZENITH_VERSION)" ] || echo "$(ZENITH_VERSION)" > $@
+
+# The compiler and the target and optimisation flags, rewritten only when they change, and a prerequisite of the
+# engine: without it `make ARCH=x86-64-v2` after `make` would find build/zenith up to date and leave the native build
+# in place, so a check or a benchmark of the portable build would run the wrong binary.
+FLAGS_STAMP = $(BUILD_DIR)/flags.txt
+$(FLAGS_STAMP): FORCE | $(BUILD_DIR)
+	@[ "$$(cat $@ 2>/dev/null)" = "$(CC) $(OPT)" ] || echo "$(CC) $(OPT)" > $@
+
 # The embedded net: .nnue -> generated C array -> one cached object file. Regenerated/recompiled only
 # when the net (or the generator) changes, so the 6.3MB array costs nothing on normal rebuilds. Plain
 # data — no -march or LTO needed, and the same object links into the ASan builds.
@@ -68,7 +76,7 @@ $(BUILD_DIR)/embedded_book.c: $(BOOK_BIN) tools/embed_book.py | $(BUILD_DIR)
 $(EMBED_BOOK_OBJ): $(BUILD_DIR)/embedded_book.c
 	$(CC) $(STD) -O1 -c $< -o $@
 
-$(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
+$(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) $(FLAGS_STAMP) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN) $(LDLIBS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
@@ -172,7 +180,7 @@ endif
 $(COV_DIR): | $(BUILD_DIR)
 	mkdir -p $(COV_DIR)
 
-$(COV_BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(COV_DIR)
+$(COV_BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) $(FLAGS_STAMP) | $(COV_DIR)
 	$(CC) $(COV_FLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(COV_BIN) $(LDLIBS)
 
 # Each process writes its own profile (%p, its pid), so the piped UCI runs never overwrite the gates'.

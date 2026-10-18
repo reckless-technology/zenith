@@ -13,6 +13,7 @@ One line per memory. Full content lives in the linked file.
 - [setwise-elegance-nonregression-gate](setwise-elegance-nonregression-gate.md) — elegance refactors ship on non-regression SPRT (ELO0=-5 ELO1=0), not the gain test
 - [zenith-opening-book](zenith-opening-book.md) — self-play-built Polyglot book: recipe, gates, head-to-head lesson
 - [sprt-progress-reporting](sprt-progress-reporting.md) — SPRTs report progress live; pin Threads/Hash/OwnBook explicitly on both engines
+- [windows-bench-speed](windows-bench-speed.md) — Windows is not slower: the "gap" was E-cores, the 1024 net and v2's missing AVX2; how to measure fairly
 
 - Naming, clang-format (org-wide pin **22.1.8** since 2026-09-26), the `pgrep -f` self-match trap and the
   simple-config preference moved to `reckless-technology/claude-skills`, skill `reckless-working-practice` — none of them were about Zenith
