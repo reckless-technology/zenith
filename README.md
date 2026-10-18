@@ -109,9 +109,9 @@ gate still holds its node signature: instrumentation counts and changes nothing 
 with its profile runtime and `llvm-profdata` / `llvm-cov`: Xcode's through `xcrun` on macOS, MSYS2 CLANG64's
 `llvm-tools` on Windows (`tools/setup-dev.ps1` installs them), and on Linux `llvm-profdata` on the PATH or, failing
 that, the copy versioned like clang (`llvm-profdata-18` beside clang 18; `LLVM_SUFFIX=-18`, or `LLVM_PROFDATA=` and
-`LLVM_COV=`, name them). The gates reach 93.9 % of `src/`'s lines on Windows, LINUX_FIGURE on Linux and MACOS_FIGURE
-on macOS; each platform compiles its own branches of `platform.h`, and a tenth of a point moves with timing (a
-search stopped inside quiescence or not). What they leave is code no gate can reach without breaking the engine:
+`LLVM_COV=`, name them). The gates reach 94.6 % of `src/`'s lines on Linux, 94.3 % on macOS and 94.0 % on
+Windows; each platform compiles its own branches of `platform.h`, and a tenth of a point moves with timing (a search
+stopped inside quiescence or not). What they leave is code no gate can reach without breaking the engine:
 allocation failures (the engine, the net, the book, the search pool, a thread that will not start), the failure
 branches of the gates themselves (a mismatch report), a `Hash` above the 65536 MB cap (whose test would ask a shared
 runner for 64 GB), the Windows console's width on Linux and macOS (and the terminal itself on Windows), and a few
