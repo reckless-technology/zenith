@@ -125,8 +125,8 @@ baseline: $(BIN)
 	cp $(BIN) $(BIN)-base
 	@echo "baseline -> $(BIN)-base"
 
-# Every self-check gate but nnuecheck, run against the binary named by $(1): `make check` runs them on the release
-# build, `make coverage` on the instrumented one.
+# Every self-check gate but nnuecheck, run against the binary named by $(1), with tools/uci_check.py's extra flags in
+# $(2): `make check` runs them on the release build, `make coverage` on the instrumented one.
 define RUN_GATES
 	@echo "== perft ==";      ./$(1) perft || { echo "perft FAILED"; exit 1; }
 	@echo "== bench ==";       ./$(1) bench || { echo "bench FAILED"; exit 1; }
@@ -135,11 +135,13 @@ define RUN_GATES
 	@echo "== fuzzcheck ==";   ./$(1) fuzzcheck
 	@echo "== bookcheck ==";   ./$(1) bookcheck
 	@echo "== embedded book =="; ./$(1) embookcheck
-	@#  ...plus the end-to-end UCI path the gate above cannot reach: OwnBook wiring -> bestmove from the book.
-	@printf 'setoption name OwnBook value true\nposition startpos\ngo depth 1\nquit\n' \
-	  | ./$(1) | grep -qE 'bestmove (e2e4|d2d4|c2c4|g1f3)' \
+	@#  ...plus the end-to-end UCI path the gate above cannot reach: OwnBook wiring -> bestmove from the book. A clock,
+	@#  since the book is never probed for a fixed-depth, node-limited or infinite search.
+	@printf 'setoption name OwnBook value true\nposition startpos\ngo wtime 60000 btime 60000\nquit\n' \
+	  | ./$(1) | grep -q '^info string book move' \
 	  && echo "[PASS] embook uci                             bestmove from book                              (setoption OwnBook true -> go)" \
 	  || { echo "[FAIL] embook uci                             no book bestmove                                (setoption OwnBook true -> go)"; exit 1; }
+	@echo "== uci ==";         python3 tools/uci_check.py $(2) ./$(1)
 endef
 NNUE_GATE = if [ -f $(NET) ]; then ./$(1) nnuecheck $(NET); else echo "  SKIP (no $(NET))"; fi
 
@@ -150,12 +152,14 @@ check: $(BIN)
 	@echo "make check: all gates passed"
 
 # Line coverage of src/ by the gates, with LLVM's source-based coverage: an instrumented engine (-O2 -g, the same
-# sources and embedded net and book, no LTO) in build/cov/, every `make check` gate but nnuecheck run against it plus
-# CI's threaded UCI smoke (the only path into the coordinator and helper threads and the clock), each process writing
-# build/cov/<pid>.profraw, then merged into build/cov/zenith.profdata and reported over src/: the table on stdout,
-# build/cov/lcov.info for an editor or a coverage service, and an HTML tree under build/cov/html/. nnuecheck is by far
-# the slowest gate instrumented - 6.6 million nodes, each checked against a full refresh: 52 s on an i9-13900HX, more
-# than the rest together - so it runs only with COVERAGE_NNUE=1 (it lifts nnue.c from 54 to 79 % of its lines).
+# sources and embedded net and book, no LTO) in build/cov/, every `make check` gate run against it - the front-end
+# gate with --terminal, which on Linux and macOS also runs legalcheck on a pseudo-terminal for its progress line - plus
+# CI's threaded UCI smoke, each process writing build/cov/<pid>.profraw, then merged into build/cov/zenith.profdata and
+# reported over src/: the table on stdout, build/cov/lcov.info for an editor or a coverage service, and an HTML tree
+# under build/cov/html/. It fails when the lines covered fall under COVERAGE_MIN per cent of src/'s (CI's coverage job
+# runs it on Linux). src/ is the engine every release ships; the developer tools no release ships - datagen/, trainer/,
+# tools/ - are not measured. nnuecheck is the slowest gate instrumented (6.6 million nodes, each checked against a full
+# refresh: some 30 s on an i9-13900HX), and the only one into most of nnue.c's incremental updates and the finny cache.
 # The bench gate still asserts its node signature: the instrumentation counts, it changes nothing the search computes.
 # Needs clang and its profile runtime (compiler-rt) and llvm-profdata / llvm-cov: on macOS Xcode's, through xcrun; on
 # Linux whichever llvm-profdata is on the PATH, else the one versioned like clang (llvm-profdata-18 for clang 18) -
@@ -164,7 +168,7 @@ COV_DIR    = $(BUILD_DIR)/cov
 COV_BIN    = $(COV_DIR)/zenith
 COV_FLAGS  = $(STD) -O2 -g $(ARCH_FLAG) -DNDEBUG -fprofile-instr-generate -fcoverage-mapping $(WARN) $(VERSION)
 COV_DATA   = $(COV_DIR)/zenith.profdata
-COVERAGE_NNUE ?=
+COVERAGE_MIN ?= 90
 # llvm-cov is a native program on Windows: it needs the .exe the linker added, where MSYS2's make and bash find
 # build/cov/zenith without it.
 EXE        = $(if $(filter Windows_NT,$(OS)),.exe)
@@ -183,21 +187,28 @@ $(COV_DIR): | $(BUILD_DIR)
 $(COV_BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) $(FLAGS_STAMP) | $(COV_DIR)
 	$(CC) $(COV_FLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(COV_BIN) $(LDLIBS)
 
-# Each process writes its own profile (%p, its pid), so the piped UCI runs never overwrite the gates'.
-coverage: export LLVM_PROFILE_FILE = $(COV_DIR)/%p.profraw
+# %m: every process merges its counts into the one profile under a file lock (the runtime's online merging), so no
+# run overwrites another's. A file per process (%p, the pid) is not enough: Windows reuses pids within a run, and the
+# front-end gate starts some hundred processes, so a later one could replace the bench gate's profile.
+coverage: export LLVM_PROFILE_FILE = $(COV_DIR)/zenith-%m.profraw
 coverage: $(COV_BIN)
 	@$(LLVM_PROFDATA) --version >/dev/null 2>&1 || { echo "coverage: $(LLVM_PROFDATA) not found (set LLVM_SUFFIX, or LLVM_PROFDATA and LLVM_COV)" >&2; exit 1; }
 	@rm -f $(COV_DIR)/*.profraw $(COV_DATA)
-	$(call RUN_GATES,$(COV_BIN))
+	$(call RUN_GATES,$(COV_BIN),--terminal)
 	@echo "== uci smoke ==";  printf 'uci\nisready\nsetoption name Threads value 2\nposition startpos moves e2e4 e7e5\ngo depth 10\nucinewgame\nposition startpos\ngo movetime 200\nquit\n' \
 	  | ./$(COV_BIN) | grep -c '^bestmove ' | grep -qx 2 && echo "[PASS] uci smoke: two bestmoves" || { echo "[FAIL] uci smoke"; exit 1; }
-	@echo "== nnuecheck =="; $(if $(COVERAGE_NNUE),$(call NNUE_GATE,$(COV_BIN)),echo "  SKIP (the slowest gate instrumented: COVERAGE_NNUE=1 runs it)")
+	@echo "== nnuecheck =="; $(call NNUE_GATE,$(COV_BIN))
 	$(LLVM_PROFDATA) merge -sparse $(COV_DIR)/*.profraw -o $(COV_DATA)
 	@rm -f $(COV_DIR)/*.profraw
 	$(LLVM_COV) export -format=lcov $(COV_BIN)$(EXE) -instr-profile=$(COV_DATA) $(SRCS) $(HDRS) > $(COV_DIR)/lcov.info
 	$(LLVM_COV) show -format=html -output-dir=$(COV_DIR)/html $(COV_BIN)$(EXE) -instr-profile=$(COV_DATA) $(SRCS) $(HDRS)
-	$(LLVM_COV) report $(COV_BIN)$(EXE) -instr-profile=$(COV_DATA) $(SRCS) $(HDRS)
+	$(LLVM_COV) report $(COV_BIN)$(EXE) -instr-profile=$(COV_DATA) $(SRCS) $(HDRS) | tee $(COV_DIR)/report.txt
 	@echo "coverage: build/cov/lcov.info, build/cov/html/index.html"
+	@# The TOTAL row's line count and missed lines are its 8th and 9th fields.
+	@awk -v min=$(COVERAGE_MIN) '$$1 == "TOTAL" { found = 1; covered = 100 * ($$8 - $$9) / $$8; \
+	  printf "coverage: %.2f %% of src/ lines (minimum %s %%)\n", covered, min; exit !(covered >= min) } \
+	  END { if (!found) { print "coverage: no TOTAL row in the report" > "/dev/stderr"; exit 1 } }' $(COV_DIR)/report.txt \
+	  || { echo "coverage: FAILED - under COVERAGE_MIN" >&2; exit 1; }
 
 # Regenerate the committed constant tables (Zobrist keys, PeSTO tables, Q28 ln table). Deliberately manual —
 # these constants are part of the engine's identity (the bench signature depends on every value), so they

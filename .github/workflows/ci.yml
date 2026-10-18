@@ -98,6 +98,9 @@ jobs:
           printf 'uci\nisready\nsetoption name Threads value 2\nposition startpos moves e2e4 e7e5\ngo depth 10\nucinewgame\nposition startpos\ngo movetime 200\nquit\n' | ./${{ matrix.bin }} > uci_smoke.out
           test "$(grep -c '^bestmove ' uci_smoke.out)" = "2" || { echo '::error::UCI smoke expected 2 bestmove lines'; cat uci_smoke.out; exit 1; }
 
+      - name: UCI front end (every option, position and go form, the notation subcommands, nnueeval, malformed input)
+        run: python3 tools/uci_check.py ./${{ matrix.bin }}
+
       - name: NNUE gates on a synthetic net (loader + incremental accumulator + finny cache + EvalFile search)
         # nets/ is gitignored, so CI generates a valid-format random-weight net: the nnuecheck gate
         # (incremental == refresh) and the loader are weight-agnostic, so this exercises the whole NNUE
@@ -153,6 +156,36 @@ jobs:
         run: |
           ./build/zenith-datagen-debug 2 datagen_smoke.txt 1 200 4
           [ -s datagen_smoke.txt ] || { echo '::error::datagen produced no records'; exit 1; }
+
+  # Line coverage of src/ by every gate (`make coverage`: LLVM source-based, nnuecheck and the front-end gate included,
+  # the latter's pseudo-terminal check too), failing under the Makefile's COVERAGE_MIN (90 %). src/ is what a release
+  # ships; datagen/, trainer/ and tools/ are developer tools and are not measured. It needs clang with its profile
+  # runtime and the llvm-profdata / llvm-cov of the same LLVM, which the runners carry with their clang (Ubuntu's
+  # llvm-profdata-18 beside clang 18, found by the Makefile); this job installs nothing, and says what is missing.
+  coverage:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version is derived from the tags
+      - name: Check the toolchain (clang, its profile runtime's tools, python3)
+        run: |
+          missing=""
+          command -v clang >/dev/null || missing="$missing clang"
+          command -v python3 >/dev/null || missing="$missing python3"
+          if command -v clang >/dev/null; then
+            major=$(clang -dumpversion | cut -d. -f1)
+            for tool in llvm-profdata llvm-cov; do
+              command -v "$tool" >/dev/null || command -v "$tool-$major" >/dev/null || missing="$missing $tool(-$major)"
+            done
+            clang --version | head -1
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::coverage needs:$missing - install LLVM's tools beside clang on this runner (apt: llvm-$major or llvm)"
+            exit 1
+          fi
+      - name: Coverage of src/ by every gate (fails under COVERAGE_MIN)
+        run: make coverage
 
   format-check:
     runs-on: [self-hosted, Linux, X64]

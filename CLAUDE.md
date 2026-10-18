@@ -31,11 +31,17 @@ make clean
 ./build/zenith        # interactive UCI loop
 
 make check             # run EVERY gate below (perft, bench-signature, legalcheck, seecheck, fuzzcheck,
-                       #   bookcheck, embookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
-make coverage          # LLVM source-based line coverage of src/ by those gates (+ CI's threaded UCI smoke):
-                       #   instrumented engine in build/cov/, report on stdout, build/cov/lcov.info + html/;
-                       #   nnuecheck (the slowest gate) only with COVERAGE_NNUE=1; needs llvm-profdata/llvm-cov
+                       #   bookcheck, embookcheck, the UCI front end, nnuecheck) — mirrors CI; any failure aborts
+make coverage          # LLVM source-based line coverage of src/ by those gates (+ CI's threaded UCI smoke), FAILING
+                       #   under COVERAGE_MIN (90; CI's `coverage` job, Linux): instrumented engine in build/cov/,
+                       #   report on stdout, build/cov/lcov.info + html/; src/ only — datagen/, trainer/, tools/ are
+                       #   developer tools no release ships and are not measured; needs llvm-profdata/llvm-cov
                        #   (xcrun on macOS, MSYS2 llvm-tools, Linux: on PATH or clang's version, LLVM_SUFFIX=-18)
+python3 tools/uci_check.py ./build/zenith  # the UCI front end through pipes: every option (shown to reach the
+                       #   search by a fixed-depth node count), position/go forms, crafted books, moves/polykey/san/
+                       #   applymoves vs hand-verified answers, nnueeval + loader verdicts, malformed input;
+                       #   --terminal adds legalcheck on a pty (POSIX) for the progress line. A new UCI option or
+                       #   subcommand gets a check here, or coverage drops
 ./build/zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
 ./build/zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
 ./build/zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)

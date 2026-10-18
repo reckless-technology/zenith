@@ -280,6 +280,7 @@ static void perft_divide(const Position *pos, const int depth)
     }
     const double seconds = (platform_now_ms() - start_time) / 1000.0;
     printf("\nnodes %llu  time %.2fs  %.1f Mnps\n", (unsigned long long)total, seconds, total / seconds / 1e6);
+    fflush(stdout); // a GUI or harness on a pipe reads the counts now, not when the engine exits
 }
 
 /** @brief The coordinator thread's captured search state (root, limits, pre-root history), passed by pointer. */
