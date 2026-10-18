@@ -167,7 +167,9 @@ Every net change is then **SPRT-gated** like any strength change (see §7).
 
 - **Hardware used:** NVIDIA RTX 4070 Laptop GPU (8 GB) + 32 CPU cores. Datagen and SPRT are CPU-bound;
   training is the GPU job — they can run concurrently.
-- **Python env** (venv is `.venv`, git-ignored):
+- **Python env** (venv is `.venv`, git-ignored): `tools/setup-dev.sh --training` (Windows:
+  `tools\setup-dev.ps1 -Training`) makes it with uv - torch from PyTorch's CUDA 13.0 index on Linux and Windows, PyPI's
+  Metal build on macOS - and reports whether torch sees the GPU; by hand:
   ```bash
   python3 -m venv .venv && . .venv/bin/activate
   pip install -r trainer/requirements.txt      # torch>=2.3 (CUDA build on Linux) + numpy>=1.26

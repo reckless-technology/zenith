@@ -2,8 +2,33 @@
   // Build tasks used as preLaunchTask by launch.json. The same make targets on every platform; on Windows they run in
   // MSYS2's bash in its CLANG64 environment (C:\msys64, as CI's Windows job uses), whose clang, make and python the
   // Makefile needs. CHERE_INVOKING keeps the login shell in the workspace folder.
+  // "setup environment" installs what building, testing, debugging and formatting need on this machine
+  // (tools/setup-dev.ps1 on Windows, tools/setup-dev.sh on Linux and macOS); "check environment" only reports.
   "version": "2.0.0",
   "tasks": [
+    {
+      "label": "setup environment",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/setup-dev.sh",
+      "windows": {
+        "command": "powershell",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/tools/setup-dev.ps1"]
+      },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "focus": true }
+    },
+    {
+      "label": "check environment",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/setup-dev.sh",
+      "args": ["--check"],
+      "windows": {
+        "command": "powershell",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/tools/setup-dev.ps1", "-Check"]
+      },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
     {
       "label": "make debug",
       "type": "shell",

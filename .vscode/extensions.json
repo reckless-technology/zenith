@@ -1,0 +1,5 @@
+{
+  // What .vscode/launch.json debugs with: the C/C++ extension (gdb on Linux and Windows, and IntelliSense from
+  // c_cpp_properties.json) and CodeLLDB (lldb on macOS, where no gdb exists).
+  "recommendations": ["ms-vscode.cpptools", "vadimcn.vscode-lldb"]
+}
