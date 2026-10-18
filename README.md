@@ -22,6 +22,14 @@ bench node signature). Threads use C11 `threads.h` with a
 pthread fallback (`src/platform.h`) for platforms without it (e.g. macOS). Magic bitboards keep the code
 portable; `-march=native` is for local dev — a release build would fan out per microarchitecture.
 
+**Setting up a machine.** `tools/setup-dev.ps1` (Windows) and `tools/setup-dev.sh` (Linux, macOS) install what
+building, testing, debugging and formatting need - on Windows MSYS2 at `C:\msys64` with its CLANG64 clang, lld,
+compiler-rt, llvm-tools, python and gdb, and make, git and zip; on Linux apt's clang, make, python3, git, zip and gdb;
+on macOS Xcode's command-line tools - plus clang-format 22.1.8 through uv, the git hooks and the recommended VS Code
+extensions, checking each first, so they are safe to run again; `-Check` / `--check` only reports, and `-Training` /
+`--training` also makes the NNUE trainer's `.venv` (torch and numpy; CUDA 13.0 wheels on Windows and Linux, Metal on
+macOS). In VS Code they are the `setup environment` and `check environment` tasks.
+
 ```bash
 make                 # -> ./build/zenith        (release: clang -std=c17, -O3 -flto -march=native, whole-program LTO)
 make ARCH=x86-64-v2  # portable release build: override the default -march=native (see .github/workflows/release.yml)
