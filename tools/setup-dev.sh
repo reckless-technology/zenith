@@ -54,7 +54,7 @@ os=$(uname -s)
 # bash and zsh read).
 add_to_path() {
     case ":$PATH:" in *":$1:"*) ;; *) PATH="$1:$PATH"; export PATH ;; esac
-    [ "$persist" = 1 ] || return 0
+    [ "$persist" = 1 ] && [ "$check" = 0 ] || return 0
     local line="export PATH=\"$1:\$PATH\""
     local profiles=("$HOME/.profile" "$HOME/.bashrc")
     [ "$os" = Darwin ] && profiles+=("$HOME/.zprofile")
@@ -79,7 +79,7 @@ sudo_cmd() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
 apt_packages() {
     local need=()
     for p in "$@"; do
-        dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || need+=("$p")
+        grep -q 'install ok installed' <<<"$(dpkg-query -W -f='${Status}' "$p" 2>/dev/null || true)" || need+=("$p")
     done
     if [ ${#need[@]} = 0 ]; then ok 'apt packages' "$*"; return; fi
     if [ "$check" = 1 ]; then miss 'apt packages' "${need[*]}"; return; fi
@@ -124,7 +124,7 @@ install_vscode_extensions() {
     local installed
     installed=$(code --list-extensions 2>/dev/null || true)
     for ext in $(sed -e 's://.*$::' .vscode/extensions.json | tr -d '\n' | sed -e 's/.*"recommendations"[^[]*\[//' -e 's/\].*//' | tr -d '" ' | tr ',' ' '); do
-        if printf '%s\n' "$installed" | grep -qixF "$ext"; then ok 'VS Code extension' "$ext"
+        if grep -qixF "$ext" <<<"$installed"; then ok 'VS Code extension' "$ext"
         elif [ "$check" = 1 ]; then miss 'VS Code extension' "$ext"
         else installing 'VS Code extension' "$ext"; code --install-extension "$ext" --force >/dev/null; fi
     done
