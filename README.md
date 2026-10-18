@@ -38,6 +38,7 @@ make pext            # -> ./build/zenith-pext   (BMI2 PEXT sliding attacks; bit-
 make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text (standalone NNUE training-data tools)
 make datagen-debug   # -> ASan+UBSan builds of both datagen tools (they live outside src/, so `make debug` skips them)
 make check           # build + run every correctness gate (mirrors CI; see Verify below)
+make coverage        # line coverage of src/ by those gates (LLVM source-based; see Verify below)
 make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
@@ -83,6 +84,20 @@ make check                          # build + run every gate below
 ```
 
 `main` is protected: changes land via pull request with all CI checks green.
+
+**Coverage.** `make coverage` measures how much of `src/` those gates reach, with LLVM's source-based coverage: it
+builds an instrumented engine (`-fprofile-instr-generate -fcoverage-mapping`, `-O2 -g`, the same sources and embedded
+net and book) into `build/cov/`, runs every `make check` gate but nnuecheck against it, plus CI's threaded UCI smoke,
+each process writing `build/cov/<pid>.profraw`, merges them with `llvm-profdata merge -sparse` and prints
+`llvm-cov report` over `src/`, leaving `build/cov/lcov.info` and `build/cov/html/index.html` beside it. nnuecheck
+is by far the slowest gate instrumented (6.6 million nodes, each checked against a full refresh: 52 s on an
+i9-13900HX, more than the rest together), so it runs only with `make coverage COVERAGE_NNUE=1`. The bench gate still holds
+its node signature: instrumentation counts and changes nothing the search computes. It needs clang with its profile
+runtime and `llvm-profdata` / `llvm-cov`: Xcode's through `xcrun` on macOS, MSYS2 CLANG64's `llvm-tools` on Windows
+(`tools/setup-dev.ps1` installs them), and on Linux `llvm-profdata` on the PATH or, failing that, the copy versioned
+like clang (`llvm-profdata-18` beside clang 18; `LLVM_SUFFIX=-18`, or `LLVM_PROFDATA=` and `LLVM_COV=`, name them).
+The gates reach 73.5 % of `src/`'s lines on Windows, 75.6 % on Linux and 75.2 % on macOS (each platform compiles its
+own branches of `platform.h`), and on Windows 78.0 % with nnuecheck, which takes `nnue.c` from 54 to 79 %.
 
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
 so any unintended change to search behaviour shows up immediately, and a pure-speed change is proven safe
