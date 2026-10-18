@@ -1,5 +1,7 @@
 {
-  // Build tasks used as preLaunchTask by launch.json.
+  // Build tasks used as preLaunchTask by launch.json. The same make targets on every platform; on Windows they run in
+  // MSYS2's bash in its CLANG64 environment (C:\msys64, as CI's Windows job uses), whose clang, make and python the
+  // Makefile needs. CHERE_INVOKING keeps the login shell in the workspace folder.
   "version": "2.0.0",
   "tasks": [
     {
@@ -7,6 +9,13 @@
       "type": "shell",
       "command": "make debug",
       "options": { "cwd": "${workspaceFolder}" },
+      "windows": {
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": { "executable": "C:/msys64/usr/bin/bash.exe", "args": ["-lc"] },
+          "env": { "MSYSTEM": "CLANG64", "CHERE_INVOKING": "1" }
+        }
+      },
       "problemMatcher": ["$gcc"],
       "group": "build"
     },
@@ -15,8 +24,30 @@
       "type": "shell",
       "command": "make",
       "options": { "cwd": "${workspaceFolder}" },
+      "windows": {
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": { "executable": "C:/msys64/usr/bin/bash.exe", "args": ["-lc"] },
+          "env": { "MSYSTEM": "CLANG64", "CHERE_INVOKING": "1" }
+        }
+      },
       "problemMatcher": ["$gcc"],
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "make check",
+      "type": "shell",
+      "command": "make check",
+      "options": { "cwd": "${workspaceFolder}" },
+      "windows": {
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": { "executable": "C:/msys64/usr/bin/bash.exe", "args": ["-lc"] },
+          "env": { "MSYSTEM": "CLANG64", "CHERE_INVOKING": "1" }
+        }
+      },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "test", "isDefault": true }
     }
   ]
 }

@@ -1,12 +1,18 @@
 {
-  // Debug configs for Zenith (gdb via the C/C++ extension, ms-vscode.cpptools).
-  // "Launch" builds the ASan/UBSan debug binary first and runs it in the integrated terminal so you can
-  // type UCI commands (uci, position…, go…). "Attach" hooks a gdb onto an already-running engine (pick the
-  // process, e.g. the ./build/zenith a GUI/fastchess spawned). "Launch (release)" debugs the optimised ./build/zenith.
+  // Debug configs for Zenith: gdb through the C/C++ extension (ms-vscode.cpptools) on Linux and Windows, lldb through
+  // CodeLLDB (vadimcn.vscode-lldb) on macOS, where no gdb exists. Each platform has the same three shapes:
+  // "Launch" builds the ASan/UBSan debug binary first and runs it in the integrated terminal so you can type UCI
+  // commands (uci, position…, go…); "Launch (release)" runs the optimised ./build/zenith (no -g, so no source lines);
+  // "Attach" hooks the debugger onto an already-running engine (pick the process, e.g. one a GUI or fastchess spawned).
+  //
+  // Windows: the binaries are MSYS2 CLANG64 builds, debugged with that environment's gdb. They load libwinpthread and,
+  // in the debug build, the ASan runtime from C:\msys64\clang64\bin, so it leads the debuggee's PATH. ASan on Windows
+  // maps its shadow memory in by catching access violations, which gdb reports as SIGSEGV: the launches pass SIGSEGV
+  // on silently, and a real fault is still ASan's report and abort (abort_on_error=1).
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch zenith (debug build, ASan+UBSan)",
+      "name": "Linux: Launch zenith (debug build, ASan+UBSan)",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/build/zenith-debug",
@@ -26,7 +32,7 @@
       ]
     },
     {
-      "name": "Launch zenith (release build)",
+      "name": "Linux: Launch zenith (release build)",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/build/zenith",
@@ -41,7 +47,7 @@
       ]
     },
     {
-      "name": "Attach to running zenith",
+      "name": "Linux: Attach to running zenith",
       "type": "cppdbg",
       "request": "attach",
       "program": "${workspaceFolder}/build/zenith",
@@ -52,9 +58,6 @@
         { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
       ]
     },
-    // macOS: no gdb exists on Darwin, so the cppdbg/MIMode-gdb configs above cannot run there.
-    // These use lldb through the CodeLLDB extension (vadimcn.vscode-lldb) and are otherwise the
-    // same three shapes: sanitiser debug build, release build, and attach.
     {
       "name": "macOS: Launch zenith (debug build, ASan+UBSan)",
       "type": "lldb",
@@ -81,6 +84,58 @@
       "type": "lldb",
       "request": "attach",
       "program": "${workspaceFolder}/build/zenith"
+    },
+    {
+      "name": "Windows: Launch zenith (debug build, ASan+UBSan)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/zenith-debug.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        { "name": "PATH", "value": "C:\\msys64\\clang64\\bin;${env:PATH}" },
+        { "name": "ASAN_OPTIONS", "value": "abort_on_error=1:detect_leaks=0" },
+        { "name": "UBSAN_OPTIONS", "value": "print_stacktrace=1" }
+      ],
+      "console": "integratedTerminal",
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe",
+      "preLaunchTask": "make debug",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "description": "Let ASan's shadow-memory faults through", "text": "handle SIGSEGV nostop noprint pass", "ignoreFailures": false }
+      ]
+    },
+    {
+      "name": "Windows: Launch zenith (release build)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/zenith.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [{ "name": "PATH", "value": "C:\\msys64\\clang64\\bin;${env:PATH}" }],
+      "console": "integratedTerminal",
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe",
+      "preLaunchTask": "make",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      "name": "Windows: Attach to running zenith",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceFolder}/build/zenith.exe",
+      "processId": "${command:pickProcess}",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe",
+      "setupCommands": [
+        { "description": "Enable pretty-printing for gdb", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     }
   ]
 }
