@@ -71,7 +71,7 @@ function Write-Caution([string]$name, [string]$detail) { Write-Host ("  warning 
 # Put a directory on this process's PATH and, unless -NoPersist, on the user's PATH for every new shell.
 function Add-ToPath([string]$dir) {
   if (($env:PATH -split ';') -notcontains $dir) { $env:PATH = "$dir;$env:PATH" }
-  if ($NoPersist) { return }
+  if ($NoPersist -or $Check) { return }
   $user = [Environment]::GetEnvironmentVariable('Path', 'User')
   if ((($user -split ';') | Where-Object { $_ }) -notcontains $dir) {
     [Environment]::SetEnvironmentVariable('Path', (@($dir) + (($user -split ';') | Where-Object { $_ })) -join ';', 'User')
