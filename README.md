@@ -38,7 +38,7 @@ make pext            # -> ./build/zenith-pext   (BMI2 PEXT sliding attacks; bit-
 make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text (standalone NNUE training-data tools)
 make datagen-debug   # -> ASan+UBSan builds of both datagen tools (they live outside src/, so `make debug` skips them)
 make check           # build + run every correctness gate (mirrors CI; see Verify below)
-make coverage        # line coverage of src/ by those gates (LLVM source-based; see Verify below)
+make coverage        # line coverage of src/ by those gates, failing under 90 % (LLVM source-based; see Verify below)
 make perft           # build + run the perft movegen gate
 make bench           # build + run the fixed-depth node-signature benchmark
 make baseline        # snapshot the current ./build/zenith -> ./build/zenith-base (the SPRT reference binary)
@@ -68,8 +68,8 @@ through CodeLLDB on macOS), and `.vscode/c_cpp_properties.json` gives IntelliSen
 
 Every correctness property has an executable gate. `make check` runs them all; CI runs the same gates on
 Linux and Windows on every push (asserting the bench signature on each), plus a threaded UCI smoke and the
-NNUE gates against a synthetic net; macOS runs the full suite on release candidates. Any failure aborts
-non-zero.
+NNUE gates against a synthetic net, and holds their line coverage of `src/` to 90 % on Linux (below); macOS runs
+the full suite on release candidates. Any failure aborts non-zero.
 
 ```bash
 make check                          # build + run every gate below
@@ -81,23 +81,41 @@ make check                          # build + run every gate below
 ./build/zenith nnuecheck <net.nnue> # incremental accumulator == full refresh, bit-identical
 ./build/zenith bookcheck            # Polyglot key computation vs the 9 official spec test vectors
 ./build/zenith embookcheck          # the build-time-embedded book: blob, entry invariants, probe path
+python3 tools/uci_check.py ./build/zenith  # the UCI front end through pipes (below)
 ```
+
+`tools/uci_check.py` tests what a GUI, the book builder or a test harness talks to, by running the binary as they
+do: every UCI option (each shown to reach the search where it should, by the node count of a fixed-depth search -
+the same net from `EvalFile` searches exactly as the embedded one), the `position` and `go` forms (a clock, a fallen
+flag, nodes, movetime, perft, infinite and stop, a mate, a mated position, a history past its cap), crafted Polyglot
+books (castling entries, and the books the loader must refuse), the notation subcommands against hand-verified
+answers (`moves`, `polykey` against the specification's vectors, every SAN form, `applymoves`), `nnueeval` with the
+net's colour symmetry, the loader's verdicts on bad, truncated, over-long and legacy (`ZNNUE3`, `ZNNUE4`) files, and
+malformed input. It needs only Python 3, which the build already does.
 
 `main` is protected: changes land via pull request with all CI checks green.
 
-**Coverage.** `make coverage` measures how much of `src/` those gates reach, with LLVM's source-based coverage: it
-builds an instrumented engine (`-fprofile-instr-generate -fcoverage-mapping`, `-O2 -g`, the same sources and embedded
-net and book) into `build/cov/`, runs every `make check` gate but nnuecheck against it, plus CI's threaded UCI smoke,
-each process writing `build/cov/<pid>.profraw`, merges them with `llvm-profdata merge -sparse` and prints
-`llvm-cov report` over `src/`, leaving `build/cov/lcov.info` and `build/cov/html/index.html` beside it. nnuecheck
-is by far the slowest gate instrumented (6.6 million nodes, each checked against a full refresh: 52 s on an
-i9-13900HX, more than the rest together), so it runs only with `make coverage COVERAGE_NNUE=1`. The bench gate still holds
-its node signature: instrumentation counts and changes nothing the search computes. It needs clang with its profile
-runtime and `llvm-profdata` / `llvm-cov`: Xcode's through `xcrun` on macOS, MSYS2 CLANG64's `llvm-tools` on Windows
-(`tools/setup-dev.ps1` installs them), and on Linux `llvm-profdata` on the PATH or, failing that, the copy versioned
-like clang (`llvm-profdata-18` beside clang 18; `LLVM_SUFFIX=-18`, or `LLVM_PROFDATA=` and `LLVM_COV=`, name them).
-The gates reach 73.5 % of `src/`'s lines on Windows, 75.6 % on Linux and 75.2 % on macOS (each platform compiles its
-own branches of `platform.h`), and on Windows 78.0 % with nnuecheck, which takes `nnue.c` from 54 to 79 %.
+**Coverage.** `make coverage` measures how much of `src/` those gates reach, with LLVM's source-based coverage, and
+fails under `COVERAGE_MIN` per cent of its lines (90 by default; CI's `coverage` job runs it on Linux). It builds an
+instrumented engine (`-fprofile-instr-generate -fcoverage-mapping`, `-O2 -g`, the same sources and embedded net and
+book) into `build/cov/`, runs every `make check` gate against it - nnuecheck included, and the front-end gate with
+`--terminal`, which on Linux and macOS also runs legalcheck on a pseudo-terminal to test its in-place progress line -
+plus CI's threaded UCI smoke, every process merging its counts into one profile under a file lock
+(`LLVM_PROFILE_FILE=build/cov/zenith-%m.profraw`: a file per pid lost profiles on Windows, which reuses pids within a
+run), then prints `llvm-cov report` over `src/`, leaving `build/cov/lcov.info` and `build/cov/html/index.html` beside
+it. The figure is `src/` alone - the engine every release ships, its UCI front end and its headers; the developer
+tools no release ships, `datagen/` (zenith-datagen, bullet2text), `trainer/` and `tools/`, are not measured. The bench
+gate still holds its node signature: instrumentation counts and changes nothing the search computes. It needs clang
+with its profile runtime and `llvm-profdata` / `llvm-cov`: Xcode's through `xcrun` on macOS, MSYS2 CLANG64's
+`llvm-tools` on Windows (`tools/setup-dev.ps1` installs them), and on Linux `llvm-profdata` on the PATH or, failing
+that, the copy versioned like clang (`llvm-profdata-18` beside clang 18; `LLVM_SUFFIX=-18`, or `LLVM_PROFDATA=` and
+`LLVM_COV=`, name them). The gates reach 93.9 % of `src/`'s lines on Windows, LINUX_FIGURE on Linux and MACOS_FIGURE
+on macOS; each platform compiles its own branches of `platform.h`, and a tenth of a point moves with timing (a
+search stopped inside quiescence or not). What they leave is code no gate can reach without breaking the engine:
+allocation failures (the engine, the net, the book, the search pool, a thread that will not start), the failure
+branches of the gates themselves (a mismatch report), a `Hash` above the 65536 MB cap (whose test would ask a shared
+runner for 64 GB), the Windows console's width on Linux and macOS (and the terminal itself on Windows), and a few
+helpers nothing calls.
 
 The **`bench` node signature** is the linchpin: a fixed-depth search produces a deterministic node count,
 so any unintended change to search behaviour shows up immediately, and a pure-speed change is proven safe
