@@ -32,6 +32,10 @@ make clean
 
 make check             # run EVERY gate below (perft, bench-signature, legalcheck, seecheck, fuzzcheck,
                        #   bookcheck, embookcheck, nnuecheck) — mirrors CI; any failure aborts non-zero
+make coverage          # LLVM source-based line coverage of src/ by those gates (+ CI's threaded UCI smoke):
+                       #   instrumented engine in build/cov/, report on stdout, build/cov/lcov.info + html/;
+                       #   nnuecheck (the slowest gate) only with COVERAGE_NNUE=1; needs llvm-profdata/llvm-cov
+                       #   (xcrun on macOS, MSYS2 llvm-tools, Linux: on PATH or clang's version, LLVM_SUFFIX=-18)
 ./build/zenith perft         # movegen vs known counts (canonical + edge-case catchers + 128-position Ethereal) — PASS
 ./build/zenith bench [depth] # fixed-depth node signature + nps (default depth 13); guards search determinism
 ./build/zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)

@@ -73,6 +73,21 @@
       },
       "problemMatcher": ["$gcc"],
       "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "make coverage",
+      "type": "shell",
+      "command": "make coverage",
+      "options": { "cwd": "${workspaceFolder}" },
+      "windows": {
+        "options": {
+          "cwd": "${workspaceFolder}",
+          "shell": { "executable": "C:/msys64/usr/bin/bash.exe", "args": ["-lc"] },
+          "env": { "MSYSTEM": "CLANG64", "CHERE_INVOKING": "1" }
+        }
+      },
+      "problemMatcher": ["$gcc"],
+      "group": "test"
     }
   ]
 }
