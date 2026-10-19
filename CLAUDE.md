@@ -198,6 +198,11 @@ current `pos.key` is `push_back`/`pop_back`-ed around each recursive call so `is
 the last irreversible move. If you add a make/recurse site, maintain this `hist` push/pop or repetition
 detection breaks.
 
+**Checkmate takes precedence over the fifty-move draw** (FIDE 5.1.1; 9.6.2 says it of the 75-move rule): at a clock of
+100 or more, `negamax` scores a side to move in check with no legal move as mated (`-VALUE_MATE + ply`, through the
+out-of-line `is_checkmated`) before `position_is_draw` can call it the fifty-move draw, so a mate on the hundredth ply
+is found and played. `tools/uci_check.py` holds it ("mate on the 100th ply").
+
 ## NNUE training pipeline (independent — no shared code/net/data with any other engine)
 
 `datagen` (C) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.c` (engine). The

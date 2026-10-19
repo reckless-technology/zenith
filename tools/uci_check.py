@@ -16,8 +16,8 @@ GUI, a book builder or a test harness actually talks to, by running the binary a
 - the position and go forms: fen and startpos with moves, an illegal move, a history past its cap, a half-move
   clock past 255 (still printed whole, still a fifty-move draw) and FEN clocks out of range, the clock counting
   through castling (neither a pawn move nor a capture) and reset by a capture and en passant, the fifty-move draw
-  reached by castling, a clock, a fallen flag, a node budget, movetime, perft, infinite with stop, unknown tokens, a
-  mate, a mated position;
+  reached by castling, a mate on the hundredth ply (mate, not the fifty-move draw), a clock, a fallen flag, a node
+  budget, movetime, perft, infinite with stop, unknown tokens, a mate, a mated position;
 - malformed input, after which the engine must still answer isready.
 
 With --terminal it also runs legalcheck on a pseudo-terminal (POSIX only), resizing it as the gate runs, and holds
@@ -473,6 +473,22 @@ def check_positions_and_go(gate):
     gate.report("4k3/8/8/8/8/8/8/5RK1 b - - 100 80" in lines and len(scores) >= 12 and set(scores) == {"cp 0"},
                 "position", f"castling to 100: {scores[-1] if scores else '-'}", "(O-O on 99 makes 100: drawn, "
                 "replayed and in the tree)")
+
+    # Checkmate takes precedence over the fifty-move draw (FIDE 5.1.1): a mate on the move that completes the fifty
+    # stands. On a clock of 99, Ra8 is the hundredth ply and mates, so the search scores it mate in one and plays it,
+    # where every other move draws. The reverse on the hundredth ply: with the f7 pawn gone Ra8+ leaves the king f7,
+    # so that check and every quiet move draw; and K+R v K replayed to a clock of 100, out of check, is drawn.
+    lines = gate.session(["setoption name Threads value 1", "position fen 6k1/5ppp/8/8/8/8/8/R5K1 w - - 99 80",
+                          go("go depth 6")])
+    is_mate = any(re.search(r" score mate 1 .* pv a1a8", line) for line in lines) and bestmoves(lines) == ["a1a8"]
+    lines = gate.session(["setoption name Threads value 1", "position fen 6k1/6pp/8/8/8/8/8/R5K1 w - - 99 80",
+                          go("go depth 6"), "position fen 6k1/8/8/8/8/8/8/R5K1 w - - 99 80 moves a1a2",
+                          go("go depth 6")])
+    scores = [match.group(1) for line in lines for match in [re.match(r"info depth \d+ .*\bscore (\w+ -?\d+)", line)]
+              if match]
+    gate.report(is_mate and len(scores) >= 12 and set(scores) == {"cp 0"}, "go",
+                "mate on the 100th ply", "(Ra8# on a clock of 99 is mate 1, not the fifty-move draw; a check that "
+                "leaves a move, a quiet move and K+R v K on 100 draw)")
 
     lines = gate.session(["setoption name Threads value 1", "position startpos moves e2e4",
                           go("go wtime 3000 btime 3000 winc 20 binc 20 movestogo 30"),
