@@ -61,6 +61,15 @@ jobs:
       - name: Build (LTO, release)
         run: make ARCH=${{ matrix.arch }}
 
+      # The engine imports Windows' own DLLs alone: MSYS2's runtime (libwinpthread-1.dll) is linked statically
+      # (RELEASE_LDFLAGS), so it starts on a Windows with no MSYS2. A toolchain runtime DLL among its imports fails.
+      - name: Windows DLLs the engine imports (Windows only)
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/windows-dependents.ps1 ${{ matrix.bin }}
+          if ($LASTEXITCODE -ne 0) { throw "the engine imports a DLL outside the allowlist" }
+
       - name: Build the datagen tools (Linux only; build-only bitrot guard for build/zenith-datagen + build/zenith-bullet2text)
         if: matrix.label == 'linux'
         run: make datagen ARCH=${{ matrix.arch }}

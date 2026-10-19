@@ -84,6 +84,12 @@ under it, so no reformat was needed here; apt's `clang-format-18` is *not* it, a
 must precede `/usr/bin` for the right one to win). See `reckless-technology/claude-skills`, skill
 `reckless-working-practice`.
 
+**The Windows engines link MSYS2's runtime statically** (`RELEASE_LDFLAGS`, `-static` where `OS` is `Windows_NT`, on
+`build/zenith` and `build/zenith-pext` alone): CLANG64's `-pthread` is `libwinpthread-1.dll`, and an engine importing
+it does not start on a Windows without MSYS2 (0xC0000135). They import `KERNEL32.dll` and the UCRT's
+`api-ms-win-crt-*.dll` API sets, Windows' own from Windows 10 on; `tools/windows-dependents.ps1` reads the PE import
+tables itself and fails CI's Windows build and the release's on any other DLL.
+
 The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
 `tools/sprt.sh` runs **fastchess** (cutechess-cli is not installed here) with an openings EPD (`$OPENINGS`, default
