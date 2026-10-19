@@ -183,6 +183,9 @@ void position_make_move(Position *pos, const Move move)
         pos->key ^= ZobristEp[pos->ep_square];
         pos->ep_square = NO_SQUARE;
     }
+    // The fifty-move clock resets on a capture (en passant included) and a pawn move (below), and on nothing else:
+    // castling is neither, so it counts though it is irreversible (FIDE 9.3). The castling rights it changes are in
+    // the key, which is what keeps the repetition scan from matching across it.
     pos->half_move++;
 
     if (move_is_capture(move))

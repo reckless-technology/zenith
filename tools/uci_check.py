@@ -14,7 +14,10 @@ GUI, a book builder or a test harness actually talks to, by running the binary a
   OwnBook and BookFile (a file, a missing, empty, ragged or unsorted one, a path with a space, castling entries),
   and the tunable search parameters, whose effect is shown by the node count of a fixed-depth search;
 - the position and go forms: fen and startpos with moves, an illegal move, a history past its cap, a half-move
-  clock past 255 (still printed whole, still a fifty-move draw) and FEN clocks out of range, a clock, a fallen flag, a node budget, movetime, perft, infinite with stop, unknown tokens, a mate, a mated position;
+  clock past 255 (still printed whole, still a fifty-move draw) and FEN clocks out of range, the clock counting
+  through castling (neither a pawn move nor a capture) and reset by a capture and en passant, the fifty-move draw
+  reached by castling, a clock, a fallen flag, a node budget, movetime, perft, infinite with stop, unknown tokens, a
+  mate, a mated position;
 - malformed input, after which the engine must still answer isready.
 
 With --terminal it also runs legalcheck on a pseudo-terminal (POSIX only), resizing it as the gate runs, and holds
@@ -439,6 +442,37 @@ def check_positions_and_go(gate):
                 "(kept, clamped to 0, clamped to 10^9 then a move)")
     if fens != want:
         print("       got:", fens, flush=True)
+
+    # The fifty-move rule (FIDE 9.3) counts moves "without the movement of any pawn and without any capture", and
+    # FEN's clock is the plies since the last of either. Castling is neither, so the clock counts through it,
+    # irreversible as it is: the castling rights in the key keep the repetition scan from matching across it, not
+    # the clock. Both sides castle, each way, on a clock of 7; then a capture and an en-passant capture reset it.
+    lines = gate.session(["position fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 10 moves e1g1", ("d", r"/"),
+                          "position fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 10 moves e1g1 e8c8", ("d", r"/"),
+                          "position fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 10 moves e1c1 e8g8", ("d", r"/"),
+                          "position fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 7 10 moves a1a8", ("d", r"/"),
+                          "position fen 4k3/8/8/8/3p4/8/4P3/4K3 w - - 20 40 moves e2e4 d4e3", ("d", r"/")])
+    fens = [line for line in lines if "/" in line and not line.startswith("<")]
+    want = ["r3k2r/8/8/8/8/8/8/R4RK1 b kq - 8 10", "2kr3r/8/8/8/8/8/8/R4RK1 w - - 9 11",
+            "r4rk1/8/8/8/8/8/8/2KR3R w - - 9 11", "R3k2r/8/8/8/8/8/8/4K2R b Kk - 0 10",
+            "4k3/8/8/8/8/4p3/8/4K3 w - - 0 41"]
+    gate.report(fens == want, "position", "clock through castling", "(O-O and O-O-O count 8, 9; a capture and en "
+                "passant reset it)")
+    if fens != want:
+        print("       got:", fens, flush=True)
+
+    # The fifty-move draw reached by castling, replayed and in the tree. K+R v K, a won ending (-1301 cp for Black
+    # at depth 6 on a fresh clock). Replayed: O-O on a clock of 99 makes it 100, so Black is in a drawn position and
+    # scores 0 at every depth. In the tree: White to move on 99, every move - O-O among them - makes the clock 100,
+    # so White scores 0 at every depth; a castle that reset the clock would score O-O as a win.
+    lines = gate.session(["setoption name Threads value 1", "position fen 4k3/8/8/8/8/8/8/4K2R w K - 99 80 moves e1g1",
+                          ("d", r"/"), go("go depth 6"), "position fen 4k3/8/8/8/8/8/8/4K2R w K - 99 80",
+                          go("go depth 6")])
+    scores = [match.group(1) for line in lines for match in [re.match(r"info depth \d+ .*\bscore (\w+ -?\d+)", line)]
+              if match]
+    gate.report("4k3/8/8/8/8/8/8/5RK1 b - - 100 80" in lines and len(scores) >= 12 and set(scores) == {"cp 0"},
+                "position", f"castling to 100: {scores[-1] if scores else '-'}", "(O-O on 99 makes 100: drawn, "
+                "replayed and in the tree)")
 
     lines = gate.session(["setoption name Threads value 1", "position startpos moves e2e4",
                           go("go wtime 3000 btime 3000 winc 20 binc 20 movestogo 30"),
