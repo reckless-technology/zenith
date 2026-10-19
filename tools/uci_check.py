@@ -13,8 +13,8 @@ GUI, a book builder or a test harness actually talks to, by running the binary a
 - every UCI option: Hash, Clear Hash, Threads, Move Overhead, EvalFile (a file, a missing file, the embedded net),
   OwnBook and BookFile (a file, a missing, empty, ragged or unsorted one, a path with a space, castling entries),
   and the tunable search parameters, whose effect is shown by the node count of a fixed-depth search;
-- the position and go forms: fen and startpos with moves, an illegal move, a history past its cap, a clock, a
-  fallen flag, a node budget, movetime, perft, infinite with stop, unknown tokens, a mate, a mated position;
+- the position and go forms: fen and startpos with moves, an illegal move, a history past its cap, a half-move
+  clock past 255 (still printed whole, still a fifty-move draw) and FEN clocks out of range, a clock, a fallen flag, a node budget, movetime, perft, infinite with stop, unknown tokens, a mate, a mated position;
 - malformed input, after which the engine must still answer isready.
 
 With --terminal it also runs legalcheck on a pseudo-terminal (POSIX only), resizing it as the gate runs, and holds
@@ -407,13 +407,38 @@ def check_positions_and_go(gate):
         print("       got:", fens, flush=True)
 
     # 8100 knight moves: the replay stops at the history cap (8192 less MAX_PLY headroom = 8064 moves, a whole
-    # number of four-move cycles, so the knights are home on move 4033), and the search still answers. The
-    # half-move clock is not checked: it is a byte, and 8064 reversible plies wrap it.
+    # number of four-move cycles, so the knights are home on move 4033 with all 8064 plies on the half-move clock -
+    # a byte-wide clock printed 128), and the search still answers.
     shuffle = " ".join(["g1f3", "g8f6", "f3g1", "f6g8"] * 2025)
     lines = gate.session([f"position startpos moves {shuffle}", ("d", r"/"), go("go depth 3")])
-    board = re.escape(START_FEN.rsplit(" ", 2)[0])
-    gate.report(any(re.fullmatch(board + r" \d+ 4033", line) for line in lines) and len(bestmoves(lines)) == 1,
-                "position", "history capped at 8064", "(8100 moves: the replay keeps MAX_PLY headroom)")
+    board = START_FEN.rsplit(" ", 2)[0]
+    gate.report(f"{board} 8064 4033" in lines and len(bestmoves(lines)) == 1, "position", "history capped at 8064",
+                "(8100 moves: the replay keeps MAX_PLY headroom; the clock reads 8064)")
+
+    # The fifty-move draw past a byte's worth of reversible plies: 300 rook and king moves bring K+R v K home with
+    # White to move and the clock at 300, so every reply is a fifty-move draw and the search scores 0 at every
+    # depth. A clock that wrapped at 256 read 44 here, and the search saw a won ending instead.
+    shuffle = " ".join(["a1a2", "e8d8", "a2a1", "d8e8"] * 75)
+    lines = gate.session(["setoption name Threads value 1", f"position fen 4k3/8/8/8/8/8/8/R3K3 w - - 0 1 moves "
+                          f"{shuffle}", ("d", r"/"), go("go depth 6")])
+    scores = [match.group(1) for line in lines for match in [re.match(r"info depth \d+ .*\bscore (\w+ -?\d+)", line)]
+              if match]
+    gate.report("4k3/8/8/8/8/8/8/R3K3 w - - 300 151" in lines and len(scores) >= 6 and set(scores) == {"cp 0"},
+                "position", f"300 plies: {scores[-1] if scores else '-'}", "(clock 300: the fifty-move draw, every "
+                "depth)")
+
+    # A FEN clock is any integer to the specification; the engine keeps one up to 10^9 and clamps the rest into
+    # 0..10^9, so it neither wraps nor overflows as moves are made on it.
+    lines = gate.session(["position fen 8/8/8/8/8/8/8/K6k w - - 300 3", ("d", r"/"),
+                          "position fen 8/8/8/8/8/8/8/K6k w - - -7 3", ("d", r"/"),
+                          "position fen 8/8/8/8/8/8/8/K6k w - - 99999999999 3 moves a1a2", ("d", r"/"),
+                          go("go depth 2")])
+    fens = [line for line in lines if "/" in line and not line.startswith("<")]
+    want = ["8/8/8/8/8/8/8/K6k w - - 300 3", "8/8/8/8/8/8/8/K6k w - - 0 3", "8/8/8/8/8/8/K7/7k b - - 1000000001 3"]
+    gate.report(fens == want and len(bestmoves(lines)) == 1, "position", "FEN clocks 300, -7, 1e11",
+                "(kept, clamped to 0, clamped to 10^9 then a move)")
+    if fens != want:
+        print("       got:", fens, flush=True)
 
     lines = gate.session(["setoption name Threads value 1", "position startpos moves e2e4",
                           go("go wtime 3000 btime 3000 winc 20 binc 20 movestogo 30"),
