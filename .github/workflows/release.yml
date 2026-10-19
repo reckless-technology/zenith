@@ -297,6 +297,13 @@ jobs:
           make clean && make ARCH=x86-64-v3 pext
           ./build/zenith-pext bench
           mkdir -p stage/x86-64-v3-pext && cp build/zenith-pext.exe stage/x86-64-v3-pext/zenith.exe
+      # Both engines import Windows' own DLLs alone (MSYS2's runtime linked statically, RELEASE_LDFLAGS in the
+      # Makefile), so they start on a Windows with no MSYS2; a toolchain runtime DLL fails the release before signing.
+      - name: Windows DLLs the engines import
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/windows-dependents.ps1 stage/x86-64-v2/zenith.exe stage/x86-64-v3-pext/zenith.exe
+          if ($LASTEXITCODE -ne 0) { throw "an engine imports a DLL outside the allowlist" }
       - name: Sign (a publishing run)
         if: env.PUBLISH == 'true'
         shell: pwsh

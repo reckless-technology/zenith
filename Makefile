@@ -23,6 +23,12 @@ VERSION   = -DZENITH_VERSION_STRING='"$(ZENITH_VERSION)"'
 VERSION_STAMP = build/version.txt
 CFLAGS    = $(STD) $(OPT) $(WARN) $(VERSION)
 LDLIBS    = -lm -pthread
+# The engines a release ships link their toolchain's runtime statically on Windows: MSYS2 CLANG64's -pthread is
+# libwinpthread-1.dll, which a Windows without MSYS2 lacks, and an engine importing it does not start there
+# (0xC0000135). -static links winpthread (and compiler-rt's builtins) into the binary; the C runtime stays the
+# UCRT's api-ms-win-crt-*.dll sets, which are Windows' own from Windows 10 on. tools/windows-dependents.ps1 holds the
+# shipped engines to that. Elsewhere, and in the debug, coverage and datagen builds, nothing changes.
+RELEASE_LDFLAGS = $(if $(filter Windows_NT,$(OS)),-static)
 SRCS      = $(wildcard src/*.c)
 HDRS      = $(wildcard src/*.h)
 # Generated constant tables (committed; rebuilt only by an explicit `make tables`). They are #included by
@@ -77,7 +83,7 @@ $(EMBED_BOOK_OBJ): $(BUILD_DIR)/embedded_book.c
 	$(CC) $(STD) -O1 -c $< -o $@
 
 $(BIN): $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) $(FLAGS_STAMP) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN) $(LDLIBS)
+	$(CC) $(CFLAGS) $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN) $(LDLIBS) $(RELEASE_LDFLAGS)
 
 # Correctness build: sanitizers on, optimizer light. Used to shake out movegen UB before trusting perft.
 # -fno-sanitize-recover=undefined: UBSan reports undefined behaviour and then aborts, so a finding fails the run (and
@@ -92,7 +98,7 @@ debug: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) |
 # portable default. Needs a BMI2 target (the default -march=native provides it; a real release enables it
 # only for the x86-64-v3+ microarch variants).
 pext: $(SRCS) $(HDRS) $(INCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) $(VERSION_STAMP) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-pext $(LDLIBS)
+	$(CC) $(CFLAGS) -DZENITH_USE_PEXT $(SRCS) $(EMBED_OBJ) $(EMBED_BOOK_OBJ) -o $(BIN)-pext $(LDLIBS) $(RELEASE_LDFLAGS)
 	@echo "built $(BIN)-pext (PEXT/BMI2 sliding attacks; bit-identical to $(BIN))"
 
 # NNUE training-data tools -> ./build/zenith-datagen + ./build/zenith-bullet2text. Standalone executables
