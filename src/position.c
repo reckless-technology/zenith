@@ -506,7 +506,10 @@ bool position_set_fen(Position *pos, const char *fen)
     {
         const long parsed    = strtol(half_move_str, &end_ptr, 10);
         const bool is_parsed = end_ptr != half_move_str;
-        half_move_clock      = is_parsed ? (int)parsed : 0;
+        // Clamped, not cast: a negative clock means nothing, and a huge one must not wrap or overflow later.
+        half_move_clock = !is_parsed || parsed < 0          ? 0
+                          : parsed > POSITION_HALF_MOVE_MAX ? POSITION_HALF_MOVE_MAX
+                                                            : (int)parsed;
         if (is_parsed && *end_ptr == '\0' && full_move_str != NULL)
         {
             const long full  = strtol(full_move_str, &end_ptr, 10);
