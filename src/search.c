@@ -72,6 +72,17 @@ static int draw_value(void)
 }
 
 /**
+ * @brief Whether the side to move in @p pos is checkmated: in check, with no legal move.
+ *
+ * Asked only where the fifty-move clock has run out, so kept out of line: negamax's own frame stays as it was.
+ */
+__attribute__((noinline, cold)) static bool is_checkmated(const Position *pos)
+{
+    Move moves[MAX_MOVES];
+    return pos->checkers != 0 && generate_legal(pos, moves, false) == 0;
+}
+
+/**
  * @brief All pieces of either color attacking @p square, given @p occupancy.
  *
  * Equivalent to position_attackers_to(WHITE) | position_attackers_to(BLACK), but does each slider magic
@@ -483,6 +494,14 @@ static int negamax(Searcher *searcher, const Position *pos, int depth, int alpha
 
     if (!is_root)
     {
+        // Checkmate takes precedence over the fifty-move draw (FIDE 5.1.1; 9.6.2 says so of the 75-move rule): a
+        // mate delivered on the move that completes the fifty stands. So once the clock has run out, a side to move
+        // in check with no legal move is mated, scored here at this ply as the move loop's own checkmate is; only
+        // otherwise is it the draw. (A mated position is never a repetition or a material draw.)
+        if (pos->half_move >= 100 && is_checkmated(pos))
+        {
+            return -VALUE_MATE + ply;
+        }
         if (position_is_draw(pos, searcher->hist_keys, searcher->hist_count))
         {
             return draw_value(); // repetition / 50-move / insufficient material
