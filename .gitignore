@@ -23,5 +23,7 @@ __pycache__/
 # Generated API documentation
 doc/html/
 
-# Opening books are downloaded on demand (make get-book), never committed
-/books/
+# Opening books are downloaded on demand (make get-book), never committed - but Zenith's own, which are
+/books/*
+!/books/README.md
+!/books/zenith-book-r*.bin

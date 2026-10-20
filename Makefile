@@ -50,7 +50,7 @@ NET       = nets/zenith-cap2.nnue
 EMBED_OBJ = $(BUILD_DIR)/embedded_net.o
 # The shipped opening book (committed), embedded the same way: `setoption name OwnBook value true` works
 # with no BookFile (OwnBook still defaults false — testing stays bookless).
-BOOK_BIN  = books/zenith-book-r4.bin
+BOOK_BIN  = books/zenith-book-r5.bin
 EMBED_BOOK_OBJ = $(BUILD_DIR)/embedded_book.o
 
 .PHONY: all debug clean perft bench baseline doc check coverage format hooks get-book pext tables datagen datagen-debug FORCE

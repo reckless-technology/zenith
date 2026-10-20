@@ -35,10 +35,18 @@ even when the bookless gate saturates. Judge books head-to-head, not only vs boo
 
 **Round 4 — coverage book (zenith-book-r4.bin, 487KB, ~14k positions), SHIPPED 2026-07-30.** Adds
 opponent coverage: moves within 90cp/top-4 at plies <10 expand (never emitted as our pick unless backup
-promotes them within the 25cp playable margin — which it DID for 1.c4/1.d4 at the root: fresh deep
-rescoring put them 18cp off best, so the book now opens them ~20% each). Gates: r4-vs-r3 self-play equal
+promotes them within the 25cp playable margin — which it did for 1.c4 at the root (weight 54 beside 1.e4's
+115); 1.d4 stayed outside it: r4 holds NO 1.d4 at the root, though it holds ~2,100 positions after 1.d4 as
+coverage replies). Gates: r4-vs-r3 self-play equal
 (50.9%); vs pawnstar all three configs (r4/r3/bookless) within noise at 68-70% — **at a +135 Elo skill
 gap, book effects are below the measurement floor** (800 games/config, +/-17 Elo). Coverage value is
 structural, not Elo-provable with available opponents. Ship rationale: strict superset, zero measured
 cost. Lesson: book gates need a NEAR-PEER foreign opponent to resolve anything; self-play gates cannot
 see coverage by construction.
+
+**Round 5 — r4 + 1.d4 at the root (zenith-book-r5.bin), SHIPPED 2026-10-20 on Jonny's word.** Jonny wanted
+1.d4 about a fifth of the time; `tools/add_book_moves.py` adds hand-chosen entries to a built book (keys from
+the engine's `polykey`, legality from `moves`, build_book.py's encoding): r5 = r4 + startpos d2d4 weight 42
+(42/211 = 19.9 %), opening r4's existing 1.d4 lines. No gate run (a deliberate repertoire choice, not a
+strength claim). Reckless Amphitheater's built-in book makes the same addition to r4 independently
+(assets/books/make_book.py there).
