@@ -40,7 +40,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NET = "nets/zenith-cap2.nnue"
-BOOK = "books/zenith-book-r4.bin"
+BOOK = "books/zenith-book-r5.bin"
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 TIMEOUT = 120  # seconds any one engine process may take: generous for an instrumented build on a slow runner
 

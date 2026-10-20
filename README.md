@@ -302,12 +302,15 @@ larger than memory. `./build/zenith-datagen` can also generate the engine's own 
 
 Standard **Polyglot** `.bin` books are supported (`src/book.c`; the Polyglot Zobrist key computation is
 validated against the official spec vectors by `./build/zenith bookcheck`). The repo ships Zenith's own
-book, `books/zenith-book-r4.bin` (487KB, ~14,000 positions) — built entirely from Zenith self-play by
+book, `books/zenith-book-r5.bin` (487KB, ~14,000 positions) — built entirely from Zenith self-play by
 `tools/build_book.py` (screen/rescore every move with the engine, self-play playouts for near-ties, negamax
 backup over the position DAG), worth ~+30 Elo of clock savings and opening variety in self-play gates.
 Beyond the moves Zenith plays, it carries **opponent coverage**: prepared replies to plausible moves
 Zenith would not choose itself (1. d4, 1. c4, and ~14k others), so it stays in book against foreign
-repertoires. The previous, coverage-free `zenith-book-r3.bin` is retained alongside.
+repertoires. r5 is the builder's r4 with one move added by hand (`tools/add_book_moves.py`): 1. d4 at the root,
+weight 42 beside 1. e4's 115 and 1. c4's 54, so Zenith opens 1. d4 about a fifth of the time (42 / 211) and
+plays on into the ~2,100 positions r4 already held after it. The builder's `zenith-book-r4.bin` and the earlier,
+coverage-free `zenith-book-r3.bin` are retained alongside.
 Inspect it with `tools/show_book.py` (one SAN line of play per row). The book is **embedded in every
 binary** (like the net), so `setoption name OwnBook value true` alone enables it — no BookFile needed;
 `BookFile` loads an external book instead. OwnBook stays **off by default**: testing is bookless.
