@@ -143,8 +143,9 @@ reachable (a source tarball, a shallow clone, a fork without the tags) builds as
   nothing.
 
 It refuses a mark that isn't `vMAJOR.MINOR`, a commit not on `main`, and a version already released. Each platform is
-built from nothing on the organisation's self-hosted runners. `make check` runs on the portable build of each, and the
-bench signature on the PEXT build, and each engine shipped must report the version. The workflow creates the release
+built from nothing on a GitHub-hosted runner (`ubuntu-24.04`, `windows-2025`, `macos-15`), as is CI's every job.
+`make check` runs on the portable build of each, and the bench signature on the PEXT build, and each engine shipped
+must report the version. The workflow creates the release
 `vMAJOR.MINOR.BUILD` and its tag itself. It never runs for a pull request.
 
 | File | What it is |

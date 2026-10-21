@@ -62,6 +62,10 @@ make get-book          # download a free Polyglot book -> books/ (gitignored); p
 #   false by default — testing is always bookless. Display with tools/show_book.py.
 ```
 
+CI (`.github/workflows/ci.yml`), `macos-check.yml` and the release run on GitHub-hosted runners, free for a public
+repository, their images pinned by version (`ubuntu-24.04`, `windows-2025`, `macos-15`); each job installs what it
+needs (apt's clang and LLVM, MSYS2's CLANG64 through `msys2/setup-msys2`, clang-format 22.1.8 from PyPI).
+
 `main` is protected (ruleset: PR required, all four CI checks green on a branch up to date with `main`, no force
 pushes). Land changes via branch → `gh pr create` → `gh pr merge --rebase` (never squash or a merge commit: GitHub
 would commit as itself); direct pushes to main are rejected.
