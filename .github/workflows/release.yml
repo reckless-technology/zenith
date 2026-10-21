@@ -14,8 +14,8 @@
 # The organisation's other apps (vst-plugins, ir-capture) and the Pawnstar engines are released the same way, with the
 # same organisation secrets for signing:
 #   - Windows: zenith.exe in each zip is Authenticode-signed through SSL.com's eSigner (CodeSignTool pinned by version
-#     and hash, in the runner's tool cache; tools/sign-windows.ps1), the account checked before the build, which spends
-#     no signing. Only a publishing run signs, and only the two engines it ships.
+#     and hash, downloaded by the job; tools/sign-windows.ps1), the account checked before the build, which spends no
+#     signing. Only a publishing run signs, and only the two engines it ships.
 #   - macOS: the engine is signed with the Developer ID Application identity, the hardened runtime and a secure
 #     timestamp on a keychain of the job's own (tools/sign-macos.sh), and its zip notarised by Apple. A bare binary can
 #     carry no stapled ticket; Gatekeeper finds its ticket online, as the release checks it does.
@@ -30,8 +30,9 @@
 #
 # The gates each platform runs are at least the ones the release ran before: make check (perft, the bench signature,
 # legality, SEE, fuzz, book, embedded book, NNUE on the shipped net) on the portable build of each, and the bench
-# signature on the PEXT build. Every job runs on the organisation's self-hosted runners, never a hosted image, and never
-# for a pull request: this workflow holds the signing secrets.
+# signature on the PEXT build. Every job runs on a GitHub-hosted runner, free for a public repository, its image pinned
+# by version (ubuntu-24.04, windows-2025, macos-15) and its tools installed by the job, and never for a pull request:
+# this workflow holds the signing secrets.
 name: Release
 
 on:
@@ -56,7 +57,7 @@ concurrency:
 jobs:
   verify:
     name: version and commit
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -156,7 +157,7 @@ jobs:
   linux:
     name: build + test (linux x86-64)
     needs: verify
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       VERSION: ${{ needs.verify.outputs.version }}
@@ -167,10 +168,8 @@ jobs:
         with:
           fetch-depth: 0 # tools/version.sh reads the version from the tags
           fetch-tags: true
-      - name: Start from nothing
-        run: rm -rf build out stage
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Install clang (Ubuntu 24.04's, LLVM 18)
+        run: sudo apt-get update && sudo apt-get install -y clang && clang --version
       - name: Build x86-64-v2 (baseline, magic) + every gate
         run: |
           make clean && make check ARCH=x86-64-v2
@@ -205,10 +204,8 @@ jobs:
           set -o pipefail
           for file in out/*; do
             name=$(basename "$file")
-            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
-            # runner has gh; a first attempt needs no removal).
-            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
-            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again.
+            for stale in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
             done
             curl --fail-with-body --silent --show-error -X POST \
@@ -222,15 +219,12 @@ jobs:
           name: linux
           path: out/*
           retention-days: 1
-      - name: The workspace left clean
-        if: always()
-        run: rm -rf out stage
 
   # Windows: the same two builds with the MSYS2 CLANG64 toolchain CI uses, both engines signed in a publishing run.
   windows:
     name: build + test (windows x86-64)
     needs: verify
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-2025
     timeout-minutes: 90
     env:
       VERSION: ${{ needs.verify.outputs.version }}
@@ -248,7 +242,6 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
-          release: false # use the runner's preinstalled C:\msys64 instead of downloading MSYS2 each run
           update: true
           install: >-
             mingw-w64-clang-x86_64-clang
@@ -257,10 +250,9 @@ jobs:
             git
             python
             zip
-      - name: Start from nothing
-        run: rm -rf build out stage
-      # SSL.com's CodeSignTool, pinned by version and hash and kept in the tool cache, and the account signed in to and
-      # its certificate listed - which spends no signing - before the build rides on it.
+      # SSL.com's CodeSignTool (which carries its own Java), pinned by version and hash and downloaded into the job's
+      # temporary folder, and the account signed in to and its certificate listed - which spends no signing - before
+      # the build rides on it.
       - name: eSigner's signing tool, and the account checked
         if: env.PUBLISH == 'true'
         shell: pwsh
@@ -272,17 +264,14 @@ jobs:
           if (-not $env:ESIGNER_USERNAME) { throw "no eSigner secrets: a release's Windows engines are signed" }
           $version = 'v1.3.2'
           $sha256 = '4afc32e8b7f79bbe1de7e4e7049aaad4e0f754357613b9bbec0e3052f06fd36b'
-          $dir = Join-Path $env:RUNNER_TOOL_CACHE "codesigntool\$version"
-          if (-not (Test-Path (Join-Path $dir 'CodeSignTool.bat'))) {
-            $zip = Join-Path $env:RUNNER_TEMP 'codesigntool.zip'
-            Invoke-WebRequest -UseBasicParsing -OutFile $zip `
-              -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/$version/CodeSignTool-$version-windows.zip"
-            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
-            if ($hash -ne $sha256) { throw "CodeSignTool $version is $hash, not the pinned $sha256" }
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dir
-            Expand-Archive -Path $zip -DestinationPath $dir
-            Remove-Item -Force $zip
-          }
+          $dir = Join-Path $env:RUNNER_TEMP "codesigntool-$version"
+          $zip = Join-Path $env:RUNNER_TEMP 'codesigntool.zip'
+          Invoke-WebRequest -UseBasicParsing -OutFile $zip `
+            -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/$version/CodeSignTool-$version-windows.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($hash -ne $sha256) { throw "CodeSignTool $version is $hash, not the pinned $sha256" }
+          Expand-Archive -Path $zip -DestinationPath $dir
+          Remove-Item -Force $zip
           "RECKLESS_CODESIGNTOOL=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           $env:RECKLESS_CODESIGNTOOL = $dir
           pwsh -NoProfile -File tools/sign-windows.ps1 -Check
@@ -342,7 +331,7 @@ jobs:
           ls -l out
       - name: Upload to the draft release
         if: env.PUBLISH == 'true'
-        shell: bash # Git Bash: gh and curl are on the runner's PATH here
+        shell: bash # Git Bash, with the image's gh and curl
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.verify.outputs.release_id }}
@@ -350,10 +339,8 @@ jobs:
           set -o pipefail
           for file in out/*; do
             name=$(basename "$file")
-            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
-            # runner has gh; a first attempt needs no removal).
-            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
-            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again.
+            for stale in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
             done
             curl --fail-with-body --silent --show-error -X POST \
@@ -367,15 +354,12 @@ jobs:
           name: windows
           path: out/*
           retention-days: 1
-      - name: The workspace left clean
-        if: always()
-        run: rm -rf out stage
 
   # macOS (Apple silicon): the portable build (no -march) and every gate, the engine signed and its zip notarised.
   macos:
     name: build + test (macos arm64)
     needs: verify
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-15
     timeout-minutes: 240 # Apple's notary service
     env:
       VERSION: ${{ needs.verify.outputs.version }}
@@ -386,8 +370,6 @@ jobs:
         with:
           fetch-depth: 0 # tools/version.sh reads the version from the tags
           fetch-tags: true
-      - name: Start from nothing
-        run: rm -rf build out stage
       - name: Build (Apple clang, arm64 — no -march) + every gate
         run: |
           make ARCH=
@@ -416,7 +398,7 @@ jobs:
       - name: The shipped engine reports the version
         run: |
           set -o pipefail
-          rm -rf "$RUNNER_TEMP/unzipped" && mkdir "$RUNNER_TEMP/unzipped"
+          mkdir "$RUNNER_TEMP/unzipped"
           ditto -x -k "out/zenith-$TAG-macos-arm64.zip" "$RUNNER_TEMP/unzipped"
           ls -l "$RUNNER_TEMP/unzipped"
           codesign --verify --strict --verbose=2 "$RUNNER_TEMP/unzipped/zenith"
@@ -432,10 +414,8 @@ jobs:
           set -o pipefail
           for file in out/*; do
             name=$(basename "$file")
-            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again (where the
-            # runner has gh; a first attempt needs no removal).
-            command -v gh > /dev/null || echo "no gh here: a file an earlier attempt left would stop this upload"
-            for stale in $(command -v gh > /dev/null && gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
+            # A file of the same name an earlier attempt left on the draft is replaced, so the job can run again.
+            for stale in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$name\") | .id"); do
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$stale"
             done
             curl --fail-with-body --silent --show-error -X POST \
@@ -452,16 +432,13 @@ jobs:
       - name: Close the signing keychain
         if: always()
         run: tools/sign-macos.sh close
-      - name: The workspace left clean
-        if: always()
-        run: rm -rf out stage "$RUNNER_TEMP/unzipped"
 
   # The checksums over every archive, made in a dry run too; then, in a publishing run, the draft checked against the
   # archives as built and published. Every step is safe to run again.
   publish:
     name: checksums, publish
     needs: [verify, linux, windows, macos]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
@@ -474,8 +451,6 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Start from nothing
-        run: rm -rf assets
       - uses: actions/download-artifact@v4
         with:
           path: assets
@@ -510,8 +485,7 @@ jobs:
             grep -qx "$entry" <<< "$on_draft" || { echo "::error::$entry is not on the draft $TAG"; missing="$missing $file"; }
           done
           [ -z "$missing" ] || exit 1
-          # The release's own tag on the commit built, made with git and pushed. The tagger is named on the command
-          # alone: the runner keeps this clone, and an identity written into its config would outlive the job.
+          # The release's own tag on the commit built, made with git and pushed, the tagger named on the command.
           git tag -d "$TAG" > /dev/null 2>&1 || true
           if git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null; then
             [ "$(git rev-parse "$TAG^{commit}")" = "$GITHUB_SHA" ] ||
@@ -524,6 +498,3 @@ jobs:
           gh api -X PATCH "$release" -F draft=false -f make_latest=true --jq .html_url
           gh api "$release" --jq '.assets[] | "  \(.name)  \(.size) bytes"'
           echo "### Released [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
-      - name: The workspace left clean
-        if: always()
-        run: rm -rf assets

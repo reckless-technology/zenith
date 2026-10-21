@@ -7,9 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  # The Linux half of the matrix, the sanitizer job and the format gate run on the org's self-hosted Linux
-  # runners ([self-hosted, Linux, X64]: reckless-ci-lin-0 and reckless-ci-lin-1), not hosted ubuntu-latest.
-  # They apt-install clang, so both runners need a sudo that asks for no password.
+  # Every job runs on a GitHub-hosted runner, free for a public repository, its image pinned by version
+  # (ubuntu-24.04, windows-2025) rather than -latest, so a new image arrives by a change here. Each job installs what
+  # it needs: Ubuntu 24.04's clang (and its LLVM tools) from apt, MSYS2's CLANG64 toolchain through setup-msys2, and
+  # clang-format 22.1.8 from PyPI.
 
   # Build + run the correctness gates on Linux and Windows, and upload the binaries as artifacts (for a look at a
   # commit's build; releases are built from nothing by release.yml on a pushed vMAJOR.MINOR tag, and signed).
@@ -26,8 +27,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux,   os: [self-hosted, Linux, X64],  shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
-          - { label: windows, os: [self-hosted, Windows, X64], shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
+          - { label: linux,   os: ubuntu-24.04, shell: bash,        arch: x86-64-v2, bin: build/zenith,     binext: "",     platform: linux-x86-64 }
+          - { label: windows, os: windows-2025, shell: "msys2 {0}", arch: x86-64-v2, bin: build/zenith.exe, binext: ".exe", platform: windows-x86-64 }
     defaults:
       run:
         shell: ${{ matrix.shell }}
@@ -36,16 +37,15 @@ jobs:
         with:
           fetch-depth: 0 # full history and the tags: tools/version.sh derives the version from them
 
-      - name: Install clang (Linux)
+      - name: Install clang (Linux; Ubuntu 24.04's, LLVM 18)
         if: matrix.label == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y clang
+        run: sudo apt-get update && sudo apt-get install -y clang && clang --version
 
       - name: Set up MSYS2 + clang toolchain (Windows)
         if: matrix.label == 'windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
-          release: false # self-hosted runner reckless-ci-win-0: use its preinstalled C:\msys64 instead of downloading MSYS2 each run
           update: true
           install: >-
             mingw-w64-clang-x86_64-clang
@@ -133,11 +133,11 @@ jobs:
   # AddressSanitizer + UBSan build and memory-safety gates (Linux only — the sanitizer build is where OOB /
   # UB regressions surface; the movegen/legality/fuzz walks are the highest-value things to run under it).
   sanitizers:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Install clang (Ubuntu 24.04's, LLVM 18)
+        run: sudo apt-get update && sudo apt-get install -y clang && clang --version
       - name: Build with AddressSanitizer + UndefinedBehaviorSanitizer
         run: make debug
       - name: Perft under ASan/UBSan
@@ -169,14 +169,16 @@ jobs:
   # Line coverage of src/ by every gate (`make coverage`: LLVM source-based, nnuecheck and the front-end gate included,
   # the latter's pseudo-terminal check too), failing under the Makefile's COVERAGE_MIN (90 %). src/ is what a release
   # ships; datagen/, trainer/ and tools/ are developer tools and are not measured. It needs clang with its profile
-  # runtime and the llvm-profdata / llvm-cov of the same LLVM, which the runners carry with their clang (Ubuntu's
-  # llvm-profdata-18 beside clang 18, found by the Makefile); this job installs nothing, and says what is missing.
+  # runtime and the llvm-profdata / llvm-cov of the same LLVM: Ubuntu 24.04's clang and llvm (18) from apt, the tools
+  # found by the Makefile (on the PATH, or llvm-profdata-18 beside clang 18).
   coverage:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the version is derived from the tags
+      - name: Install clang and LLVM's tools (Ubuntu 24.04's, LLVM 18)
+        run: sudo apt-get update && sudo apt-get install -y clang llvm
       - name: Check the toolchain (clang, its profile runtime's tools, python3)
         run: |
           missing=""
@@ -190,28 +192,25 @@ jobs:
             clang --version | head -1
           fi
           if [ -n "$missing" ]; then
-            echo "::error::coverage needs:$missing - install LLVM's tools beside clang on this runner (apt: llvm-$major or llvm)"
+            echo "::error::coverage needs:$missing - LLVM's tools beside clang (apt: llvm-$major or llvm)"
             exit 1
           fi
       - name: Coverage of src/ by every gate (fails under COVERAGE_MIN)
         run: make coverage
 
   format-check:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       # clang-format is version-sensitive - a different major restyles code that is already correct - so the
-      # version is pinned, and since 2026-09-26 it is pinned to the same 22.1.8 across the whole organisation
-      # (see reckless-technology/claude-skills, skill reckless-working-practice). It was 18 here until then,
-      # which disagreed with this repo's own README and CLAUDE.md. Not apt: Ubuntu carries no clang-format-22,
-      # and the PyPI wheel is what the development machines run, so CI and a developer's pre-commit hook agree.
-      # The venv is kept in the runner's tool cache, and shares its name with pawnstar's so a runner that has
-      # built either repo already has it.
-      - name: clang-format 22.1.8, from the kept venv
+      # version is pinned to the organisation's 22.1.8 (see reckless-technology/claude-skills, skill
+      # reckless-working-practice). Not apt: Ubuntu carries no clang-format-22, and the PyPI wheel is what the
+      # development machines run, so CI and a developer's pre-commit hook agree. It goes into a venv of the job's own,
+      # ahead of the image's clang-format on the PATH.
+      - name: clang-format 22.1.8, from PyPI
         run: |
-          venv="$RUNNER_TOOL_CACHE/reckless-clang-format-venv"
-          [ -x "$venv/bin/clang-format" ] || python3 -m venv "$venv"
-          "$venv/bin/pip" install --quiet --upgrade pip
+          venv="$RUNNER_TEMP/clang-format-venv"
+          python3 -m venv "$venv"
           "$venv/bin/pip" install --quiet 'clang-format==22.1.8'
           echo "$venv/bin" >> "$GITHUB_PATH"
       - name: Check formatting (repo .clang-format)
