@@ -202,13 +202,13 @@ tools/datagen_parallel.sh 20000 data/run1 32 5000 8
 Optionally pass a book EPD as arg 6 and a net as arg 7 (`… 8 book.epd nets/prev.nnue`) to label with a net
 already in the loop — the net-in-the-loop bootstrap that lifts data quality above the HCE teacher.
 
-### Data, option B — public PlentyChess data at scale (how the shipped net trained)
+### Data, option B — a public bulletformat dataset at scale (how the shipped net trained)
 
-The shipped net trained on the **public PlentyChess bulletformat dataset** (independent of any engine).
+The shipped net trained on a **public bulletformat dataset** (independent of any engine).
 Convert each bulletformat shard to Zenith's text format, subsampling with a stride for a diverse slice:
 
 ```bash
-./build/zenith-bullet2text data/plenty_raw/shard00.data data/plenty/shard00.txt 0 4
+./build/zenith-bullet2text data/bullet_raw/shard00.data data/bullet/shard00.txt 0 4
 #                    └ input (bulletformat)         └ output text          │ └ stride (keep 1 in 4)
 #                                                                          └ max records (0 = all)
 ```
@@ -230,7 +230,7 @@ last shard is held out as the validation probe):
 
 ```bash
 # featurise shards -> data/shards/*.npz  (parallelise across shards; resumable, skips existing)
-for s in data/plenty/shard*.txt; do
+for s in data/bullet/shard*.txt; do
     PYTHONPATH=trainer python trainer/train.py --featurise-shard "$s" "data/shards/$(basename "${s%.txt}").npz"
 done
 
@@ -292,8 +292,8 @@ failure) ⇒ the build-time-embedded net.
 ## 9. Current release net
 
 `nets/zenith-cap1.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads** SCReLU (ZNNUE5),
-trained with the streaming trainer on **1.4B** PlentyChess positions. It is embedded in every binary at
-build time (`Makefile NET`). Progression of the eval (each step SPRT-gated):
+trained with the streaming trainer on **1.4B** positions from a public bulletformat dataset. It is
+embedded in every binary at build time (`Makefile NET`). Progression of the eval (each step SPRT-gated):
 
 | net | arch / data | result |
 |---|---|---|

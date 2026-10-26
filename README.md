@@ -288,8 +288,8 @@ reference. See [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and wo
 ```bash
 # convert public bulletformat data to text, featurise to shard caches, then stream-train
 make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text
-./build/zenith-bullet2text <shard.data> data/plenty/shard.txt 0 4
-PYTHONPATH=trainer python trainer/train.py --featurise-shard data/plenty/shard.txt data/shards/s00.npz
+./build/zenith-bullet2text <shard.data> data/bullet/shard.txt 0 4
+PYTHONPATH=trainer python trainer/train.py --featurise-shard data/bullet/shard.txt data/shards/s00.npz
 PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
     --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
 PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./build/zenith
@@ -334,10 +334,8 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
 
 - **NNUE network:** Zenith's own architecture (king-bucketed, horizontally-mirrored 768×8→512→8 SCReLU),
   its own trainer (`trainer/`), its own quantised file format (`ZNNUE5`), and its own trained weights. The shipped net was
-  trained on the **public PlentyChess dataset**
-  ([Yoshie2000/plentychess_data_bulletformat](https://huggingface.co/datasets/Yoshie2000/plentychess_data_bulletformat)) —
-  a public dataset used to train Zenith's own network; no other engine's code or network is included or
-  derived.
+  trained on a public bulletformat dataset, used only to train Zenith's own network; no other engine's
+  code or network is included or derived.
 - **Opening book:** the Polyglot key constants come from the public
   [book-format specification](http://hgm.nubati.net/book_format.html); no book is bundled.
 

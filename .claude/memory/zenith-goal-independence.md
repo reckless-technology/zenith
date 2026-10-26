@@ -10,9 +10,9 @@ engine (Lazy SMP, lockless TT, v12 perspective net), so Zenith needs its own NNU
 HCE alone will not close the gap.
 
 **Independence is a hard constraint (user decision, 2026-07-18):** Zenith trains with its OWN PyTorch
-trainer (NOT pawnstar's Rust `bullet`), on its OWN self-play data (NOT pawnstar's ~5.7B-position dataset),
-with its own architecture (768→512 perspective) and its own `.nnue` file format. Do not reuse pawnstar
-code, nets, or training data.
+trainer (NOT pawnstar's Rust `bullet`), on its OWN self-play data, with its own architecture
+(768→512 perspective) and its own `.nnue` file format. Do not reuse pawnstar code, nets, or training
+data, and do not train on any external dataset.
 
 **How to apply:** Pipeline is datagen ([src/datagen.c](../../src/datagen.c)) → PyTorch trainer
 (trainer/train.py) → engine NNUE (src/nnue.*) → SPRT vs HCE, then vs pawnstar. Every strength change is
