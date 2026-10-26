@@ -8,7 +8,7 @@ metadata:
   modified: 2026-07-25T11:08:31.366Z
 ---
 
-Zenith's strength is benchmarked against pawnstar C++ (the reference opponent; user wants Zenith stronger). Gaps measured with fastchess, tc=8+0.08, plentychess openings.
+Zenith's strength is benchmarked against pawnstar C++ (the reference opponent; user wants Zenith stronger). Gaps measured with fastchess, tc=8+0.08, from the shared openings EPD.
 
 **GOAL FULLY ACHIEVED (2026-07-23): Zenith beats pawnstar at BOTH single thread (+77.7 ± 25.2) and 8 threads
 (+107.5 ± 37.8).**
@@ -32,8 +32,8 @@ kb3 loaded) and zenith reaches depth 20 in 2.7s where pawnstar reaches 17 in 3.1
 **IMPORTANT — always match `-concurrency` when comparing gap numbers.** Concurrency changes the timed result a lot: pc2 vs pawnstar was −238±52 at conc 30 but −277±44 at conc 8 (same net, same TC). Cross-run comparisons at different concurrency are meaningless.
 
 Single-thread, matched conditions (conc 8):
-- **pc2 (512, 190M plentychess):** −277.5 ± 43.6 vs pawnstar (2026-07-21).
-- **kb2 (king buckets, 650M plentychess):** −257.6 ± 40.7 → kb2 closes ~+20 Elo (eval gain, partial transfer).
+- **pc2 (512, 190M positions):** −277.5 ± 43.6 vs pawnstar (2026-07-21).
+- **kb2 (king buckets, 650M positions):** −257.6 ± 40.7 → kb2 closes ~+20 Elo (eval gain, partial transfer).
 - **kb2 + correction history + legality oracle:** **−140.4 ± 34.1** (2026-07-22) → full stack closes ~+137 Elo.
 - **+ kb3 + inline EP/castle + SPSA-tuned search (current ./zenith):** **−133.6 ± 32.8** (2026-07-23). The single-
   thread gap is roughly HALVED from −278. Note: kb3 (+8) and SPSA (+26.5) are big SELF-PLAY gains but only nudged
@@ -56,7 +56,7 @@ legality-oracle speed win transferred to pawnstar near 1:1 (speed helps vs any o
 self-play but only ~+20 better against pawnstar (~1/3 transfer). SPRT self-play deltas OVERSTATE the gain
 versus a stronger reference. The single-thread gap to pawnstar is still large (~−258) but narrowing; eval
 quality (more/better data, see [[zenith-eval-experiments]]) remains the highest-leverage lever. Next data
-scale-ups should keep pushing — 650M was 8 of 16 available PlentyChess shards.
+scale-ups should keep pushing — 650M was 8 of 16 available dataset shards.
 
 **BOTCHED MEASUREMENT (2026-07-27, since corrected):** a "−37.7 ± 18.4" run repeated the exact artifact this
 memory warns about — pawnstar was left on its Threads=32 + OwnBook=true defaults. Zenith 1-thread scoring

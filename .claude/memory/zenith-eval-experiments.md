@@ -9,7 +9,7 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
 
 ## Output buckets (8, by piece count) — NEUTRAL, not shipped (2026-07-20)
 - 8 output heads selected by `clamp((pieceCount-2)/4, 0, 7)`. Full impl (ZNNUE2 magic), 0cp gate + nnuecheck PASS.
-- Trained `zenith-ob1` (512, 14ep, wdl 0.3) on the SAME 187M plentychess cache/recipe as pc2.
+- Trained `zenith-ob1` (512, 14ep, wdl 0.3) on the SAME 187M-position cache/recipe as pc2.
 - **Val loss IMPROVED: 0.015925 vs pc2's 0.016161 (~1.5% better MSE fit).**
 - **BUT SPRT vs pc2 (tc=8+0.08, 3000 games): −5.9 ± 8.4 Elo (49.15%), LLR never neared H1.** Neutral-to-slightly-negative.
 - **Lesson: lower val loss did NOT translate to Elo.** Output buckets add eval discontinuities at piece-count
@@ -42,7 +42,7 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
   (no speed cost). Refactored the trainer for scale: chunked `--featurise-shard` (pre-allocate + fill, ~13GB
   RAM/proc, parallelizable) + `--shard-dir` streaming training (one ~95M-position shard in RAM at a time,
   shard-order + in-shard shuffle). Lets us train past the ~230M all-in-RAM ceiling on this 62GB box.
-- Trained `zenith-kb2`: 8 PlentyChess shards = **745M positions** (7 train ~650M + 1 val held out), 8 epochs,
+- Trained `zenith-kb2`: 8 dataset shards = **745M positions** (7 train ~650M + 1 val held out), 8 epochs,
   same recipe (512, wdl 0.3, lr 1.2e-3). **Best val loss yet: 0.015417** (pc2 0.01616, kb1 0.01575).
 - **SPRT vs pc2: +57 Elo, H1 ACCEPTED at 954 games (58.1%, LLR 2.96).** Decisive — the biggest single win
   of the project. king buckets (2M+ RAM finny cache) + 3.4× data. Shipped as the default net; ZNNUE1
@@ -51,9 +51,9 @@ Running log of Zenith NNUE eval experiments (all SPRT-gated vs the current best 
   eval strength, zero speed cost), not more architecture.** Data scale >> capacity tweaks at this stage.
 
 ## More data: kb3 (1.4B positions) — +8 Elo, DIMINISHING RETURNS (2026-07-22)
-- Trained `zenith-kb3` on all 16 PlentyChess shards (~1.4B positions, 2x kb2's 650M), same recipe, 6 epochs.
+- Trained `zenith-kb3` on all 16 dataset shards (~1.4B positions, 2x kb2's 650M), same recipe, 6 epochs.
   Val loss 0.015195 (kb2 0.015417, pc2 0.016161). **SPRT vs kb2: +7.9 ± 7.4 (CI just excludes 0), LLR +1.33.**
-- **Data returns are diminishing:** 190M→650M gave +57 (kb2), 650M→1.4B gave only +8 (kb3). The PlentyChess
+- **Data returns are diminishing:** 190M→650M gave +57 (kb2), 650M→1.4B gave only +8 (kb3). The external
   data lever is largely tapped out. Shipped kb3 anyway (strictly-better net, same size/speed = free upgrade),
   but further gains need a DIFFERENT lever: speed (make/unmake, transfers ~1:1 to pawnstar) or better/own data.
 - The streaming trainer (`--shard-dir`) + parallel `--featurise-shard` handled 1.4B on a 62GB box fine.
@@ -129,7 +129,7 @@ file-loaded ob2. The signature now guards loader + embedded weights too. Same nu
 Datagen self-play now emits NNUE-scored records by default (matters for phase 4).
 
 **King mirroring net (km1): +14.3 Elo fixed-depth SPRT over ob2, H1 accepted at 3,968 games (2026-07-28).**
-Phase 2 payoff: the ZNNUE5 mirrored architecture (PR #13) trained on the SAME 1.4B PlentyChess positions
+Phase 2 payoff: the ZNNUE5 mirrored architecture (PR #13) trained on the SAME 1.4B dataset positions
 refeaturised under the mirrored contract, exact ob2 recipe (8 epochs, batch 32768, lr 1.2e-3, wdl 0.3).
 Val 0.014691 — project best (ob2 0.01483). LLR 2.96, 52.05%. Watch-out that resolved itself: a val-loss
 bump at epoch 5 (0.0155->0.0162) from streaming shard order recovered fully under lr decay by epoch 7 —

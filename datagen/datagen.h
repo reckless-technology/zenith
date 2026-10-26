@@ -17,7 +17,7 @@
 int run_datagen(Engine *engine, int argc, char **argv);
 
 /**
- * @brief Convert a bulletformat .data file (e.g. the public PlentyChess dataset) to Zenith's fen;score;wdl text.
+ * @brief Convert a bulletformat .data file to Zenith's fen;score;wdl text.
  *
  * Each 32-byte record is stored from the side-to-move's perspective, so the reconstructed FEN is emitted
  * as "white to move" — that yields feature indices identical to Zenith's own convention.
