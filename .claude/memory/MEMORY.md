@@ -2,7 +2,7 @@
 
 One line per memory. Full content lives in the linked file.
 
-- [zenith-goal-independence](zenith-goal-independence.md) — beat pawnstar C++ while staying fully independent (own trainer/data/arch/net)
+- [zenith-goal-independence](zenith-goal-independence.md) — goal met; the network shape and net format are now SHARED with every Reckless engine (2026-10-27), the trainer, data and source stay Zenith's own
 - [pawnstar-reference-opponent](pawnstar-reference-opponent.md) — where the opponent, SPRT harness, GPU, and tooling live
 - [training-setup](training-setup.md) — venv/torch, datagen command, GitHub remote + gh CI
 - [zenith-nnue-pilot-status](zenith-nnue-pilot-status.md) — pipeline validated; pilot net loses to HCE on eval noise (not a bug)
