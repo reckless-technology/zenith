@@ -47,7 +47,8 @@ python3 tools/uci_check.py ./build/zenith  # the UCI front end through pipes: ev
 ./build/zenith legalcheck    # fast legality/check predicates == copy-make ground truth (differential)
 ./build/zenith seecheck      # static_exchange_eval vs hand-verified capture positions
 ./build/zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
-./build/zenith nnuecheck <net># incremental accumulator == full refresh, bit-identical
+./build/zenith nnuecheck <net># CRC-64/XZ check value, then incremental accumulator == full refresh
+python3 tools/stamp_net.py <net>  # (re)stamp a weight payload into the shared RNNUE1 container
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 ./build/zenith embookcheck   # the EMBEDDED book: blob, entry invariants, probe path (11 checks)
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
@@ -154,15 +155,20 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
 - **eval.\*** — `evaluate(pos, cache)` returns centipawns from side-to-move POV (memoised in the engine's
   shared lockless `EvalCache`; NULL = uncached). Always the NNUE forward: every `Engine` holds a net — the
   **build-time-embedded** one (tools/embed_net.py -> build/embedded_net.o, from `NET` in the Makefile) by
-  default, replaced by UCI `EvalFile` (an unloadable file falls back to the embedded net). The hand-crafted
+  default, replaced by UCI `EvalFile` — a net that fails any of the container's checks is **refused**, with
+  the reason on stderr, and the net already loaded keeps playing; nothing falls back. The hand-crafted
   PeSTO fallback was removed with the embedded default; git history keeps it. This single call site is the
   NNUE seam.
-- **nnue.\*** — quantised **king-bucketed** (768×8 → 1024 → 8 output heads) SCReLU perspective net: loader
-  (`ZNNUE5` magic; still reads `ZNNUE4`/`ZNNUE3` so older nets keep working), feature indexing, and the
-  integer forward. A perspective whose own king sits on files e–h is **mirrored horizontally** (`square ^ 7`)
+- **nnue.\*** — quantised **king-bucketed** (768×8 → 1024 → 8 output heads) SCReLU perspective net: the
+  loader for the **shared `RNNUE1` container** every Reckless engine reads (skill `reckless-nnue`;
+  `src/crc64.h` is its CRC-64/XZ), feature indexing, and the integer forward. The 64-byte header is checked
+  field by field against this build's compile-time constants and the king-bucket map by digest, then the
+  payload by length and checksum; **any mismatch is refused loudly with no fallback**. The retired `ZNNUE5`,
+  `ZNNUE4` and `ZNNUE3` magics are no longer read (2026-10-27) — re-stamp with `tools/stamp_net.py`. A
+  perspective whose own king sits on files e–h is **mirrored horizontally** (`square ^ 7`)
   onto files a–d before indexing; the (mirrored) king square then selects one of **8 king-input buckets**
-  (4 files × 2 board-halves) offsetting its 768 block, and total piece count selects one of 8 **material
-  output buckets**. The accumulator is maintained **incrementally** (embedded in `Position`); a king move
+  (4 files × 2 board-halves, from the one `KING_BUCKET_MAP` the container digests) offsetting its 768
+  block, and total piece count selects one of 8 **material output buckets**. The accumulator is maintained **incrementally** (embedded in `Position`); a king move
   that changes a side's bucket *or* mirror state triggers `refresh_perspective`, accelerated by a per-thread
   **finny refresh cache** (owned by each `Searcher`, bound into its root position; per
   (perspective,mirror,bucket) cached accumulator + the board it was built from; rebuild applies only
@@ -213,23 +219,33 @@ detection breaks.
 out-of-line `is_checkmated`) before `position_is_draw` can call it the fifty-move draw, so a mate on the hundredth ply
 is found and played. `tools/uci_check.py` holds it ("mate on the 100th ply").
 
-## NNUE training pipeline (independent — no shared code/net/data with any other engine)
+## NNUE training pipeline (Zenith's own trainer and data, on the shared network and net format)
 
 `datagen` (C) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.c` (engine). The
 venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
+
+**The network shape and the net container are shared with every other Reckless chess engine** (Jonny,
+2026-10-27; skill `reckless-nnue`), so an architecture change here is a change owed to all of them — see
+`.claude/memory/zenith-goal-independence.md` for what that supersedes and why. The shape is Zenith's
+(mirroring and output buckets were measured here); the container is `RNNUE1`, defined for the Python side
+in **`trainer/rnnue1.py`** (stdlib-only: the architecture's numbers, the king-bucket map, CRC-64/XZ and
+the header) and stamped by **`tools/stamp_net.py`**, which writes the header from those constants rather
+than from anything passed in. `trainer/features.py` takes its constants from `rnnue1.py`. The trainer and
+the data stay Zenith's own.
 
 - **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
   king-bucketed 768×8→1024→8 output heads, horizontal king mirroring, SCReLU). `src/nnue.c` must reproduce
   `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). The current best net `nets/zenith-cap2.nnue` = cap1's 1024 ZNNUE5 architecture
+  low-RAM, parallelizable). The current best net `nets/zenith-cap2.nnue` = cap1's 1024-wide architecture
   retrained on **2.15B** positions (the same 1.4B plus 760M disjoint offset-2 records of the same binpacks
   — data volume the only variable): **+10 Elo fixed-depth SPRT over cap1**, val loss 0.013746 (project
   best). Lineage: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3,
   mirroring) -> cap1 (+14.7 timed, 1024 hidden) -> cap2 (+10, 2.15B data). Data returns REOPENED at 1024
   hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
-  shipped engine width (git history preserves them); the loader rejects width-mismatched files by size.
+  shipped engine's architecture (git history preserves them); the loader refuses a mismatch by name, from
+  the header's own fields, rather than inferring it from a file's length.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
   Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval

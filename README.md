@@ -90,7 +90,9 @@ the same net from `EvalFile` searches exactly as the embedded one), the `positio
 flag, nodes, movetime, perft, infinite and stop, a mate, a mated position, a history past its cap), crafted Polyglot
 books (castling entries, and the books the loader must refuse), the notation subcommands against hand-verified
 answers (`moves`, `polykey` against the specification's vectors, every SAN form, `applymoves`), `nnueeval` with the
-net's colour symmetry, the loader's verdicts on bad, truncated, over-long and legacy (`ZNNUE3`, `ZNNUE4`) files, and
+net's colour symmetry, every verdict the `RNNUE1` loader can reach (a bad magic, a retired container, a corrupt
+header, a sound header describing another architecture, a non-zero reserved byte, a truncated, over-long or empty file,
+a corrupt payload), and
 malformed input. It needs only Python 3, which the build already does.
 
 `main` is protected: changes land via pull request with all CI checks green.
@@ -279,9 +281,10 @@ verification helper (`nnueeval`); the training-data tools are separate executabl
 
 ## NNUE training pipeline
 
-The network is trained by an independent pipeline: `datagen` (or a public dataset) → `trainer/` (PyTorch,
-CUDA) → a quantised `.nnue` → the engine loader. The single source of truth for the feature indexing and
-quantisation contract is `trainer/features.py`, which `src/nnue.c` must reproduce byte-for-byte;
+The network is trained by Zenith's own pipeline: `datagen` (or a public dataset) → `trainer/` (PyTorch,
+CUDA) → a quantised `.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader.
+The single source of truth for the feature indexing and quantisation contract is `trainer/features.py`,
+which `src/nnue.c` must reproduce byte-for-byte;
 `trainer/verify.py` enforces a **0 cp** difference between the engine's integer eval and the trainer
 reference. See [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and workflow.
 
@@ -332,8 +335,9 @@ published, textbook techniques every strong engine does — bitboards, magic bit
 tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
 [Chess Programming Wiki](https://www.chessprogramming.org)) — implemented independently.
 
-- **NNUE network:** Zenith's own architecture (king-bucketed, horizontally-mirrored 768×8→512→8 SCReLU),
-  its own trainer (`trainer/`), its own quantised file format (`ZNNUE5`), and its own trained weights. The shipped net was
+- **NNUE network:** the shape Zenith designed and measured (king-bucketed, horizontally-mirrored
+  768×8→1024→8 SCReLU), now the **shared Reckless NNUE** that every engine in the organisation evaluates with,
+  in the `RNNUE1` container they all read; Zenith's own trainer (`trainer/`), data and trained weights. The shipped net was
   trained on a public bulletformat dataset, used only to train Zenith's own network; no other engine's
   code or network is included or derived.
 - **Opening book:** the Polyglot key constants come from the public

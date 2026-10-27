@@ -1,9 +1,12 @@
 # Zenith NNUE — architecture & training guide
 
-Zenith evaluates positions with its own king-bucketed NNUE, trained by the pipeline in this repository.
-Nothing here is shared with any other engine: Zenith has its own network architecture, its own trainer
-(`trainer/`), its own quantised file format (`ZNNUE5`), and its own trained weights. This document is the
-reference for how the network is built and how to train a new one.
+Zenith evaluates positions with the **shared Reckless NNUE**: one network shape and one file format
+(`RNNUE1`) for every chess engine in the organisation, so a net trained once loads in all of them and a new
+evaluation function is developed once rather than once per engine (Jonny, 2026-10-27). The shape is
+Zenith's own — its two additions over the pawnstar engines' were measured and SPRT-gated here — and the
+container is pawnstar's, extended with the bucket map's contents and an integrity check. Zenith keeps its
+own trainer (`trainer/`, PyTorch) and its own data; the skill `reckless-nnue` is the specification. This
+document is the reference for how the network is built and how to train a new one.
 
 The pipeline is four stages:
 
@@ -11,7 +14,7 @@ The pipeline is four stages:
    data                             trainer (PyTorch/CUDA)             engine (C)
  ┌──────────────────────┐  text     ┌──────────────────────┐  .nnue   ┌────────────────────┐
  │ ./build/             │ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
- │  zenith-datagen      │  fen;     │  featurise → SCReLU  │  ZNNUE5  │  + integer forward │
+ │  zenith-datagen      │  fen;     │  featurise → SCReLU  │  RNNUE1  │  + integer forward │
  │  (self-play)         │  score;   │  net → quantise      │          │  behind evaluate() │
  │  OR                  │  wdl      │                      │          │                    │
  │ ./build/             │           └──────────────────────┘          └────────────────────┘
@@ -22,8 +25,10 @@ The pipeline is four stages:
 
 `evaluate()` in `src/eval.c` is the single seam: it is always the NNUE forward pass. Every engine holds a
 net — the shipped one is embedded into the binary at build time (`tools/embed_net.py`; `NET` in the
-Makefile), and the UCI `EvalFile` option swaps in another at runtime (a file that fails to load falls back
-to the embedded net). No search change is needed to adopt or swap a net.
+Makefile), and the UCI `EvalFile` option swaps in another at runtime. A net that fails any of the
+container's checks is **refused**, loudly and with no fallback: the net that was playing keeps playing and
+nothing is silently substituted for the net that was asked for. No search change is needed to adopt or
+swap a net.
 
 ---
 
@@ -53,8 +58,11 @@ board's left/right symmetry the same way: instead of spending 4 of 8 buckets on 
 mirrored positions share weights, so every bucket trains on twice the effective data at the same file size.
 
 The feature-index convention lives in **`trainer/features.py`** (`feature_index`, `king_bucket`,
-`king_mirror`) and is the single source of truth; `src/nnue.c` reproduces it exactly. Feature layout within
-one king bucket:
+`king_mirror`) and is the single source of truth; `src/nnue.c` reproduces it exactly. The architecture's
+numbers, the king-bucket map and the container itself live one level down in **`trainer/rnnue1.py`**, which
+is stdlib-only so that every tool can import it; `features.py` takes its constants from there, and
+`src/nnue.c`'s `KING_BUCKET_MAP` is a copy of the same 64 entries the container digests. Feature layout
+within one king bucket:
 
 ```
 index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  +  rel_square
@@ -64,12 +72,12 @@ index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  
         piece_type = 0..5  (pawn..king, 0-based on the wire)
 ```
 
-Hidden size is a knob (`--hidden-size`, default and shipped value **1024**); everything else above is fixed
-by the format.
+Hidden size is a knob in the trainer (`--hidden-size`), but the shared container fixes it at **1024**
+along with everything else above: a net of any other width carries a header the engines refuse.
 
 ---
 
-## 2. Quantisation & on-disk format (`ZNNUE5`)
+## 2. Quantisation & on-disk format (`RNNUE1`)
 
 The trainer exports a fixed-point `int16` network; the engine loads it directly and does an all-integer
 forward pass (a float `.pt` checkpoint is saved alongside for inspection only).
@@ -86,11 +94,51 @@ OUT weights: round(w × QB)      → int16   [8][2048]      (bucket-major; per b
 OUT bias   : round(b × QA × QB) → int32   [8]
 ```
 
-**File `nets/zenith-<tag>.nnue`** (little-endian): the 8-byte magic `ZNNUE5\0\0`, then the four arrays
-back-to-back in the order above. The engine's loader also still accepts `ZNNUE4` (identical layout, no
-king mirroring) and `ZNNUE3` (no mirroring, single output head broadcast to all 8 buckets), so older
-shipped nets keep working. The integer forward (identical in `integer_eval` of `trainer/features.py` and
-`src/nnue.c`; `b` = the position's output bucket):
+**File `nets/zenith-<tag>.nnue`** (little-endian): a **64-byte `RNNUE1` header**, then those four arrays
+back-to-back as the 12,617,760-byte payload, with nothing after it. The header describes the net rather
+than leaving it to be guessed from the file's length:
+
+| Offset | Size | Field | At this shape |
+|---|---|---|---|
+| 0 | 8 | `magic` | `"RNNUE1\0\0"` |
+| 8 | 2 | `format_version` | 2 (the mirrored map with material output heads; 1 is the unmirrored one) |
+| 10 | 2 | `header_bytes` | 64 — lets a later version extend the header without breaking this reader |
+| 12 | 2 | `features_per_bucket` | 768 |
+| 14 | 2 | `king_buckets` | 8 |
+| 16 | 2 | `hidden_size` | 1024 |
+| 18 | 2 | `output_buckets` | 8 |
+| 20 | 1 | `flags` | bit 0 = horizontal king mirroring, set; every other bit zero |
+| 21 | 1 | `activation` | 0 = SCReLU |
+| 22 | 2 | `qa` / `qb` / `eval_scale` | 255 / 64 / 400, at 22, 24 and 26, read unsigned |
+| 28 | 4 | `reserved` | zero — refused otherwise, so a later version can spend these bytes safely |
+| 32 | 8 | `king_bucket_map_crc` | `0x0A20060D4E9586E0` — CRC-64/XZ of the map's 64 entries as `uint8` |
+| 40 | 8 | `payload_bytes` | 12617760 |
+| 48 | 8 | `payload_crc` | CRC-64/XZ over the payload |
+| 56 | 8 | `header_crc` | CRC-64/XZ over bytes 0..55 |
+
+The checksum is **CRC-64/XZ** (polynomial `0x42F0E1EBA9EA3693`, reflected, init and final XOR all ones);
+every implementation reproduces the check value `0x995DC9BBDF1939FA` for the nine ASCII bytes `123456789`,
+which `nnuecheck` asserts before it looks at a net.
+
+The loader makes two checks, in this order, and **refuses on any mismatch without falling back**: the
+header (magic, `header_crc`, then every architecture field against the engine's own compile-time constants,
+then `king_bucket_map_crc` against the engine's own map), then the payload (its length exactly as claimed,
+nothing appended, then `payload_crc`). The map's digest is there because `king_buckets` matching while the
+map's *contents* differed used to load cleanly and evaluate from the wrong weight bank — which is also why
+turning mirroring on moves the format version rather than only a flag.
+
+Nets are stamped by **`tools/stamp_net.py`**, which writes the header from `trainer/rnnue1.py`'s own
+constants and never from an argument, so a payload of the wrong shape gets a header every engine refuses
+instead of one that describes it. Never hand-edit a net file.
+
+The retired `ZNNUE5`, `ZNNUE4` and `ZNNUE3` formats are **no longer read** (2026-10-27). They carried an
+8-byte magic and nothing else, which is the exact failure this container exists to prevent; every net that
+ever existed in `ZNNUE4` or `ZNNUE3` was 512 wide and so was already refused on size by the shipped
+1024-wide engine. A `ZNNUE5` net re-stamps losslessly — the payload layout is identical, output bias
+included — with `python3 tools/stamp_net.py <net>`.
+
+The integer forward (identical in `integer_eval` of `trainer/features.py` and `src/nnue.c`; `b` = the
+position's output bucket):
 
 ```
 acc = FT_bias + Σ FT_weight[active feature]        (per perspective; int16 columns, int64 accumulation)
@@ -115,7 +163,7 @@ The export step prints how many transformer weights saturate `int16` (should be 
   it only overtakes the plain 512-net once the dataset is large (see §9).
 - **Material output buckets (1024→8 heads).** Selecting the output head by total piece count lets each
   game phase get its own 1024→1 mapping for almost no cost (the buckets share the whole feature
-  transformer; only the final dot product changes). An early attempt (`ZNNUE2`) was neutral, but retried on
+  transformer; only the final dot product changes). An early attempt (a `ZNNUE2` net) was neutral, but retried on
   the 1.4B-position dataset it was worth **+14.7 Elo at fixed depth** (`zenith-ob2`) — bucket ideas can be
   data-starved rather than wrong.
 - **Horizontal king mirroring.** Chess has no left/right asymmetry in the rules, so a perspective whose king
@@ -204,7 +252,9 @@ already in the loop — the net-in-the-loop bootstrap that lifts data quality ab
 
 ### Data, option B — a public bulletformat dataset at scale (how the shipped net trained)
 
-The shipped net trained on a **public bulletformat dataset** (independent of any engine).
+The shipped net trained on a **public bulletformat dataset**, which has since been withdrawn: do not
+convert, re-download or extend its lineage. Both this net and pawnstar's shipped one derive from it, and
+retraining the shared evaluator off a clean pool is why the shared NNUE work exists.
 Convert each bulletformat shard to Zenith's text format, subsampling with a stride for a diverse slice:
 
 ```bash
@@ -291,21 +341,24 @@ failure) ⇒ the build-time-embedded net.
 
 ## 9. Current release net
 
-`nets/zenith-cap1.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads** SCReLU (ZNNUE5),
-trained with the streaming trainer on **1.4B** positions from a public bulletformat dataset. It is
-embedded in every binary at build time (`Makefile NET`). Progression of the eval (each step SPRT-gated):
+`nets/zenith-cap2.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads** SCReLU in the
+shared `RNNUE1` container, trained with the streaming trainer on **2.15B** positions from a public
+bulletformat dataset. It is embedded in every binary at build time (`Makefile NET`); `zenith-cap1.nnue`
+is kept beside it as the SPRT baseline. Progression of the eval (each step SPRT-gated):
 
 | net | arch / data | result |
 |---|---|---|
 | pc2 | 768→512, 190M | baseline |
 | kb2 | + king buckets, 650M | **+57 Elo** over pc2 (self-play) |
 | kb3 | + 1.4B positions | +8 over kb2 — data returns diminishing |
-| ob2 | + material output buckets (ZNNUE4) | +14.7 over kb3 (fixed depth) |
-| km1 | + horizontal king mirroring (ZNNUE5) | +14.3 over ob2 (fixed depth) |
+| ob2 | + material output buckets | +14.7 over kb3 (fixed depth) |
+| km1 | + horizontal king mirroring | +14.3 over ob2 (fixed depth) |
 | cap1 | hidden 512 → **1024** | +52 fixed depth, **+14.7 timed** over km1 |
+| cap2 | + 2.15B positions | **+10** over cap1 (fixed depth); val loss 0.013746 |
 
-Superseded nets are deleted from the tree once the shipped engine width can no longer load them (git
-history preserves them; the loader rejects width-mismatched files by size). With the current net Zenith
+Superseded nets are deleted from the tree once the shipped engine can no longer load them (git history
+preserves them; the `RNNUE1` header names every architecture field, so a mismatch is refused by name
+rather than inferred from a file's length). With the current net Zenith
 beats its reference opponent (pawnstar) decisively — ~**+135 Elo** single-thread at 8+0.08, bookless on
 both sides (pawnstar's defaults `Threads=32`/`OwnBook=true` must be overridden or the measurement is
 meaningless).
