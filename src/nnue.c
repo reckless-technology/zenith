@@ -5,6 +5,7 @@
  * @brief NNUE internals: king-bucketed feature indexing, incremental accumulator maintenance, and the integer forward.
  */
 #include "nnue.h"
+#include "crc64.h"
 #include "movegen.h"
 #include "platform.h"
 #include "testfmt.h"
@@ -19,18 +20,84 @@
 /** @brief Architecture / quantisation contract — must match trainer/features.py exactly. */
 enum
 {
-    HIDDEN_SIZE       = NNUE_HIDDEN, // 512
+    HIDDEN_SIZE       = NNUE_HIDDEN, // 1024
     BASE_FEATURES     = 768,         // per-king-bucket block (2 colors x 6 types x 64 squares)
-    NUM_KING_BUCKETS  = 8,           // 4 file-pairs x 2 board-halves, keyed on the perspective king
+    NUM_KING_BUCKETS  = 8,           // 4 files (a-d, after mirroring) x 2 board-halves, on the perspective king
     INPUT_FEATURES    = NUM_KING_BUCKETS * BASE_FEATURES, // 6144 feature-transformer rows
     QUANT_ACCUMULATOR = 255,                              // QA
     QUANT_OUTPUT      = 64,                               // QB
     EVALUATION_SCALE  = 400
 };
 
-static const char NNUE_MAGIC_V5[8] = {'Z', 'N', 'N', 'U', 'E', '5', '\0', '\0'}; // horizontal king mirroring
-static const char NNUE_MAGIC_V4[8] = {'Z', 'N', 'N', 'U', 'E', '4', '\0', '\0'}; // unmirrored, output buckets
-static const char NNUE_MAGIC_V3[8] = {'Z', 'N', 'N', 'U', 'E', '3', '\0', '\0'}; // single output head
+/**
+ * @brief Whether a perspective whose king sits on files e-h is mirrored horizontally before indexing.
+ *
+ * Always on in Zenith — the shape the shared evaluator standardised on is Zenith's, mirroring included
+ * (+14.3 Elo, SPRT-gated here). It is a named constant rather than a literal because the container's
+ * format version and its mirroring flag are both *derived* from it, exactly as the C++ port derives them
+ * from its build knob: turning mirroring off would make this a different format, not the same format with
+ * a flag cleared, because the king-bucket map's contents change with it.
+ */
+enum
+{
+    IS_KING_MIRRORING_ENABLED = 1
+};
+
+/** @brief The shared Reckless net container, `RNNUE1` — one format for every engine in the organisation.
+ *
+ * The retired `ZNNUE5`/`ZNNUE4`/`ZNNUE3` formats carried an 8-byte magic and nothing else, so a net for a
+ * different architecture was told apart only by its file size. This header describes itself: every
+ * architecture field is checked against this build's compile-time constants, the king-bucket map's
+ * *contents* are checked by digest (two maps of the same cardinality used to be indistinguishable, which
+ * loaded cleanly and evaluated from the wrong weight bank), and three CRCs make a corrupt or truncated
+ * file refuse rather than play. See the `reckless-nnue` skill for the specification. */
+enum
+{
+    NET_FORMAT_VERSION      = IS_KING_MIRRORING_ENABLED ? 2 : 1, ///< 2 = mirrored map + output heads
+    NET_HEADER_BYTES        = 64,                                ///< lets a later version extend the header
+    NET_FLAG_KING_MIRRORING = 0x01,                              ///< flags bit 0: horizontal king mirroring
+    NET_FLAGS               = IS_KING_MIRRORING_ENABLED ? NET_FLAG_KING_MIRRORING : 0,
+    NET_ACTIVATION_SCRELU   = 0, ///< activation 0: clamp(x, 0, QA), which the output dot then squares
+    /// The payload's four sections, in the order they are stored: three int16 arrays then one int32 per
+    /// output bucket, tightly packed with nothing after them. 12,617,760 bytes at this shape.
+    NET_INT16_ELEMENTS = INPUT_FEATURES * HIDDEN_SIZE + HIDDEN_SIZE + NNUE_OUTPUT_BUCKETS * 2 * HIDDEN_SIZE,
+    NET_PAYLOAD_BYTES  = NET_INT16_ELEMENTS * 2 + NNUE_OUTPUT_BUCKETS * 4
+};
+
+static const char NET_MAGIC[8] = {'R', 'N', 'N', 'U', 'E', '1', '\0', '\0'};
+
+/** @brief The 64-byte self-describing header every RNNUE1 net carries, little-endian. Every field is
+ *  naturally aligned at these offsets, so no packing attribute is needed — the static assertions below
+ *  prove the layout rather than trusting it. */
+typedef struct NetHeader
+{
+    char     magic[8];            ///< NET_MAGIC, at offset 0
+    uint16_t format_version;      ///< NET_FORMAT_VERSION, at 8
+    uint16_t header_bytes;        ///< NET_HEADER_BYTES, at 10
+    uint16_t features_per_bucket; ///< BASE_FEATURES, at 12
+    uint16_t king_buckets;        ///< NUM_KING_BUCKETS, at 14
+    uint16_t hidden_size;         ///< HIDDEN_SIZE, at 16
+    uint16_t output_buckets;      ///< NNUE_OUTPUT_BUCKETS, at 18
+    uint8_t  flags;               ///< NET_FLAGS, at 20; every other bit zero
+    uint8_t  activation;          ///< NET_ACTIVATION_SCRELU, at 21
+    uint16_t qa;                  ///< QUANT_ACCUMULATOR, at 22 (read unsigned)
+    uint16_t qb;                  ///< QUANT_OUTPUT, at 24 (read unsigned)
+    uint16_t eval_scale;          ///< EVALUATION_SCALE, at 26 (read unsigned)
+    uint8_t  reserved[4];         ///< zero, at 28 — refused otherwise; see nnue_parse
+    uint64_t king_bucket_map_crc; ///< CRC-64/XZ of KING_BUCKET_MAP's 64 entries as uint8, at 32
+    uint64_t payload_bytes;       ///< NET_PAYLOAD_BYTES, at 40
+    uint64_t payload_crc;         ///< CRC-64/XZ over the payload, at 48
+    uint64_t header_crc;          ///< CRC-64/XZ over this header's first 56 bytes, at 56
+} NetHeader;
+
+_Static_assert(sizeof(NetHeader) == NET_HEADER_BYTES, "the RNNUE1 header must be exactly 64 bytes");
+_Static_assert(offsetof(NetHeader, flags) == 20, "flags must sit at offset 20");
+_Static_assert(offsetof(NetHeader, king_bucket_map_crc) == 32, "king_bucket_map_crc must sit at offset 32");
+_Static_assert(offsetof(NetHeader, payload_bytes) == 40, "payload_bytes must sit at offset 40");
+_Static_assert(offsetof(NetHeader, header_crc) == 56, "header_crc must sit at offset 56");
+
+/// Bytes of the header that header_crc covers: everything before header_crc itself.
+#define NET_HEADER_CRC_BYTES offsetof(NetHeader, header_crc)
 
 /** @brief The quantised network weights, loaded from a `.nnue` file (completes accumulator.h's forward decl). */
 struct NnueNetwork
@@ -38,41 +105,43 @@ struct NnueNetwork
     int16_t feature_transformer_weight[INPUT_FEATURES][HIDDEN_SIZE]; ///< feature-major, king-bucketed
     int16_t feature_transformer_bias[HIDDEN_SIZE];                   ///< feature-transformer bias
     /// Output heads, one per material bucket ((piece_count - 2) / 4): own half [0,HIDDEN), opponent half
-    /// [HIDDEN,2*HIDDEN). A v3 net's single head is broadcast to every bucket at load (identical evals).
+    /// [HIDDEN,2*HIDDEN).
     int16_t output_weight[NNUE_OUTPUT_BUCKETS][2 * HIDDEN_SIZE];
     int32_t output_bias[NNUE_OUTPUT_BUCKETS]; ///< output bias per material bucket
-    bool    is_mirrored; ///< v5: perspectives with the king on files e-h mirror horizontally (square ^ 7)
 };
 
 _Static_assert((int)NNUE_KING_BUCKETS == (int)NUM_KING_BUCKETS, "header/implementation bucket counts must agree");
+_Static_assert(sizeof(((struct NnueNetwork *)0)->feature_transformer_weight) +
+                       sizeof(((struct NnueNetwork *)0)->feature_transformer_bias) +
+                       sizeof(((struct NnueNetwork *)0)->output_weight) +
+                       sizeof(((struct NnueNetwork *)0)->output_bias) ==
+                   NET_PAYLOAD_BYTES,
+               "NET_PAYLOAD_BYTES must be the four weight arrays back to back");
 
 /**
- * @brief King-input bucket for a perspective-relative king square: 4 file-pairs x 2 board-halves.
+ * @brief King-input bucket per perspective-relative king square: 4 files (a-d) x 2 board-halves.
  *
- * Must match king_bucket() in trainer/features.py.
+ * `half * 4 + min(file, 7 - file)` — per *file*, because mirroring has already folded e-h onto d-a, so
+ * every bucket trains on both wings. Held as the one array the evaluator itself indexes, and digested into
+ * the header from that same array: the whole point of `king_bucket_map_crc` is that there is no second
+ * representation of the map to drift out of step with this one. Must match king_bucket() in
+ * trainer/features.py, which generates this table.
  */
-/** @brief Whether a perspective mirrors horizontally: v5 net and its king on files e-h. */
-static inline bool king_mirror(const NnueNetwork *net, const int relative_king_square)
+static const uint8_t KING_BUCKET_MAP[64] = {
+    0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0,
+    4, 5, 6, 7, 7, 6, 5, 4, 4, 5, 6, 7, 7, 6, 5, 4, 4, 5, 6, 7, 7, 6, 5, 4, 4, 5, 6, 7, 7, 6, 5, 4,
+};
+
+/** @brief Whether a perspective mirrors horizontally: its own king is on files e-h. */
+static inline bool king_mirror(const int relative_king_square)
 {
-    return net->is_mirrored && (relative_king_square & 7) >= 4;
+    return IS_KING_MIRRORING_ENABLED && (relative_king_square & 7) >= 4;
 }
 
-/**
- * @brief King-input bucket for a perspective-relative king square — a per-NET mapping.
- *
- * v5 (mirrored) nets: 4 files x 2 halves, files e-h folded onto d-a (the perspective mirrors, so its king
- * always lands on a-d and every bucket trains on both wings). v3/v4 (unmirrored) nets keep the historical
- * 4 file-pairs x 2 halves. Must match king_bucket() in trainer/features.py for the current format.
- */
-static inline int king_bucket(const NnueNetwork *net, const int relative_king_square)
+/** @brief King-input bucket for a perspective-relative king square (0..63). */
+static inline int king_bucket(const int relative_king_square)
 {
-    const int file = relative_king_square & 7;
-    const int half = (relative_king_square >> 3) / 4; // 0..1
-    if (net->is_mirrored)
-    {
-        return half * 4 + (file >= 4 ? 7 - file : file); // v5: per-file, e-h folded
-    }
-    return half * 4 + file / 2; // v3/v4: file-pairs
+    return KING_BUCKET_MAP[relative_king_square];
 }
 
 /** @brief Perspective-relative king square (Black mirrors vertically), for bucket selection. */
@@ -207,8 +276,8 @@ void nnue_refresh_perspective(NnueAccumulator *accumulator, const Position *posi
 {
     const NnueNetwork *const net           = accumulator->net;
     const int                relative_king = relative_king_square(perspective, position->king_location[perspective]);
-    const bool               mirror        = king_mirror(net, relative_king);
-    const int                bucket        = king_bucket(net, relative_king);
+    const bool               mirror        = king_mirror(relative_king);
+    const int                bucket        = king_bucket(relative_king);
     accumulator->king_bucket[perspective]  = bucket;
     accumulator->king_mirror[perspective]  = (uint8_t)mirror;
 
@@ -283,8 +352,8 @@ void nnue_update_king_bucket(NnueAccumulator *accumulator, const Position *posit
     const int relative_king = relative_king_square(side, position->king_location[side]);
     // A refresh is needed when the bucket OR the mirror state changes — crossing the d/e file boundary can
     // flip the mirror while landing in the same bucket index, which rebases every feature in the perspective.
-    if (king_bucket(accumulator->net, relative_king) != accumulator->king_bucket[side] ||
-        (uint8_t)king_mirror(accumulator->net, relative_king) != accumulator->king_mirror[side])
+    if (king_bucket(relative_king) != accumulator->king_bucket[side] ||
+        (uint8_t)king_mirror(relative_king) != accumulator->king_mirror[side])
     {
         nnue_refresh_perspective(accumulator, position, side);
     }
@@ -370,77 +439,174 @@ int nnue_evaluate_position(const Position *position)
 }
 
 // ---- loading -----------------------------------------------------------------------------------------
-/** @brief Copy @p size bytes from @p bytes at @p *offset into @p destination, advancing the offset.
- *  @return false if fewer than @p size bytes remain (the read cursor is left unchanged). */
-static bool read_bytes(void *destination, const size_t size, const unsigned char *bytes, const size_t total,
-                       size_t *offset)
+/**
+ * @brief Report a refused net and return NULL, so a caller can `return refuse_net(...)`.
+ *
+ * Every refusal goes through here, which puts the one rule that matters in one place: **a refused net is
+ * not loaded, and nothing falls back to another net.** A stock engine that silently fell back to its
+ * embedded net once reported a plausible Elo for a net that never played a move — the match looked fine
+ * and the number meant nothing.
+ *
+ * To stderr, which is what a match harness keeps. The UCI layer adds an `info string` line on stdout for a
+ * GUI to read; it is not done here because `nnueeval` writes one eval per line to stdout and a diagnostic
+ * mixed into that stream would corrupt the 0 cp verification gate's input.
+ * @param source_name path or label of the net. @param reason why it was refused, naming the field and both
+ * values where there is a field to name. @return NULL, always.
+ */
+static const NnueNetwork *refuse_net(const char *source_name, const char *reason)
 {
-    if (total - *offset < size)
-    {
-        return false;
-    }
-    memcpy(destination, bytes + *offset, size);
-    *offset += size;
-    return true;
+    fprintf(stderr, "nnue: refusing net '%s': %s\n", source_name, reason);
+    return NULL;
 }
 
-/** @brief Parse a complete .nnue image from memory (any supported format version), committing only on a
- *  fully-successful parse so a truncated image can never leave a caller holding garbage weights.
- *  @p source_name labels error messages. @return a heap-allocated net, or NULL on failure. */
+/** @brief CRC-64/XZ of KING_BUCKET_MAP's 64 entries — the digest the header carries so that two maps of
+ *  the same cardinality can no longer be mistaken for one another. @return the digest. */
+static uint64_t king_bucket_map_crc(void)
+{
+    return crc64_checksum(KING_BUCKET_MAP, sizeof KING_BUCKET_MAP);
+}
+
+/** @brief The architecture this build was compiled for, as a header, with the two computed CRCs left zero
+ *  (only something holding the payload can fill them). @return the expected header. */
+static NetHeader expected_net_header(void)
+{
+    NetHeader header;
+    memset(&header, 0, sizeof header);
+    memcpy(header.magic, NET_MAGIC, sizeof header.magic);
+    header.format_version      = NET_FORMAT_VERSION;
+    header.header_bytes        = NET_HEADER_BYTES;
+    header.features_per_bucket = BASE_FEATURES;
+    header.king_buckets        = NUM_KING_BUCKETS;
+    header.hidden_size         = HIDDEN_SIZE;
+    header.output_buckets      = NNUE_OUTPUT_BUCKETS;
+    header.flags               = NET_FLAGS;
+    header.activation          = NET_ACTIVATION_SCRELU;
+    header.qa                  = QUANT_ACCUMULATOR;
+    header.qb                  = QUANT_OUTPUT;
+    header.eval_scale          = EVALUATION_SCALE;
+    header.king_bucket_map_crc = king_bucket_map_crc();
+    header.payload_bytes       = NET_PAYLOAD_BYTES;
+    return header;
+}
+
+/**
+ * @brief Parse a complete RNNUE1 image from memory, committing only on a fully-successful parse so a
+ * refused image can never leave a caller holding garbage weights.
+ *
+ * The two checks the shared container defines, in this order:
+ *   1. **the header** — 64 bytes: the magic, then `header_crc` over its own first 56 bytes, then every
+ *      architecture field against this build's compile-time constants, then the king-bucket map's digest
+ *      against this build's own map;
+ *   2. **the payload** — its length must be *exactly* what the header claims and what this architecture
+ *      expects, with nothing appended, and then its checksum must match.
+ *
+ * @p source_name labels the messages. @return a heap-allocated net, or NULL on any refusal.
+ */
 static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t size, const char *source_name)
 {
-    size_t     offset = 0;
-    char       magic[8];
-    bool       is_read_ok = read_bytes(magic, 8, bytes, size, &offset);
-    const bool is_v3      = is_read_ok && memcmp(magic, NNUE_MAGIC_V3, 8) == 0;
-    const bool is_v4      = is_read_ok && memcmp(magic, NNUE_MAGIC_V4, 8) == 0;
-    if (!is_read_ok || (memcmp(magic, NNUE_MAGIC_V5, 8) != 0 && !is_v4 && !is_v3))
+    char message[256];
+    if (size < sizeof(NetHeader))
     {
-        fprintf(stderr, "nnue: bad magic in %s\n", source_name);
-        return NULL;
+        snprintf(message, sizeof message, "it is %zu bytes, too short for the %zu-byte RNNUE1 header", size,
+                 sizeof(NetHeader));
+        return refuse_net(source_name, message);
     }
+    if (memcmp(bytes, NET_MAGIC, sizeof NET_MAGIC) != 0)
+    {
+        return refuse_net(source_name, "it carries no 'RNNUE1' magic, so it is not a net in the shared container — "
+                                       "a net in a retired ZNNUE format must be re-stamped (tools/stamp_net.py)");
+    }
+
+    NetHeader header;
+    memcpy(&header, bytes, sizeof header);
+    const uint64_t header_crc = crc64_checksum(bytes, NET_HEADER_CRC_BYTES);
+    if (header.header_crc != header_crc)
+    {
+        snprintf(message, sizeof message,
+                 "its header is corrupt: header_crc is %#018llx, the bytes checksum to %#018llx",
+                 (unsigned long long)header.header_crc, (unsigned long long)header_crc);
+        return refuse_net(source_name, message);
+    }
+
+    const NetHeader expected = expected_net_header();
+
+    const struct
+    {
+        const char *name;
+        uint64_t    in_file;
+        uint64_t    in_engine;
+    } checks[] = {
+        {"format_version", header.format_version, expected.format_version},
+        {"header_bytes", header.header_bytes, expected.header_bytes},
+        {"features_per_bucket", header.features_per_bucket, expected.features_per_bucket},
+        {"king_buckets", header.king_buckets, expected.king_buckets},
+        {"hidden_size", header.hidden_size, expected.hidden_size},
+        {"output_buckets", header.output_buckets, expected.output_buckets},
+        {"flags", header.flags, expected.flags},
+        {"activation", header.activation, expected.activation},
+        {"qa", header.qa, expected.qa},
+        {"qb", header.qb, expected.qb},
+        {"eval_scale", header.eval_scale, expected.eval_scale},
+        {"king_bucket_map_crc", header.king_bucket_map_crc, expected.king_bucket_map_crc},
+        {"payload_bytes", header.payload_bytes, expected.payload_bytes},
+    };
+
+    for (size_t index = 0; index < sizeof checks / sizeof checks[0]; index++)
+    {
+        if (checks[index].in_file != checks[index].in_engine)
+        {
+            snprintf(message, sizeof message, "%s is %#llx in the file, %#llx in this engine", checks[index].name,
+                     (unsigned long long)checks[index].in_file, (unsigned long long)checks[index].in_engine);
+            return refuse_net(source_name, message);
+        }
+    }
+
+    // `reserved` is refused unless every byte is zero. Those four bytes are the only room a later format
+    // version has to add a field without moving anything, and that only works if a reader of *this* version
+    // refuses a net that has already spent them — otherwise a later net loads here with one field unread.
+    for (size_t index = 0; index < sizeof header.reserved; index++)
+    {
+        if (header.reserved[index] != 0)
+        {
+            snprintf(message, sizeof message,
+                     "its reserved bytes are 0x%02x 0x%02x 0x%02x 0x%02x, and every one must be zero",
+                     (unsigned)header.reserved[0], (unsigned)header.reserved[1], (unsigned)header.reserved[2],
+                     (unsigned)header.reserved[3]);
+            return refuse_net(source_name, message);
+        }
+    }
+
+    const size_t payload_bytes = size - sizeof(NetHeader);
+    if (payload_bytes != (size_t)NET_PAYLOAD_BYTES)
+    {
+        snprintf(message, sizeof message, "it carries %zu payload bytes after the header, not the %d claimed",
+                 payload_bytes, NET_PAYLOAD_BYTES);
+        return refuse_net(source_name, message);
+    }
+    const unsigned char *payload     = bytes + sizeof(NetHeader);
+    const uint64_t       payload_crc = crc64_checksum(payload, payload_bytes);
+    if (header.payload_crc != payload_crc)
+    {
+        snprintf(message, sizeof message,
+                 "its payload is corrupt: payload_crc is %#018llx, the bytes checksum to %#018llx",
+                 (unsigned long long)header.payload_crc, (unsigned long long)payload_crc);
+        return refuse_net(source_name, message);
+    }
+
     NnueNetwork *const loaded = malloc(sizeof(NnueNetwork));
     if (loaded == NULL)
     {
-        fprintf(stderr, "nnue: out of memory loading %s\n", source_name);
-        return NULL;
+        return refuse_net(source_name, "this process is out of memory");
     }
-    is_read_ok = is_read_ok && read_bytes(loaded->feature_transformer_weight,
-                                          sizeof(loaded->feature_transformer_weight), bytes, size, &offset);
-    is_read_ok = is_read_ok && read_bytes(loaded->feature_transformer_bias, sizeof(loaded->feature_transformer_bias),
-                                          bytes, size, &offset);
-    if (is_v3)
-    {
-        // v3: one output head — read it into bucket 0, then broadcast to every bucket (identical evals).
-        is_read_ok =
-            is_read_ok && read_bytes(loaded->output_weight[0], sizeof(loaded->output_weight[0]), bytes, size, &offset);
-        int32_t bias = 0;
-        is_read_ok   = is_read_ok && read_bytes(&bias, sizeof bias, bytes, size, &offset);
-        for (int bucket = 0; bucket < NNUE_OUTPUT_BUCKETS; bucket++)
-        {
-            if (bucket > 0)
-            {
-                memcpy(loaded->output_weight[bucket], loaded->output_weight[0], sizeof(loaded->output_weight[0]));
-            }
-            loaded->output_bias[bucket] = bias;
-        }
-    }
-    else
-    {
-        is_read_ok =
-            is_read_ok && read_bytes(loaded->output_weight, sizeof(loaded->output_weight), bytes, size, &offset);
-        is_read_ok = is_read_ok && read_bytes(loaded->output_bias, sizeof(loaded->output_bias), bytes, size, &offset);
-    }
-    if (!is_read_ok || offset != size)
-    {
-        free(loaded);
-        // Under-read OR over-long: the format has no hidden-size header, so a net built for a different
-        // width shows up as a size mismatch — reject it rather than silently loading garbage weights.
-        fprintf(stderr, "nnue: %s in %s\n", is_read_ok ? "size mismatch (wrong hidden width?)" : "truncated data",
-                source_name);
-        return NULL;
-    }
-    loaded->is_mirrored = !is_v3 && !is_v4; // v5: horizontal mirroring; earlier formats index unmirrored
+    // Every check above ran before a single weight was written, so nothing partial can escape. Copy in the
+    // payload's order: feature weights, feature bias, output weights, output bias.
+    memcpy(loaded->feature_transformer_weight, payload, sizeof loaded->feature_transformer_weight);
+    payload += sizeof loaded->feature_transformer_weight;
+    memcpy(loaded->feature_transformer_bias, payload, sizeof loaded->feature_transformer_bias);
+    payload += sizeof loaded->feature_transformer_bias;
+    memcpy(loaded->output_weight, payload, sizeof loaded->output_weight);
+    payload += sizeof loaded->output_weight;
+    memcpy(loaded->output_bias, payload, sizeof loaded->output_bias);
     return loaded;
 }
 
@@ -452,25 +618,25 @@ const NnueNetwork *nnue_load(const char *path)
         return NULL;
     }
     // Read the whole file into a temporary buffer and parse from memory — one code path shared with the
-    // embedded net. The buffer is a transient ~6.3MB; the parsed net is the only long-lived allocation.
+    // embedded net. The buffer is a transient ~12.6MB; the parsed net is the only long-lived allocation.
     fseek(file, 0, SEEK_END);
     const long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
     if (file_size <= 0)
     {
         fclose(file);
-        return NULL;
+        return refuse_net(path, "it holds no bytes");
     }
     unsigned char *const bytes = malloc((size_t)file_size);
     if (bytes == NULL)
     {
         fclose(file);
-        fprintf(stderr, "nnue: out of memory loading %s\n", path);
-        return NULL;
+        return refuse_net(path, "this process is out of memory");
     }
     const bool is_read_ok = fread(bytes, 1, (size_t)file_size, file) == (size_t)file_size;
     fclose(file);
-    const NnueNetwork *const loaded = is_read_ok ? nnue_parse(bytes, (size_t)file_size, path) : NULL;
+    const NnueNetwork *const loaded =
+        is_read_ok ? nnue_parse(bytes, (size_t)file_size, path) : refuse_net(path, "it opened but could not be read");
     free(bytes);
     return loaded;
 }
@@ -594,6 +760,22 @@ static void self_check_position(const Position *position, SelfCheckTally *tally,
 
 int nnue_run_self_check(const char *net_path)
 {
+    // Before anything looks at a net: this build must reproduce the published CRC-64/XZ check value. Every
+    // Reckless engine asserts the same one, and a CRC with the wrong reflection or a wrong table constant
+    // still returns a plausible 64-bit number — so without this gate the first symptom would be each
+    // engine refusing every net the others stamped. C17 cannot assert it at compile time (no constant-
+    // evaluated loop), which is why it is the first thing `nnuecheck` reports.
+    char crc_aux[40];
+    snprintf(crc_aux, sizeof crc_aux, "%#018llx", (unsigned long long)CRC64_CHECK_VALUE);
+    const bool is_crc_ok = crc64_is_check_value_reproduced();
+    test_result_columns(is_crc_ok, "crc64", "check", 9, crc_aux, -1.0, -1.0,
+                        "(CRC-64/XZ of the 9 bytes \"123456789\")");
+    if (!is_crc_ok)
+    {
+        fprintf(stderr, "nnue: this build's CRC-64/XZ is wrong — it would refuse every shared net\n");
+        return 1;
+    }
+
     const NnueNetwork *const net = nnue_load(net_path);
     if (net == NULL)
     {

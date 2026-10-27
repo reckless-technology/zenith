@@ -23,7 +23,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from features import (EVALUATION_SCALE, HIDDEN_SIZE, INPUT_FEATURES, MAX_ACTIVE_FEATURES, NNUE_MAGIC,
+import rnnue1
+from features import (EVALUATION_SCALE, HIDDEN_SIZE, INPUT_FEATURES, MAX_ACTIVE_FEATURES,
                       NUM_OUTPUT_BUCKETS, PADDING_INDEX, QUANT_ACCUMULATOR, QUANT_OUTPUT, position_features)
 
 
@@ -194,12 +195,13 @@ def export_quantised_net(model, path):
     output_weight_q = np.rint(output_weight * QUANT_OUTPUT).astype(np.int16)
     output_bias_q = np.rint(output_bias * QUANT_ACCUMULATOR * QUANT_OUTPUT).astype(np.int32)
 
-    with open(path, "wb") as handle:
-        handle.write(NNUE_MAGIC)
-        handle.write(transformer_q.tobytes())        # [6144][HIDDEN] int16, feature-major
-        handle.write(transformer_bias_q.tobytes())   # [HIDDEN] int16
-        handle.write(output_weight_q.tobytes())      # [BUCKETS][2*HIDDEN] int16, bucket-major
-        handle.write(output_bias_q.tobytes())        # [BUCKETS] int32
+    # The four arrays back to back are the RNNUE1 payload; rnnue1.write_net wraps them in the 64-byte
+    # self-describing header, written from its own constants rather than from anything passed in here.
+    payload = (transformer_q.tobytes()         # [6144][HIDDEN] int16, feature-major
+               + transformer_bias_q.tobytes()  # [HIDDEN] int16
+               + output_weight_q.tobytes()     # [BUCKETS][2*HIDDEN] int16, bucket-major
+               + output_bias_q.tobytes())      # [BUCKETS] int32
+    rnnue1.write_net(path, payload)
     saturated = int(np.sum(np.abs(transformer * QUANT_ACCUMULATOR) > 32767))
     print(f"exported {path}  (transformer weights saturating int16: {saturated})")
 

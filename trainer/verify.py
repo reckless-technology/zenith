@@ -14,24 +14,31 @@ import subprocess
 
 import numpy as np
 
-from features import (HIDDEN_SIZE, INPUT_FEATURES, NNUE_MAGIC, NUM_OUTPUT_BUCKETS,
+import rnnue1
+from features import (HIDDEN_SIZE, INPUT_FEATURES, NUM_OUTPUT_BUCKETS,
                       integer_eval, position_features)
 
 
 def load_net(path):
-    """Load a current-format (v5) net. Older formats are rejected: this reference implements only the
-    current feature contract (mirrored indexing), so applying it to a v3/v4 net would mis-verify it.
-    Older shipped nets remain covered by the engine's own `nnuecheck` gate."""
-    with open(path, "rb") as handle:
-        magic = handle.read(8)
-        if magic != NNUE_MAGIC:
-            raise SystemExit(f"bad magic in {path}: {magic!r} (verify.py checks only the current format)")
-        transformer = np.frombuffer(handle.read(INPUT_FEATURES * HIDDEN_SIZE * 2), dtype=np.int16)
-        transformer = transformer.reshape(INPUT_FEATURES, HIDDEN_SIZE).astype(np.int64)
-        transformer_bias = np.frombuffer(handle.read(HIDDEN_SIZE * 2), dtype=np.int16).astype(np.int64)
-        output_weight = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 2 * HIDDEN_SIZE * 2), dtype=np.int16)
-        output_weight = output_weight.reshape(NUM_OUTPUT_BUCKETS, 2 * HIDDEN_SIZE).astype(np.int64)
-        output_bias = np.frombuffer(handle.read(NUM_OUTPUT_BUCKETS * 4), dtype=np.int32).astype(np.int64)
+    """Load a net in the shared `RNNUE1` container, checking the magic, the payload length and both CRCs.
+
+    This reference implements only the current feature contract (mirrored indexing, material output
+    heads), which is the only shape the container's header admits — a net for any other shape carries a
+    header that the engine refuses, so there is nothing here to mis-verify."""
+    payload = rnnue1.read_payload(path)
+    cursor = 0
+
+    def take(count, dtype):
+        nonlocal cursor
+        width = np.dtype(dtype).itemsize
+        chunk = np.frombuffer(payload, dtype=dtype, count=count, offset=cursor)
+        cursor += count * width
+        return chunk.astype(np.int64)
+
+    transformer = take(INPUT_FEATURES * HIDDEN_SIZE, np.int16).reshape(INPUT_FEATURES, HIDDEN_SIZE)
+    transformer_bias = take(HIDDEN_SIZE, np.int16)
+    output_weight = take(NUM_OUTPUT_BUCKETS * 2 * HIDDEN_SIZE, np.int16).reshape(NUM_OUTPUT_BUCKETS, 2 * HIDDEN_SIZE)
+    output_bias = take(NUM_OUTPUT_BUCKETS, np.int32)
     return transformer, transformer_bias, output_weight, output_bias
 
 

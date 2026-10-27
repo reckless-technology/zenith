@@ -570,11 +570,14 @@ static void set_option(UciSession *session, char **save_ptr)
     }
     else if (strcmp(option_name, "evalfile") == 0)
     {
-        // An empty value returns to the embedded net; a file that fails to load falls back to it too
-        // (the engine always evaluates with SOME net — HCE is gone).
+        // An empty value asks for the embedded net and gets it. A named file that is **refused** changes
+        // nothing: the net that was playing keeps playing, and the engine never substitutes another net for
+        // the one that was asked for. Falling back to the embedded net was the trap the shared container
+        // exists to close — a match run against a mismatched net reported a plausible Elo for a net that
+        // never played a move. nnue_load has already named the field and both values on stderr, which is
+        // what a match harness keeps; the `info string` below is what a GUI reads.
         const bool               is_from_file = value[0] != '\0';
-        const NnueNetwork *const from_file    = is_from_file ? nnue_load(value) : NULL;
-        const NnueNetwork *const loaded       = from_file != NULL ? from_file : nnue_load_embedded();
+        const NnueNetwork *const loaded       = is_from_file ? nnue_load(value) : nnue_load_embedded();
         if (loaded != NULL)
         {
             nnue_free(session->engine->net); // safe: join_search() above ensured no thread is searching
@@ -583,13 +586,9 @@ static void set_option(UciSession *session, char **save_ptr)
             session->game.accumulator.net = loaded;
             nnue_refresh(&session->game.accumulator, &session->game);
             eval_cache_clear(&session->engine->eval_cache); // a new net changes every evaluation
-            if (from_file != NULL)
+            if (is_from_file)
             {
                 printf("info string loaded NNUE %s\n", value);
-            }
-            else if (is_from_file)
-            {
-                printf("info string failed to load NNUE %s — using the embedded net\n", value);
             }
             else
             {
@@ -598,8 +597,9 @@ static void set_option(UciSession *session, char **save_ptr)
         }
         else
         {
-            // Only reachable if the embedded-net allocation itself failed; keep the current net.
-            printf("info string failed to load NNUE %s\n", value);
+            // Refused (or, for an empty value, the embedded net could not be allocated): keep the net that
+            // is already loaded and playing, and say so where a GUI will see it.
+            printf("info string NNUE: refused %s — keeping the net already loaded (reason on stderr)\n", value);
         }
         fflush(stdout);
     }

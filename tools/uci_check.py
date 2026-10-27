@@ -8,9 +8,11 @@ GUI, a book builder or a test harness actually talks to, by running the binary a
 
 - the notation subcommands the book builder uses (moves, polykey, san, applymoves), against hand-verified answers -
   pinned-pawn promotion captures, the Polyglot specification's keys, every SAN disambiguation form;
-- the NNUE paths outside nnuecheck: nnueeval (and the net's colour symmetry), the loader's verdicts on a bad magic,
-  a truncated and an over-long file, and the two legacy formats it still reads;
-- every UCI option: Hash, Clear Hash, Threads, Move Overhead, EvalFile (a file, a missing file, the embedded net),
+- the NNUE paths outside nnuecheck: nnueeval (and the net's colour symmetry), and every verdict the shared RNNUE1
+  container's loader can reach - a bad magic, a net in a retired ZNNUE container, a corrupt header, a sound header
+  describing another architecture (field by field), a non-zero reserved byte, a truncated, over-long or empty file,
+  and a corrupt payload;
+- every UCI option: Hash, Clear Hash, Threads, Move Overhead, EvalFile (a file, a refused file, the embedded net),
   OwnBook and BookFile (a file, a missing, empty, ragged or unsorted one, a path with a space, castling entries),
   and the tunable search parameters, whose effect is shown by the node count of a fixed-depth search;
 - the position and go forms: fen and startpos with moves, an illegal move, a history past its cap, a half-move
@@ -39,6 +41,9 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "trainer"))
+import rnnue1  # noqa: E402  (the shared net container; the path above is what makes it importable)
+
 NET = "nets/zenith-cap2.nnue"
 BOOK = "books/zenith-book-r5.bin"
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -216,34 +221,67 @@ def write_bytes(path, data):
         out.write(data)
 
 
+def restamp(payload, **overrides):
+    """An RNNUE1 image whose header fields are `overrides` applied to this architecture's own.
+
+    Both CRCs are recomputed, so a field override produces a *sound* header that describes the wrong
+    architecture — which is the case the loader's field checks exist for, and the one a header checksum
+    alone would wave through."""
+    fields = dict(magic=rnnue1.MAGIC, format_version=rnnue1.FORMAT_VERSION, header_bytes=rnnue1.HEADER_BYTES,
+                  features_per_bucket=rnnue1.BASE_FEATURES, king_buckets=rnnue1.NUM_KING_BUCKETS,
+                  hidden_size=rnnue1.HIDDEN_SIZE, output_buckets=rnnue1.NUM_OUTPUT_BUCKETS, flags=rnnue1.FLAGS,
+                  activation=rnnue1.ACTIVATION_SCRELU, qa=rnnue1.QUANT_ACCUMULATOR, qb=rnnue1.QUANT_OUTPUT,
+                  eval_scale=rnnue1.EVALUATION_SCALE, reserved=b"\x00\x00\x00\x00",
+                  king_bucket_map_crc=rnnue1.crc64_xz(rnnue1.KING_BUCKET_MAP), payload_bytes=len(payload),
+                  payload_crc=rnnue1.crc64_xz(payload))
+    fields.update(overrides)
+    head = struct.pack(
+        "<8sHHHHHHBBHHH4sQQQ", fields["magic"], fields["format_version"], fields["header_bytes"],
+        fields["features_per_bucket"], fields["king_buckets"], fields["hidden_size"], fields["output_buckets"],
+        fields["flags"], fields["activation"], fields["qa"], fields["qb"], fields["eval_scale"], fields["reserved"],
+        fields["king_bucket_map_crc"], fields["payload_bytes"], fields["payload_crc"])
+    return head + struct.pack("<Q", rnnue1.crc64_xz(head)) + payload
+
+
 def check_nnue(gate, scratch):
-    """nnueeval, the net's colour symmetry, the loader's verdicts, and the two legacy formats."""
+    """nnueeval, the net's colour symmetry, and every verdict the RNNUE1 loader can reach.
+
+    The container's whole purpose is that a net which is not this engine's net is refused loudly rather
+    than played, so each refusal below is a case that once loaded cleanly in some engine and evaluated
+    from the wrong weights, or fell back to another net and reported an Elo for a net that never played."""
     with open(os.path.join(ROOT, NET), "rb") as source:
         net = source.read()
-    if net[:8] != b"ZNNUE5\x00\x00":
+    if net[:8] != rnnue1.MAGIC:
         gate.report(False, "nnue", "unexpected net format", NET)
         return
-    # The body is the feature transformer (weights then bias, int16), then per bucket 2 x hidden int16 output
-    # weights, then one int32 bias per bucket: 8 x 768 x H + H + 8 x 2H int16 + 8 int32 = 2 x (6152 H + 16) + 32.
-    buckets = 8
-    hidden = (len(net) - 8 - 4 * buckets) // (2 * (8 * 768 + 1 + 2 * buckets))
-    transformer_end = 8 + 2 * (8 * 768 * hidden + hidden)
-    first_head = net[transformer_end:transformer_end + 4 * hidden]
-    first_bias = net[transformer_end + 2 * 2 * hidden * buckets:transformer_end + 2 * 2 * hidden * buckets + 4]
-    legacy_v3 = b"ZNNUE3\x00\x00" + net[8:transformer_end] + first_head + first_bias
-    legacy_v4 = b"ZNNUE4\x00\x00" + net[8:]
+    payload = net[rnnue1.HEADER_BYTES:]
+
+    # Each case: the bytes, and the fragment of the refusal that names what was wrong.
+    corrupt_header = bytearray(net)
+    corrupt_header[12] ^= 0xFF  # features_per_bucket, header_crc left stale
+    corrupt_payload = bytearray(net)
+    corrupt_payload[rnnue1.HEADER_BYTES] ^= 0xFF
     files = {
-        "v3": (legacy_v3, None),
-        "v4": (legacy_v4, None),
-        "bad magic": (b"NOTANNUE" + net[8:], "bad magic"),
-        "truncated": (net[:-1], "truncated data"),
-        "over-long": (net + b"\x00", "size mismatch"),
-        "empty": (b"", None),
+        "bad magic": (b"NOTANNUE" + net[8:], "no 'RNNUE1' magic"),
+        "retired ZNNUE5": (b"ZNNUE5\x00\x00" + payload, "re-stamped"),
+        "header too short": (net[:63], "too short"),
+        "corrupt header": (bytes(corrupt_header), "header is corrupt"),
+        "wrong hidden": (restamp(payload, hidden_size=512), "hidden_size is"),
+        "wrong buckets": (restamp(payload, king_buckets=4), "king_buckets is"),
+        "wrong version": (restamp(payload, format_version=1), "format_version is"),
+        "unmirrored flags": (restamp(payload, flags=0), "flags is"),
+        "wrong map": (restamp(payload, king_bucket_map_crc=0), "king_bucket_map_crc is"),
+        "reserved set": (restamp(payload, reserved=b"\x00\x01\x00\x00"), "reserved bytes"),
+        "truncated": (net[:-1], "payload bytes after the header"),
+        "over-long": (net + b"\x00", "payload bytes after the header"),
+        "corrupt payload": (bytes(corrupt_payload), "payload is corrupt"),
+        "empty": (b"", "no bytes"),
     }
     paths = {}
     for name, (data, _) in files.items():
         paths[name] = f"{scratch}/{name.replace(' ', '-')}.nnue"
         write_bytes(paths[name], data)
+    paths["good"] = NET
 
     # A position and its colour mirror (ranks flipped, colours swapped, the other side to move) must evaluate alike.
     fen = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -254,17 +292,15 @@ def check_nnue(gate, scratch):
              values[1] == "0" and values[2] == values[3])
     gate.report(is_ok, "nnueeval", f"{' '.join(values)}"[:25], "(startpos, blank skipped, bad FEN -> 0, mirror pair)")
 
-    for name in ("v3", "v4"):
-        status, out, _ = gate.run("nnueeval", paths[name], stdin=f"{fen}\n{mirror}\n")
-        values = out.split()
-        gate.report(status == 0 and len(values) == 2 and values[0] == values[1], "nnueeval",
-                    f"legacy {name} loads", f"(ZNNUE{name[1]} read from {NET}, mirror pair {' '.join(values)})")
+    # The header this engine expects must be the header the shipped net carries, field by field: a net the
+    # stamping tool wrote from the same constants is the only thing that may load.
+    gate.report(net[:rnnue1.HEADER_BYTES] == restamp(payload)[:rnnue1.HEADER_BYTES], "header",
+                "shipped net stamped here", f"(RNNUE1 v{rnnue1.FORMAT_VERSION}, "
+                f"map {rnnue1.crc64_xz(rnnue1.KING_BUCKET_MAP):#018x})")
 
-    for name in ("bad magic", "truncated", "over-long", "empty"):
+    for name, (_, message) in files.items():
         status, _, err = gate.run("nnueeval", paths[name], stdin=f"{START_FEN}\n")
-        message = files[name][1]
-        gate.report(status == 1 and "failed to load" in err and (message is None or message in err), "loader",
-                    f"{name} refused", f"({message or 'no bytes'})")
+        gate.report(status == 1 and message in err, "loader", f"{name} refused", f"(...{message}...)")
     status, _, err = gate.run("nnueeval", f"{scratch}/missing.nnue")
     gate.report(status == 1 and "failed to load" in err, "loader", "missing file refused", "(nnueeval)")
     status, _, err = gate.run("nnuecheck", f"{scratch}/missing.nnue")
@@ -316,17 +352,26 @@ def check_options(gate, nnue_paths):
                           "setoption name Hash value 16", go("go depth 6")])
     gate.report(len(bestmoves(lines)) == 2, "Hash", "0 -> 1 MB, then 16 MB", "(a resized table searches)")
 
-    # The embedded net and the same net loaded from its file search identically; a missing file falls back to it.
+    # The embedded net and the same net loaded from its file search identically.
     from_file = nodes_with(f"setoption name EvalFile value {NET}")
     gate.report(from_file == baseline, "EvalFile", f"file = embedded: {from_file}", f"({NET})")
     lines = gate.session(["setoption name Threads value 1",
                           (f"setoption name EvalFile value {NET}", r"^info string loaded NNUE"),
-                          ("setoption name EvalFile value nets/missing.nnue", r"^info string failed to load NNUE"),
+                          ("setoption name EvalFile value nets/missing.nnue", r"^info string NNUE: refused"),
+                          (f"setoption name EvalFile value {nnue_paths['wrong hidden']}",
+                           r"^info string NNUE: refused"),
                           ("setoption name EvalFile value", r"^info string using the embedded net"),
-                          (f"setoption name EvalFile value {nnue_paths['v4']}", r"^info string loaded NNUE"),
                           "position startpos", go("go depth 4")])
-    gate.report(len(bestmoves(lines)) == 1, "EvalFile", "load, fail, reset", "(a file, a missing file, empty -> "
-                "the embedded net, a legacy net that then searches)")
+    gate.report(len(bestmoves(lines)) == 1, "EvalFile", "load, refuse, reset", "(a file; a missing one and a "
+                "mismatched one refused with no fallback; empty -> the embedded net)")
+
+    # A refused net must change NOTHING: the net that was playing keeps playing and evaluates as it did. The
+    # trap this closes is an engine that silently swapped in another net and reported a plausible Elo for a
+    # net that never played a move.
+    after_refusal = nodes_with(f"setoption name EvalFile value {NET}",
+                               f"setoption name EvalFile value {nnue_paths['corrupt payload']}")
+    gate.report(after_refusal == baseline, "EvalFile", f"refusal is inert: {after_refusal}",
+                "(a refused net leaves the loaded one searching unchanged)")
 
     # 999 is clamped to 256 but not searched with: 256 searchers would take some 600 MB on a shared runner.
     lines = gate.session(["setoption name Threads value 0", "position startpos", go("go depth 6"),

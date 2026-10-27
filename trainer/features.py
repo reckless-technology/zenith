@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Jonny Reckless
-"""Shared NNUE constants, FEN featurisation, and the integer forward pass.
+"""FEN featurisation, the quantisation contract, and the integer forward pass.
 
-This module is the single source of truth for the feature-index convention and the quantisation contract.
-The C engine (src/nnue.*) must reproduce `feature_index` and `integer_eval` byte-for-byte — the
-verification gate compares the engine's integer eval against `integer_eval` here on a fixed FEN set.
+This module is the single source of truth for the feature-index convention and the quantisation
+arithmetic. The C engine (src/nnue.*) must reproduce `feature_index` and `integer_eval` byte-for-byte —
+the verification gate compares the engine's integer eval against `integer_eval` here on a fixed FEN set.
+The architecture's numbers and the on-disk container come from `rnnue1.py`, which every Reckless engine
+shares; nothing about the shape is written down twice.
 
-Architecture (Zenith v4, independent of any other engine):
+Architecture (the shared Reckless NNUE — one shape for every engine in the organisation):
     768 base inputs per perspective (6 piece types x 2 colors x 64 squares, own pieces first), replicated
     across NUM_KING_BUCKETS king-input buckets selected by the perspective's own king square (file x
     board-half, with files e-h MIRRORED onto a-d: the whole perspective flips horizontally, square ^ 7, so
@@ -18,20 +20,11 @@ Architecture (Zenith v4, independent of any other engine):
 
 import numpy as np
 
-BASE_FEATURES = 768      # per-king-bucket feature block: 2 colors x 6 piece types x 64 squares
-NUM_KING_BUCKETS = 8     # king-input buckets: 4 file-pairs x 2 board-halves, keyed on the perspective king
-INPUT_FEATURES = NUM_KING_BUCKETS * BASE_FEATURES  # 6144 feature-transformer rows
-HIDDEN_SIZE = 1024
-NUM_OUTPUT_BUCKETS = 8   # output heads, selected by total piece count: bucket = (pieces - 2) // 4
-QUANT_ACCUMULATOR = 255  # QA: feature-transformer weight/accumulator scale
-QUANT_OUTPUT = 64        # QB: output-weight scale
-EVALUATION_SCALE = 400   # logit -> centipawn scale (must equal EVAL_SCALE in the trainer loss)
+from rnnue1 import (BASE_FEATURES, EVALUATION_SCALE, HIDDEN_SIZE, INPUT_FEATURES, KING_BUCKET_MAP,
+                    NUM_KING_BUCKETS, NUM_OUTPUT_BUCKETS, QUANT_ACCUMULATOR, QUANT_OUTPUT)
 
 PADDING_INDEX = INPUT_FEATURES  # embedding row 6144 is a forced-zero pad slot
 MAX_ACTIVE_FEATURES = 32        # at most 32 pieces on the board
-
-NNUE_MAGIC = b"ZNNUE5\0\0"  # 8-byte little-endian file magic (v5: horizontal king mirroring)
-NNUE_MAGIC_V3 = b"ZNNUE3\0\0"  # previous format (single output head); loaders may broadcast it to v4
 
 WHITE, BLACK = 0, 1
 KING = 5
@@ -52,12 +45,13 @@ def king_mirror(relative_king_square):
 
 def king_bucket(relative_king_square):
     """Map a perspective-relative king square (0..63) to one of NUM_KING_BUCKETS buckets: 4 files (a-d
-    after mirroring) x 2 board-halves (ranks 1-4, ranks 5-8). Must match king_bucket() in src/nnue.c."""
-    file = relative_king_square & 7
-    if file >= 4:
-        file = 7 - file                      # e-h mirror onto d-a
-    half = (relative_king_square >> 3) // 4  # 0..1
-    return half * 4 + file                   # 0..7
+    after mirroring) x 2 board-halves (ranks 1-4, ranks 5-8).
+
+    Indexes `rnnue1.KING_BUCKET_MAP`, which is also what the container's `king_bucket_map_crc` digests and
+    what src/nnue.c's own KING_BUCKET_MAP is copied from. The map's *contents* are part of the
+    architecture, so there is deliberately one definition of it and no arithmetic restatement to drift.
+    """
+    return KING_BUCKET_MAP[relative_king_square]
 
 
 def parse_board_pieces(board_field):

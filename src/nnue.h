@@ -16,7 +16,7 @@
 
 enum
 {
-    NNUE_KING_BUCKETS   = 8, ///< king-input buckets (4 file-pairs x 2 board-halves); must match features.py
+    NNUE_KING_BUCKETS   = 8, ///< king-input buckets (4 files a-d, after mirroring, x 2 board-halves)
     NNUE_OUTPUT_BUCKETS = 8  ///< material output heads, selected by (piece_count - 2) / 4; must match features.py
 };
 
@@ -51,8 +51,13 @@ typedef struct NnueRefreshCache
 } NnueRefreshCache;
 
 /**
- * @brief Load a net from @p path, committing only on a fully-successful read.
- * @return a heap-allocated net (release with nnue_free), or NULL on failure.
+ * @brief Load a net in the shared `RNNUE1` container from @p path, committing only on a fully-successful
+ * read and a fully-successful validation.
+ *
+ * A net that fails any check is **refused**: the reason goes to stderr naming the field, the file's value
+ * and this engine's, and nothing falls back to another net. See nnue.c for the two checks and why a silent
+ * fallback is the one behaviour this container exists to prevent.
+ * @return a heap-allocated net (release with nnue_free), or NULL if the net was refused.
  */
 const NnueNetwork *nnue_load(const char *path);
 /**
