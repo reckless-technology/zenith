@@ -62,14 +62,28 @@ void search_shared_init(SearchShared *shared);
  */
 bool set_search_param(SearchShared *shared, const char *name, int value);
 
-/** @brief One engine instance: the state shared by all of its search threads. Create with engine_new and
- *  destroy with engine_delete. */
+enum
+{
+    ENGINE_NET_ORIGIN_MAX = 256 ///< room for an EvalFile path as long as the UCI layer's own value buffer
+};
+
+/// The origin an Engine records for the build-time-embedded net, as the UCI layer names it to an operator.
+#define ENGINE_EMBEDDED_NET "embedded"
+
+/**
+ * @brief One engine instance: the state shared by all of its search threads. Create with engine_new and
+ * destroy with engine_delete.
+ *
+ * `net_origin` is remembered alongside `net` because a refusal has to name the net that is *still playing*:
+ * "the new net was refused" is no use to an operator who cannot tell which net the engine therefore has.
+ */
 typedef struct Engine
 {
-    TranspositionTable tt;         ///< the shared lockless transposition table
-    SearchShared       search;     ///< stop flag, tunable parameters, LMR table
-    EvalCache          eval_cache; ///< shared lockless eval memoisation
-    const NnueNetwork *net;        ///< the active NNUE net (owned; never NULL — embedded by default)
+    TranspositionTable tt;                  ///< the shared lockless transposition table
+    SearchShared       search;              ///< stop flag, tunable parameters, LMR table
+    EvalCache          eval_cache;          ///< shared lockless eval memoisation
+    const NnueNetwork *net;                 ///< the active NNUE net (owned; never NULL — embedded by default)
+    char net_origin[ENGINE_NET_ORIGIN_MAX]; ///< where `net` came from: the EvalFile path, or ENGINE_EMBEDDED_NET
 } Engine;
 
 enum

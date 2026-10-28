@@ -27,8 +27,10 @@ The pipeline is four stages:
 net — the shipped one is embedded into the binary at build time (`tools/embed_net.py`; `NET` in the
 Makefile), and the UCI `EvalFile` option swaps in another at runtime. A net that fails any of the
 container's checks is **refused**, loudly and with no fallback: the net that was playing keeps playing and
-nothing is silently substituted for the net that was asked for. No search change is needed to adopt or
-swap a net.
+nothing is silently substituted for the net that was asked for. "Loudly" means on both streams — a refused
+`setoption name EvalFile` prints the loader's reason *and* the name of the net still in play as `info string`
+lines on stdout and as the same lines on stderr, because a GUI never sees stderr and a match harness
+routinely drops `info` lines. No search change is needed to adopt or swap a net.
 
 ---
 

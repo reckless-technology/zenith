@@ -50,6 +50,26 @@ typedef struct NnueRefreshCache
     NnueRefreshCacheEntry entries[2][2][NNUE_KING_BUCKETS]; ///< [perspective][mirrored][bucket]
 } NnueRefreshCache;
 
+enum
+{
+    NNUE_REFUSAL_MAX = 320 ///< room for the whole refusal line: the source's name plus the longest reason
+};
+
+/**
+ * @brief Where a caller receives the refusal a loader printed, so it can repeat it on another stream.
+ *
+ * The loader itself writes only to stderr — `nnueeval` and `nnuecheck` write their results to stdout, and a
+ * diagnostic mixed into that stream would corrupt the 0 cp verification gate's input. A caller that *can*
+ * safely talk on stdout (the UCI layer, whose stdout is a line protocol) passes one of these and prints
+ * `message` as an `info string`, so a GUI sees the reason a match harness reads on stderr. NULL asks for
+ * nothing and changes no output. Passed explicitly rather than kept in file-scope state: the engine has no
+ * globals, and two threads may load nets at once.
+ */
+typedef struct NnueRefusal
+{
+    char message[NNUE_REFUSAL_MAX]; ///< the refusal exactly as it went to stderr, or "" if nothing was refused
+} NnueRefusal;
+
 /**
  * @brief Load a net in the shared `RNNUE1` container from @p path, committing only on a fully-successful
  * read and a fully-successful validation.
@@ -57,16 +77,19 @@ typedef struct NnueRefreshCache
  * A net that fails any check is **refused**: the reason goes to stderr naming the field, the file's value
  * and this engine's, and nothing falls back to another net. See nnue.c for the two checks and why a silent
  * fallback is the one behaviour this container exists to prevent.
+ * @param refusal optional (NULL to ignore): receives the refusal line verbatim, for a caller that must
+ * also say it somewhere else.
  * @return a heap-allocated net (release with nnue_free), or NULL if the net was refused.
  */
-const NnueNetwork *nnue_load(const char *path);
+const NnueNetwork *nnue_load(const char *path, NnueRefusal *refusal);
 /**
  * @brief Load the network embedded in the binary at build time (tools/embed_net.py -> the
- * embedded_network_data array below). This is the engine's default and its fallback whenever an EvalFile
- * cannot be loaded, so a bare binary is always full NNUE strength with no external files.
+ * embedded_network_data array below). This is the engine's default, so a bare binary is always full NNUE
+ * strength with no external files — it is never substituted for a net that was asked for and refused.
+ * @param refusal optional (NULL to ignore): receives the refusal line verbatim, as nnue_load's does.
  * @return a heap-allocated net (release with nnue_free); NULL only on allocation failure.
  */
-const NnueNetwork *nnue_load_embedded(void);
+const NnueNetwork *nnue_load_embedded(NnueRefusal *refusal);
 /** @brief Release a net returned by nnue_load/nnue_load_embedded (safe on NULL). No position may still
  *  reference it. */
 void nnue_free(const NnueNetwork *net);

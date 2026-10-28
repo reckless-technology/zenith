@@ -574,14 +574,16 @@ static void set_option(UciSession *session, char **save_ptr)
         // nothing: the net that was playing keeps playing, and the engine never substitutes another net for
         // the one that was asked for. Falling back to the embedded net was the trap the shared container
         // exists to close — a match run against a mismatched net reported a plausible Elo for a net that
-        // never played a move. nnue_load has already named the field and both values on stderr, which is
-        // what a match harness keeps; the `info string` below is what a GUI reads.
+        // never played a move.
         const bool               is_from_file = value[0] != '\0';
-        const NnueNetwork *const loaded       = is_from_file ? nnue_load(value) : nnue_load_embedded();
+        NnueRefusal              refusal      = {{0}};
+        const NnueNetwork *const loaded = is_from_file ? nnue_load(value, &refusal) : nnue_load_embedded(&refusal);
         if (loaded != NULL)
         {
             nnue_free(session->engine->net); // safe: join_search() above ensured no thread is searching
             session->engine->net = loaded;
+            snprintf(session->engine->net_origin, sizeof session->engine->net_origin, "%s",
+                     is_from_file ? value : ENGINE_EMBEDDED_NET);
             // Rebind the live game position (its accumulator tracked the old net) and rebuild it.
             session->game.accumulator.net = loaded;
             nnue_refresh(&session->game.accumulator, &session->game);
@@ -598,8 +600,25 @@ static void set_option(UciSession *session, char **save_ptr)
         else
         {
             // Refused (or, for an empty value, the embedded net could not be allocated): keep the net that
-            // is already loaded and playing, and say so where a GUI will see it.
-            printf("info string NNUE: refused %s — keeping the net already loaded (reason on stderr)\n", value);
+            // is already loaded and playing, and be loud about it on BOTH streams.
+            //
+            // A match harness keeps stderr and routinely drops `info` lines; a UCI GUI sees stdout and never
+            // sees stderr. "The reason is on stderr" therefore tells half the operators nothing, and the
+            // thousand games attributed to a net that never played a move is the cost. So the loader's own
+            // refusal — the field, the file's value and this engine's — is repeated verbatim as an
+            // `info string`, and the one fact the loader cannot know, *which net is playing now*, is said on
+            // both streams — composed once and printed twice, so stderr gets exactly the stdout line without
+            // the `info string ` prefix and the two cannot drift. The wording is shared with pawnstar,
+            // pawnstar-rs and pawnstar-go, which are closing the same hole.
+            char kept[NNUE_REFUSAL_MAX + sizeof session->engine->net_origin];
+            snprintf(kept, sizeof kept,
+                     "NNUE: keeping the net already loaded ('%s'); '%s' was refused and is not "
+                     "in play",
+                     session->engine->net_origin, value);
+            printf("info string %s\n", refusal.message);
+            printf("info string %s\n", kept);
+            fprintf(stderr, "%s\n", kept);
+            fflush(stderr);
         }
         fflush(stdout);
     }
@@ -1464,7 +1483,7 @@ int run_fuzz_check(void)
     }
     // evaluate() requires a net (HCE is gone); fuzz with the embedded one so the NNUE accumulator and
     // forward pass are exercised on adversarial positions too (set_fen's incremental adds + refresh).
-    const NnueNetwork *const fuzz_net = nnue_load_embedded();
+    const NnueNetwork *const fuzz_net = nnue_load_embedded(NULL);
     for (size_t i = 0; i < sizeof(accept_fens) / sizeof(accept_fens[0]); i++)
     {
         Position pos;

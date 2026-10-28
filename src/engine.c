@@ -7,6 +7,7 @@
 #include "engine.h"
 #include "bitboard.h"
 #include "nnue.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 Engine *engine_new(void)
@@ -21,7 +22,10 @@ Engine *engine_new(void)
     search_shared_init(&engine->search);
     eval_cache_init(&engine->eval_cache); // a failed cache allocation degrades to uncached eval, not an error
     tt_resize(&engine->tt, ENGINE_DEFAULT_HASH_MB);
-    engine->net = nnue_load_embedded(); // the build-time-embedded net: every engine evaluates with NNUE
+    engine->net = nnue_load_embedded(NULL); // the build-time-embedded net: every engine evaluates with NNUE
+    // NULL above: a refusal here is fatal, so there is no later message to repeat the reason into. Startup
+    // output is unchanged by the UCI layer's loud refusals — the reason still goes only to stderr.
+    snprintf(engine->net_origin, sizeof engine->net_origin, "%s", ENGINE_EMBEDDED_NET);
     if (engine->tt.table == NULL || engine->net == NULL)
     {
         engine_delete(engine); // an engine that cannot search or evaluate is useless — fail construction
