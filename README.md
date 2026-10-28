@@ -246,9 +246,11 @@ perspective — is the one call site the network replaces.
   bit-identical to a full refresh.
 - **Embedded by default:** the shipped net is generated into a C array at build time (`tools/embed_net.py`
   -> `build/embedded_net.o`) and linked into every binary, so a bare executable is full strength with no
-  external files; `EvalFile` swaps in another net at runtime, falling back to the embedded copy if the file
-  cannot be loaded. (The former PeSTO hand-crafted fallback was removed with the embedded default; it
-  remains in git history.)
+  external files; `EvalFile` swaps in another net at runtime. A net that fails any of the container's checks
+  is **refused with no fallback**: the net already loaded keeps playing, and the engine says so on *both*
+  streams — the loader's verdict (the field, the file's value and the engine's) and which net is in play
+  instead, as `info string` lines on stdout for a GUI and on stderr for a match harness. (The former PeSTO
+  hand-crafted fallback was removed with the embedded default; it remains in git history.)
 
 ### Search
 

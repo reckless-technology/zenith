@@ -168,7 +168,8 @@ int run_datagen(Engine *engine, const int argc, char **argv)
     // engine bootstraps above its hand-crafted teacher. Absent => the HCE labels the data.
     if (net_path[0] != '\0')
     {
-        engine->net = nnue_load(net_path);
+        engine->net = nnue_load(net_path, NULL);
+        snprintf(engine->net_origin, sizeof engine->net_origin, "%s", net_path);
         fprintf(stderr, "datagen: %s NNUE %s for labels\n", engine->net ? "loaded" : "FAILED to load", net_path);
     }
 

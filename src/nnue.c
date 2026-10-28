@@ -448,14 +448,24 @@ int nnue_evaluate_position(const Position *position)
  * and the number meant nothing.
  *
  * To stderr, which is what a match harness keeps. The UCI layer adds an `info string` line on stdout for a
- * GUI to read; it is not done here because `nnueeval` writes one eval per line to stdout and a diagnostic
- * mixed into that stream would corrupt the 0 cp verification gate's input.
+ * GUI to read; it is not printed here because `nnueeval` writes one eval per line to stdout and a
+ * diagnostic mixed into that stream would corrupt the 0 cp verification gate's input. So that the two
+ * streams cannot drift, the line is composed once here and handed back through @p refusal for that caller
+ * to repeat verbatim — "the reason is on stderr" is not enough, because a GUI never sees stderr and a
+ * harness routinely drops `info` lines.
  * @param source_name path or label of the net. @param reason why it was refused, naming the field and both
- * values where there is a field to name. @return NULL, always.
+ * values where there is a field to name. @param refusal optional (NULL to ignore): receives the line.
+ * @return NULL, always.
  */
-static const NnueNetwork *refuse_net(const char *source_name, const char *reason)
+static const NnueNetwork *refuse_net(const char *source_name, const char *reason, NnueRefusal *refusal)
 {
-    fprintf(stderr, "nnue: refusing net '%s': %s\n", source_name, reason);
+    char line[NNUE_REFUSAL_MAX];
+    snprintf(line, sizeof line, "nnue: refusing net '%s': %s", source_name, reason);
+    fprintf(stderr, "%s\n", line);
+    if (refusal != NULL)
+    {
+        snprintf(refusal->message, sizeof refusal->message, "%s", line);
+    }
     return NULL;
 }
 
@@ -500,21 +510,25 @@ static NetHeader expected_net_header(void)
  *   2. **the payload** — its length must be *exactly* what the header claims and what this architecture
  *      expects, with nothing appended, and then its checksum must match.
  *
- * @p source_name labels the messages. @return a heap-allocated net, or NULL on any refusal.
+ * @p source_name labels the messages and @p refusal (optional) receives any refusal verbatim.
+ * @return a heap-allocated net, or NULL on any refusal.
  */
-static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t size, const char *source_name)
+static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t size, const char *source_name,
+                                     NnueRefusal *refusal)
 {
     char message[256];
     if (size < sizeof(NetHeader))
     {
         snprintf(message, sizeof message, "it is %zu bytes, too short for the %zu-byte RNNUE1 header", size,
                  sizeof(NetHeader));
-        return refuse_net(source_name, message);
+        return refuse_net(source_name, message, refusal);
     }
     if (memcmp(bytes, NET_MAGIC, sizeof NET_MAGIC) != 0)
     {
-        return refuse_net(source_name, "it carries no 'RNNUE1' magic, so it is not a net in the shared container — "
-                                       "a net in a retired ZNNUE format must be re-stamped (tools/stamp_net.py)");
+        return refuse_net(source_name,
+                          "it carries no 'RNNUE1' magic, so it is not a net in the shared container — "
+                          "a net in a retired ZNNUE format must be re-stamped (tools/stamp_net.py)",
+                          refusal);
     }
 
     NetHeader header;
@@ -525,7 +539,7 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
         snprintf(message, sizeof message,
                  "its header is corrupt: header_crc is %#018llx, the bytes checksum to %#018llx",
                  (unsigned long long)header.header_crc, (unsigned long long)header_crc);
-        return refuse_net(source_name, message);
+        return refuse_net(source_name, message, refusal);
     }
 
     const NetHeader expected = expected_net_header();
@@ -557,7 +571,7 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
         {
             snprintf(message, sizeof message, "%s is %#llx in the file, %#llx in this engine", checks[index].name,
                      (unsigned long long)checks[index].in_file, (unsigned long long)checks[index].in_engine);
-            return refuse_net(source_name, message);
+            return refuse_net(source_name, message, refusal);
         }
     }
 
@@ -572,7 +586,7 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
                      "its reserved bytes are 0x%02x 0x%02x 0x%02x 0x%02x, and every one must be zero",
                      (unsigned)header.reserved[0], (unsigned)header.reserved[1], (unsigned)header.reserved[2],
                      (unsigned)header.reserved[3]);
-            return refuse_net(source_name, message);
+            return refuse_net(source_name, message, refusal);
         }
     }
 
@@ -581,7 +595,7 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
     {
         snprintf(message, sizeof message, "it carries %zu payload bytes after the header, not the %d claimed",
                  payload_bytes, NET_PAYLOAD_BYTES);
-        return refuse_net(source_name, message);
+        return refuse_net(source_name, message, refusal);
     }
     const unsigned char *payload     = bytes + sizeof(NetHeader);
     const uint64_t       payload_crc = crc64_checksum(payload, payload_bytes);
@@ -590,13 +604,13 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
         snprintf(message, sizeof message,
                  "its payload is corrupt: payload_crc is %#018llx, the bytes checksum to %#018llx",
                  (unsigned long long)header.payload_crc, (unsigned long long)payload_crc);
-        return refuse_net(source_name, message);
+        return refuse_net(source_name, message, refusal);
     }
 
     NnueNetwork *const loaded = malloc(sizeof(NnueNetwork));
     if (loaded == NULL)
     {
-        return refuse_net(source_name, "this process is out of memory");
+        return refuse_net(source_name, "this process is out of memory", refusal);
     }
     // Every check above ran before a single weight was written, so nothing partial can escape. Copy in the
     // payload's order: feature weights, feature bias, output weights, output bias.
@@ -610,12 +624,15 @@ static const NnueNetwork *nnue_parse(const unsigned char *bytes, const size_t si
     return loaded;
 }
 
-const NnueNetwork *nnue_load(const char *path)
+const NnueNetwork *nnue_load(const char *path, NnueRefusal *refusal)
 {
     FILE *const file = fopen(path, "rb");
     if (!file)
     {
-        return NULL;
+        // Through refuse_net like every other failure, so that *every* NULL this function returns carries a
+        // reason a caller can repeat. A silent NULL left the UCI layer with nothing to say but "see stderr",
+        // where there was nothing to see.
+        return refuse_net(path, "it could not be opened for reading", refusal);
     }
     // Read the whole file into a temporary buffer and parse from memory — one code path shared with the
     // embedded net. The buffer is a transient ~12.6MB; the parsed net is the only long-lived allocation.
@@ -625,25 +642,25 @@ const NnueNetwork *nnue_load(const char *path)
     if (file_size <= 0)
     {
         fclose(file);
-        return refuse_net(path, "it holds no bytes");
+        return refuse_net(path, "it holds no bytes", refusal);
     }
     unsigned char *const bytes = malloc((size_t)file_size);
     if (bytes == NULL)
     {
         fclose(file);
-        return refuse_net(path, "this process is out of memory");
+        return refuse_net(path, "this process is out of memory", refusal);
     }
     const bool is_read_ok = fread(bytes, 1, (size_t)file_size, file) == (size_t)file_size;
     fclose(file);
-    const NnueNetwork *const loaded =
-        is_read_ok ? nnue_parse(bytes, (size_t)file_size, path) : refuse_net(path, "it opened but could not be read");
+    const NnueNetwork *const loaded = is_read_ok ? nnue_parse(bytes, (size_t)file_size, path, refusal)
+                                                 : refuse_net(path, "it opened but could not be read", refusal);
     free(bytes);
     return loaded;
 }
 
-const NnueNetwork *nnue_load_embedded(void)
+const NnueNetwork *nnue_load_embedded(NnueRefusal *refusal)
 {
-    return nnue_parse(embedded_network_data, embedded_network_size, "<embedded net>");
+    return nnue_parse(embedded_network_data, embedded_network_size, "<embedded net>", refusal);
 }
 
 void nnue_free(const NnueNetwork *net)
@@ -654,7 +671,7 @@ void nnue_free(const NnueNetwork *net)
 // ---- verification helpers ----------------------------------------------------------------------------
 int nnue_eval_fens_from_stdin(const char *net_path)
 {
-    const NnueNetwork *const net = nnue_load(net_path);
+    const NnueNetwork *const net = nnue_load(net_path, NULL);
     if (net == NULL)
     {
         fprintf(stderr, "nnue: failed to load %s\n", net_path);
@@ -776,7 +793,7 @@ int nnue_run_self_check(const char *net_path)
         return 1;
     }
 
-    const NnueNetwork *const net = nnue_load(net_path);
+    const NnueNetwork *const net = nnue_load(net_path, NULL);
     if (net == NULL)
     {
         fprintf(stderr, "nnue: failed to load %s\n", net_path);

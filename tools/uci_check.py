@@ -12,6 +12,8 @@ GUI, a book builder or a test harness actually talks to, by running the binary a
   container's loader can reach - a bad magic, a net in a retired ZNNUE container, a corrupt header, a sound header
   describing another architecture (field by field), a non-zero reserved byte, a truncated, over-long or empty file,
   and a corrupt payload;
+- a refused `setoption name EvalFile`, which must be loud on BOTH streams - the loader's verdict naming the field
+  and both values, and which net is playing instead - and must leave that net searching;
 - every UCI option: Hash, Clear Hash, Threads, Move Overhead, EvalFile (a file, a refused file, the embedded net),
   OwnBook and BookFile (a file, a missing, empty, ragged or unsorted one, a path with a space, castling entries),
   and the tunable search parameters, whose effect is shown by the node count of a fixed-depth search;
@@ -57,6 +59,7 @@ class Gate:
         self.engine = engine
         self.passed = 0
         self.failed = 0
+        self.last_stderr = []  # the stderr of the most recent session(): what a match harness keeps
 
     def report(self, is_pass, detail, aux, tail):
         """Print one result line: name, detail, the node column left blank, aux, the time and Mnps blank, tail."""
@@ -76,19 +79,29 @@ class Gate:
 
     def session(self, steps):
         """Drive one UCI session: each step is a line to send, or (line, regex) to send and then wait for an output
-        line matching regex, or a number of seconds to sleep. A final quit is sent. Return every output line."""
+        line matching regex, or a number of seconds to sleep. A final quit is sent. Return every stdout line; the
+        session's stderr lands in self.last_stderr (drained by its own thread, so a full pipe cannot stall the
+        engine) — a refusal has to be checked on both streams, because a GUI reads only stdout and a match harness
+        keeps only stderr."""
         process = subprocess.Popen([self.engine], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                   stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", cwd=ROOT)
+                                   stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=ROOT)
         lines = []
         arrived = queue.Queue()
+        self.last_stderr = []
 
         def reader():
             for line in process.stdout:
                 arrived.put(line.rstrip("\r\n"))
             arrived.put(None)
 
+        def error_reader():
+            for line in process.stderr:
+                self.last_stderr.append(line.rstrip("\r\n"))
+
         thread = threading.Thread(target=reader, daemon=True)
         thread.start()
+        error_thread = threading.Thread(target=error_reader, daemon=True)
+        error_thread.start()
         deadline = time.monotonic() + TIMEOUT
 
         def wait_for(pattern):
@@ -121,6 +134,7 @@ class Gate:
             process.wait()
             lines.append(f"<session failed: {error}>")
         thread.join(timeout=5)
+        error_thread.join(timeout=5)
         while not arrived.empty():
             line = arrived.get()
             if line is not None:
@@ -357,9 +371,9 @@ def check_options(gate, nnue_paths):
     gate.report(from_file == baseline, "EvalFile", f"file = embedded: {from_file}", f"({NET})")
     lines = gate.session(["setoption name Threads value 1",
                           (f"setoption name EvalFile value {NET}", r"^info string loaded NNUE"),
-                          ("setoption name EvalFile value nets/missing.nnue", r"^info string NNUE: refused"),
+                          ("setoption name EvalFile value nets/missing.nnue", r"was refused and is not in play"),
                           (f"setoption name EvalFile value {nnue_paths['wrong hidden']}",
-                           r"^info string NNUE: refused"),
+                           r"was refused and is not in play"),
                           ("setoption name EvalFile value", r"^info string using the embedded net"),
                           "position startpos", go("go depth 4")])
     gate.report(len(bestmoves(lines)) == 1, "EvalFile", "load, refuse, reset", "(a file; a missing one and a "
@@ -377,6 +391,58 @@ def check_options(gate, nnue_paths):
     lines = gate.session(["setoption name Threads value 0", "position startpos", go("go depth 6"),
                           "setoption name Threads value 999", "setoption name Threads value 3", go("go depth 6")])
     gate.report(len(bestmoves(lines)) == 2, "Threads", "clamped, pool resized", "(0 -> one thread, then three)")
+
+
+def check_evalfile_refusal_is_loud(gate, nnue_paths):
+    """A refused `setoption name EvalFile` must be loud on BOTH streams, name the net still playing, and
+    leave that net searching.
+
+    The trap: a harness sets EvalFile, sees readyok, and runs a thousand games it credits to a net that
+    never played a move. "The reason is on stderr" closes only half of it - a UCI GUI never sees stderr,
+    and a harness routinely drops `info` lines - so each of the three facts below is checked on stdout
+    *and* on stderr: that the net was refused, which field disagreed and with what values, and which net
+    is in play instead. The wording is shared with pawnstar, pawnstar-rs and pawnstar-go."""
+    bad = nnue_paths["wrong hidden"]
+    kept = f"NNUE: keeping the net already loaded ('{NET}'); '{bad}' was refused and is not in play"
+    lines = gate.session(["setoption name Threads value 1",
+                          (f"setoption name EvalFile value {NET}", r"^info string loaded NNUE"),
+                          ("isready", r"^readyok$"),
+                          "position startpos moves e2e4 e7e5", go("go depth 9"),
+                          (f"setoption name EvalFile value {bad}", r"was refused and is not in play"),
+                          ("isready", r"^readyok$"),
+                          "position startpos moves e2e4 e7e5", go("go depth 9")])
+    errors = gate.last_stderr
+
+    # 1. the loader's own verdict, on stdout as an `info string` and on stderr, naming the field and both values.
+    reasons = [line for line in lines if line.startswith("info string nnue: refusing net ")]
+    reason = reasons[0] if len(reasons) == 1 else ""
+    names_the_field = all(part in reason for part in (f"'{bad}'", "hidden_size is", "0x200", "0x400",
+                                                      "in the file", "in this engine"))
+    on_stderr = reason[len("info string "):] in errors
+    gate.report(names_the_field and on_stderr, "EvalFile", "reason: both",
+                "(hidden_size, file's value and the engine's, as info string and on stderr)")
+
+    # 2. the kept net, named, on both streams: the one fact the loader cannot know.
+    gate.report(f"info string {kept}" in lines and kept in errors, "EvalFile", "kept net named",
+                f"(...keeping the net already loaded ('{NET}')...)")
+
+    # 3. and that net is still searching: a real search after the refusal, not a bestmove with nothing behind
+    # it. Node counts differ from the first search (a warm TT, and the history tables the session carries),
+    # so the evidence is depth 9 reached with nodes counted and the same move chosen.
+    marker = f"info string {kept}"
+    after = lines[lines.index(marker):] if marker in lines else []  # a missing line is a FAIL, not a traceback
+    searched = last_info_nodes(after)
+    moves = bestmoves(lines)
+    gate.report(len(moves) == 2 and moves[0] == moves[1] and searched is not None and searched > 0 and
+                any(line.startswith("info depth 9 ") for line in after), "EvalFile",
+                f"still searching: {searched}", f"(depth 9 after the refusal, {moves[0] if moves else '-'} again)")
+
+    # The origin is remembered from construction too: refuse before any file was ever loaded and the engine
+    # must name the embedded net as the one in play, not an empty string or the path it just refused.
+    lines = gate.session([(f"setoption name EvalFile value {bad}", r"was refused and is not in play")])
+    embedded_kept = f"NNUE: keeping the net already loaded ('embedded'); '{bad}' was refused and is not in play"
+    gate.report(f"info string {embedded_kept}" in lines and embedded_kept in gate.last_stderr, "EvalFile",
+                "embedded named", "(a refusal before any EvalFile names the embedded net as the one in play)")
 
 
 def polyglot_entry(key, move_from, move_to, weight=1):
@@ -656,6 +722,7 @@ def main():
         nnue_paths = check_nnue(gate, scratch)
         check_cli_misc(gate)
         check_options(gate, nnue_paths)
+        check_evalfile_refusal_is_loud(gate, nnue_paths)
         check_books(gate, scratch)
         check_positions_and_go(gate)
         check_malformed(gate)

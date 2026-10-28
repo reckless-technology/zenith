@@ -155,8 +155,12 @@ after; kept file-scope because they sit on the hottest loads (see `bitboard.h`).
 - **eval.\*** — `evaluate(pos, cache)` returns centipawns from side-to-move POV (memoised in the engine's
   shared lockless `EvalCache`; NULL = uncached). Always the NNUE forward: every `Engine` holds a net — the
   **build-time-embedded** one (tools/embed_net.py -> build/embedded_net.o, from `NET` in the Makefile) by
-  default, replaced by UCI `EvalFile` — a net that fails any of the container's checks is **refused**, with
-  the reason on stderr, and the net already loaded keeps playing; nothing falls back. The hand-crafted
+  default, replaced by UCI `EvalFile` — a net that fails any of the container's checks is **refused** and the
+  net already loaded keeps playing; nothing falls back. On a refused `setoption`, both the loader's reason
+  (field, file's value, engine's value) and *which net is still playing* go out on **both** streams: as
+  `info string` lines on stdout, where a GUI reads them, and on stderr, which a match harness keeps. The
+  loader itself writes only to stderr, so `nnueeval`/`nnuecheck` stdout stays pure; the UCI layer repeats the
+  line it is handed back (`NnueRefusal`). Startup prints nothing new. The hand-crafted
   PeSTO fallback was removed with the embedded default; git history keeps it. This single call site is the
   NNUE seam.
 - **nnue.\*** — quantised **king-bucketed** (768×8 → 1024 → 8 output heads) SCReLU perspective net: the
