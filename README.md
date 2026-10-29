@@ -296,7 +296,7 @@ make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text
 ./build/zenith-bullet2text <shard.data> data/bullet/shard.txt 0 4
 PYTHONPATH=trainer python trainer/train.py --featurise-shard data/bullet/shard.txt data/shards/s00.npz
 PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
-    --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
+    --hidden-size 1024 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
 PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./build/zenith
 ```
 
