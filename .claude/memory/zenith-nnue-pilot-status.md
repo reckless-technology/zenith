@@ -17,7 +17,7 @@ CORRECT and validated: 0cp gate (engine == trainer, bit-identical), color-mirror
 hugely — one iteration added +211 Elo and flipped the timed result positive; (3) 512 hidden is the sweet
 spot for this data (768 overfits); (4) speed matters — int16+AVX2 refresh (641k->1.08M nps) added ~+41 timed.
 
-**Current best net: `nets/zenith-pc2.nnue` (committed, 512 hidden).** Trained on a public bulletformat
+**Current best net: `nets/zenith-pc2.nnue` (committed, 512 hidden).** Trained on the public PlentyChess
 dataset (via `bullet2text`), which broke the self-play plateau: pc1 (70M) was +154 over the best self-play
 net v6; pc2 (187M) +30 more. More data then saturated the 512 net.
 
@@ -30,6 +30,6 @@ incremental==refresh) + pseudo-legal movegen with legality filtered in-search (S
 is_legal's redundant copy-make). nps 641k→1.98M. Search: + IIR + singular extensions.
 
 **Gap to pawnstar (timed 8+0.08): −489 (v4) → −385 → −308 (speed) → −246 (pc1) → −211 (pc2).** Halved.
-Next levers: more dataset shards (200M→500M+ via streaming), SPSA tuning of search margins for the
+Next levers: more PlentyChess shards (200M→500M+ via streaming), SPSA tuning of search margins for the
 NNUE eval scale, Lazy SMP + lockless TT.
 Related: [[zenith-goal-independence]] [[training-setup]]

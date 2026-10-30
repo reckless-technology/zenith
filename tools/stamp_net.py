@@ -10,7 +10,7 @@ engine, rather than a header that describes the payload and loads the wrong weig
 
 Two inputs are accepted, and the only difference is where the payload starts:
 
-    python3 tools/stamp_net.py nets/zenith-cap2.nnue             # re-stamp in place
+    python3 tools/stamp_net.py nets/reckless-lc0-runf-sb870.nnue  # re-stamp in place
     python3 tools/stamp_net.py raw.payload nets/zenith-new.nnue  # a bare payload from the trainer
 
 A file already in the RNNUE1 container is read back through its own checks first, so re-stamping a
