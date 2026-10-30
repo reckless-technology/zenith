@@ -390,3 +390,9 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
 Zenith is free software licensed under the **GNU General Public License v3.0 or later** (see
 [LICENSE](LICENSE)). Copyright © 2026 Jonny Reckless. You may use, modify, and redistribute it under the
 terms of the GPL; derivative works must remain open under the same license.
+
+Third-party notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which ships in every release
+archive and is printed by `./build/zenith license`. Chief among them: the network embedded in every binary
+was trained on Leela Chess Zero self-play data, published under the **Open Database License 1.0**, and
+distributing the network obliges the attribution notice that file carries. The network is not itself
+ODbL-licensed and is not GPL.
