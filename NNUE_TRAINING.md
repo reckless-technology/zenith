@@ -310,13 +310,19 @@ Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for stre
 
 A verified net is only *correct*, not necessarily *stronger*. Gate it with a self-play SPRT via
 `tools/sprt.sh` (fastchess). `CAND_NET` / `BASE_NET` set each side's `EvalFile`; an unset side uses its embedded net.
+**`OPENINGS` is required** — no opening set ships in this repo, and `books/`'s Polyglot `.bin` files are not
+one (fastchess wants EPD or PGN).
 
 ```bash
 # new net vs the current release net
-CAND_NET=nets/zenith-new.nnue BASE_NET=nets/reckless-lc0-runf-sb870.nnue tools/sprt.sh
+OPENINGS=/path/to/openings.epd     CAND_NET=nets/zenith-new.nnue BASE_NET=nets/reckless-lc0-runf-sb870.nnue tools/sprt.sh
 # new net vs the embedded net (BASE_NET unset)
-CAND_NET=nets/zenith-new.nnue tools/sprt.sh
+OPENINGS=/path/to/openings.epd CAND_NET=nets/zenith-new.nnue tools/sprt.sh
 ```
+
+The script pins `Threads=1`, `Hash` (16 MB, `$HASH`) and `OwnBook=false` on both engines, and prints them
+beside the result, so a measurement does not depend on a UCI default or on the machine's core count. It
+defaults `CONCURRENCY` to one game per physical core less one.
 
 Fixed-depth matches isolate eval quality from NNUE's speed cost. **Self-play gains only partially transfer
 to a much stronger reference** (an eval win of +60 in self-play was ~+20 vs the pawnstar reference), so SPRT

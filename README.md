@@ -1,12 +1,17 @@
 # Zenith
 
-A UCI chess engine in **C17** with its own independently-trained NNUE evaluation. 
+An independent UCI chess engine in **C17** — its own search, move generation, data generation and
+trainer, written from scratch rather than ported — evaluating with the shared Reckless NNUE network.
 
 The source code was written by Claude Code under the close supervision and direction of Jonny Reckless.
 
 Zenith pairs a modern alpha-beta search — iterative deepening, principal-variation search, a lockless
 transposition table, the full pruning/reduction stack, and Lazy SMP — with a king-bucketed neural
-network evaluation trained by the repository's own pipeline.
+network evaluation: the **shared Reckless NNUE**, which every chess engine in the organisation now
+evaluates with, trained on Leela Chess Zero self-play data. The network shape is Zenith's own design,
+measured here; the weights it ships are not trained by `trainer/`, and the nets it shipped before 3.0.0
+were trained on PlentyChess positions — see
+[Provenance of earlier networks](NNUE_TRAINING.md#provenance-of-earlier-networks).
 
 Goals for the project were:
 - Keep the source code relatively small and simple.
