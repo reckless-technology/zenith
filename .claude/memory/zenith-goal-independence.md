@@ -44,9 +44,9 @@ wrong net apart only by its file size, which is the exact failure the shared con
 
 ## What still stands
 
-- **The trainer is still Zenith's own** (`trainer/`, PyTorch/CUDA) — not pawnstar's `bullet`. Only the
-  shape and the file format are common; nothing says the trainers must be.
-- **The trainer in `trainer/` is still Zenith's own**, but **the shipped net no longer comes out of it.**
+- **The trainer is still Zenith's own** (`trainer/`, PyTorch/CUDA), and nothing says the trainers must be
+  common — but **the shipped net no longer comes out of it**, so "Zenith's nets are trained by Zenith's
+  trainer" is no longer true of the net that ships.
   From 3.0.0 the embedded net is `nets/reckless-lc0-runf-sb870.nnue`, trained **entirely on Leela Chess
   Zero self-play data** in the shared Reckless NNUE pipeline (pawnstar's `bullet`), adopted because it
   replaces the withdrawn dataset's lineage. It loads unchanged — identical architecture and `RNNUE1`
