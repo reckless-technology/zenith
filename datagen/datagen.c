@@ -352,7 +352,7 @@ int run_bullet2text(const int argc, char **argv)
     {
         if ((read_count++ % stride) != offset)
         {
-            continue; // subsample the dataset for a diverse manageable slice
+            continue; // subsample the (5.7B-position) PlentyChess dataset for a diverse manageable slice
         }
         uint64_t occupancy;
         int16_t  score;

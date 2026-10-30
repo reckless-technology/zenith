@@ -31,9 +31,9 @@ work rather than by borrowing pawnstar's. Two things retired that:
 
 1. **The comparison is settled.** Zenith won it, measured, with its own architecture, trainer and data.
    Sharing an evaluator afterwards cannot retroactively make that result borrowed.
-2. **Both engines now need retraining off the same withdrawn dataset.** Zenith's shipped `zenith-cap2`
-   and pawnstar's shipped v12 both derive from the third-party dataset that was withdrawn, so both need a
-   new net from a clean pool. Developing that evaluation function once instead of five times is the whole
+2. **Both engines now need retraining off the same dataset — the public PlentyChess dataset, by
+   Yoshie2000, which is no longer used.** Zenith's shipped `zenith-cap2` and pawnstar's shipped v12 both
+   derive from it, so both need a new net from a clean pool. Developing that evaluation function once instead of five times is the whole
    point, and the two engines were going to be retrained on a common pool regardless.
 
 **And the shape chosen was Zenith's**, which is the clearest statement of what the independent work was
@@ -49,22 +49,27 @@ wrong net apart only by its file size, which is the exact failure the shared con
   trainer" is no longer true of the net that ships.
   From 3.0.0 the embedded net is `nets/reckless-lc0-runf-sb870.nnue`, trained **entirely on Leela Chess
   Zero self-play data** in the shared Reckless NNUE pipeline (pawnstar's `bullet`), adopted because it
-  replaces the withdrawn dataset's lineage. It loads unchanged — identical architecture and `RNNUE1`
+  replaces the PlentyChess lineage, and the swap did **not** wait on an A/B result — removing the data
+  dependency is the point. It loads unchanged — identical architecture and `RNNUE1`
   header, `nnuecheck` 3/3 at `max|diff| 0` and `trainer/verify.py` 0 cp over 4,000 positions — and moves
   the bench signature 1,390,606 -> 1,653,778. **Its strength in Zenith is NOT YET MEASURED** (Jonny is
   running `reckless-lc0-runf-sb870` against `zenith-cap2` himself); the +9.99 Elo at 8+0.08 and +1.13 at
   12+0.12 measured for this net are **pawnstar's numbers against pawnstar's old net** and do not transfer.
 - Zenith's `datagen` self-play generator trained only the `v1`-`v5` pilots and the opening book. **No net
-  Zenith ever released was trained on it** — the external dataset was adopted at `pc1` because it beat the
-  self-play plateau by ~154 Elo. A claim that Zenith's nets have always come from its own self-play data is
-  false, and the reason `git grep -i <dataset name>` finds nothing is commit `8900c39`, which scrubbed the
-  name on 2026-10-25, not an absence of the dependency.
+  Zenith ever released was trained on it** — the **PlentyChess** dataset was adopted at `pc1` because it
+  beat the self-play plateau by ~154 Elo, and every released net from `pc2` to `cap2` descends from it. A
+  claim that Zenith's nets have always come from its own self-play data is **false**. From 2026-10-25 to
+  2026-10-30 a grep for the name found nothing, because commit `8900c39` scrubbed it — evidence of the
+  name's absence, not the dependency's; that scrub is **reversed**, the name is back in the documents and
+  in `datagen/`, and a grep is a working way to find this dependency again.
 - **No pawnstar source code is reused anywhere**, in the evaluator or outside it. Zenith remains a
   from-scratch C17 engine ([[pawnstar-reference-opponent]] is an opponent, not a dependency).
-- **Never train on the withdrawn third-party dataset**, and do not extend `zenith-cap2`'s lineage — the
-  3.0.0 net replaces it. `nets/zenith-cap2.nnue` and `zenith-cap1.nnue` stay **in the tree**: unlike the
-  pawnstar repos there is no provenance reason to delete them, and `cap2` is the baseline the new net is
-  measured against. Removing either is Jonny's call, not an agent's.
+- **Never train on the PlentyChess dataset**, and do not extend `zenith-cap2`'s lineage — the 3.0.0 net
+  replaces it. **`nets/zenith-cap1.nnue` and `nets/zenith-cap2.nnue` are removed from the tree** (3.0.0;
+  history preserves them), so no release ships a PlentyChess-derived net — do not restore either, and do
+  not point a build default or a test fixture at one. The **attribution stays** in README.md and
+  NNUE_TRAINING.md deliberately: those nets were measurably stronger for that data and the record should
+  show where they came from. Credit and fact only — no rights or legal argument anywhere.
 
 **How to apply:** pipeline is `datagen/` → PyTorch trainer (`trainer/train.py`) → stamp into `RNNUE1`
 (`tools/stamp_net.py`) → engine NNUE (`src/nnue.*`) → SPRT. Every strength change is still

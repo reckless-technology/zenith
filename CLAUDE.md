@@ -247,13 +247,17 @@ the data stay Zenith's own.
   — hence no `zenith-` prefix. Its strength in Zenith is **NOT YET MEASURED**: it loads unchanged
   (same shape and container; `nnuecheck` and `trainer/verify.py` clean) and moves the bench signature
   1,390,606 -> **1,653,778**, which is an eval change, not a strength result. Figures measured for this net
-  in pawnstar are pawnstar's and do not transfer. `nets/zenith-cap2.nnue` is **kept** as that
-  measurement's baseline.
-  Every net Zenith shipped up to 2.1.x, `zenith-cap2` included, was trained on the **withdrawn**
-  third-party bulletformat dataset, which is why the shipped net was replaced; the `datagen` self-play
-  generator trained only the `v1`-`v5` pilots and the opening book. `zenith-cap2` = cap1's 1024-wide
-  architecture retrained on **2.15B** positions of that dataset: **+10 Elo fixed-depth SPRT over cap1**,
-  val loss 0.013746. Lineage, all on the withdrawn dataset: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2
+  in pawnstar are pawnstar's and do not transfer. **The swap did not wait on that measurement**: the nets
+  up to `zenith-cap2` were trained on **PlentyChess** self-play positions (by Yoshie2000, up to 2.15B),
+  that data is no longer used, and removing the dependency is the point — so the match says what the
+  change cost, not whether to make it. **`nets/zenith-cap1.nnue` and `nets/zenith-cap2.nnue` are REMOVED
+  from the tree** at 3.0.0 (git history preserves them); the only net in `nets/` is the 3.0.0 one, and
+  nothing may point a build or a fixture at a PlentyChess-derived net again. The attribution stays in the
+  documents deliberately — those nets were measurably stronger for that data; see NNUE_TRAINING.md
+  "Provenance of earlier networks". `datagen` trained only the `v1`-`v5` pilots and the opening book.
+  `zenith-cap2` = cap1's 1024-wide architecture retrained on **2.15B** of those positions: **+10 Elo
+  fixed-depth SPRT over cap1**, val loss 0.013746 — every such measurement stands as made.
+  Lineage, all on PlentyChess data: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2
   (+14.7, output buckets) -> km1 (+14.3, mirroring) -> cap1 (+14.7 timed, 1024 hidden) -> cap2 (+10, 2.15B
   data). Data returns REOPENED at 1024 hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
   shipped engine's architecture (git history preserves them); the loader refuses a mismatch by name, from
