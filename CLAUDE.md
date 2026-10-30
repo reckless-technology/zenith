@@ -52,7 +52,7 @@ python3 tools/stamp_net.py <net>  # (re)stamp a weight payload into the shared R
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 ./build/zenith embookcheck   # the EMBEDDED book: blob, entry invariants, probe path (11 checks)
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base
-tools/sprt.sh ./build/zenith ./build/zenith-base   # self-play SPRT of a change vs the baseline
+OPENINGS=... tools/sprt.sh [rounds]   # self-play SPRT vs ./build/zenith-base (engines via CAND/BASE, not argv)
 make tables            # regenerate src/generated/*.inc (Zobrist/ln/geometry/magic constants) — deliberate
 make format            # clang-format all sources in place
 make hooks             # enable the clang-format pre-commit hook (once per clone; core.hooksPath -> .githooks)
@@ -97,8 +97,13 @@ tables itself and fails CI's Windows build and the release's on any other DLL.
 
 The build is **one `clang` invocation over all of `src/*.c`** so LTO sees everything — there are no
 object files or per-file targets. `-march=native` is dev-only; a real release fans out per microarch.
-`tools/sprt.sh` runs **fastchess** (cutechess-cli is not installed here) with an openings EPD (`$OPENINGS`, default
-`~/pawnstar_nnue/openings.epd`); tune via env vars `TC` / `ELO0` / `ELO1` / `CONCURRENCY`.
+`tools/sprt.sh` runs **fastchess** (cutechess-cli is not installed here) with an openings EPD. **`OPENINGS`
+is required and has no default** - no opening set ships here, and `books/`'s Polyglot `.bin` files are not
+one. Tune via `TC` / `ELO0` / `ELO1` / `CONCURRENCY` / `HASH`. The script **pins `Threads=1`, `Hash`
+(16 MB) and `OwnBook=false` per engine**: zenith's own Threads default is `platform_cpu_count() / 2`, so an
+unpinned harness plays multi-threaded engines at a concurrency also sized from `nproc` and measures
+scheduler noise. `CONCURRENCY` defaults to one game per physical core less one (`nproc / 2 - 1`, SMT
+assumed).
 
 ## The testing discipline (this is the point of the project)
 
