@@ -366,8 +366,12 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
   distributing one obliges a notice naming the source:
 
   > Position data from the Leela Chess Zero self-play training data
-  > (https://storage.lczero.org/files/training_data/), runs `test91` and `test60`, used under the Open
-  > Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+  > (https://storage.lczero.org/files/training_data/), run test91, used under the Open Database
+  > License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+
+  > Position data from the Leela Chess Zero self-play training data
+  > (https://storage.lczero.org/files/training_data/), run test60, used under the Open Database
+  > License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
 
   The pool was 62.83 % `test91` and 37.17 % `test60`. The obligation is **the notice**: ODbL does *not*
   require the network to be ODbL-licensed, and the network is *not* GPL merely because GPLv3 code trained it
