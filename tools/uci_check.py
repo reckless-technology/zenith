@@ -332,6 +332,18 @@ def check_cli_misc(gate):
     status, out, err = gate.run("frobnicate", stdin="isready\nquit\n")
     gate.report(status == 0 and "unknown subcommand" in err and "readyok" in out, "argv", "unknown -> UCI loop",
                 "(a GUI's stray argument starts the protocol)")
+    # The ODbL 1.0 notice the embedded network owes, carried inside the binary: a release archive ships
+    # THIRD-PARTY-NOTICES.md, but a binary copied out on its own must still name the training data's source.
+    for spelling in ("license", "licence"):
+        status, out, _ = gate.run(spelling)
+        owed = ("storage.lczero.org/files/training_data/" in out
+                and "Open Database License 1.0" in out
+                and "opendatacommons.org/licenses/odbl/1.0/" in out
+                and "opendatacommons.org/licenses/dbcl/1.0/" in out
+                and "test91" in out and "test60" in out
+                and "GNU General Public License" in out
+                and "THIRD-PARTY-NOTICES.md" in out)
+        gate.report(status == 0 and owed, spelling, "the ODbL + GPL notices", "(source, both licences, the runs)")
 
 
 def check_options(gate, nnue_paths):
