@@ -739,11 +739,57 @@ void uci_loop(Engine *engine)
     book_free(&session.book);
 }
 
+/**
+ * @brief Print the licence and the third-party notices this binary owes, then return.
+ *
+ * The ODbL 1.0 notice is the reason this exists. The shipped network is embedded in every binary at build
+ * time (Makefile NET) and was trained entirely on Leela Chess Zero self-play training data, which is
+ * published under the Open Database License 1.0; a trained network is an ODbL "Produced Work", and
+ * distributing one obliges a notice naming the source. A downloaded release archive carries
+ * THIRD-PARTY-NOTICES.md beside the engine, and this subcommand carries the same notice inside the engine,
+ * so the notice travels with the Produced Work even when the binary is copied out on its own.
+ *
+ * It prints and nothing else: no search, no evaluation and no engine state are touched, so it cannot move
+ * the bench node signature.
+ */
+static void print_notices(void)
+{
+    printf("Zenith %s - an independent UCI chess engine.\n", ZENITH_VERSION_STRING);
+    printf("Copyright (C) 2026 Jonny Reckless.\n");
+    printf("Free software under the GNU General Public License v3.0 or later (see LICENSE);\n");
+    printf("there is NO WARRANTY, to the extent permitted by law.\n\n");
+    printf("NNUE training data - attribution required by the Open Database License 1.0:\n\n");
+    printf("  Position data from the Leela Chess Zero self-play training data\n");
+    printf("  (https://storage.lczero.org/files/training_data/), runs test91 and test60, used under\n");
+    printf("  the Open Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).\n\n");
+    printf("The network embedded in this binary (nets/reckless-lc0-runf-sb870.nnue) was trained entirely\n");
+    printf("on that data - a pool 62.83%% test91 and 37.17%% test60 - published under the Open Database\n");
+    printf("License 1.0 (ODbL-1.0, http://opendatacommons.org/licenses/odbl/1.0/) with its contents under\n");
+    printf("the Database Contents License 1.0 (DbCL-1.0, http://opendatacommons.org/licenses/dbcl/1.0/).\n");
+    printf("A trained network is an ODbL Produced Work: the obligation is this notice. ODbL does NOT\n");
+    printf("require the network itself to be ODbL-licensed, and the network is NOT GPL merely because\n");
+    printf("GPLv3 code trained it or reads it. The data is Leela's; the network came from the shared\n");
+    printf("Reckless NNUE pipeline, not from Zenith's own trainer/, which did not produce these weights.\n\n");
+    printf("Other notices: the 128-position perft reference counts are Ethereal's standard.epd\n");
+    printf("(https://github.com/AndyGrant/Ethereal, GPL-3.0; test data only, no code); the Polyglot key\n");
+    printf("constants are the public book-format specification's (http://hgm.nubati.net/book_format.html).\n");
+    printf("The embedded opening book is built from Zenith's own self-play. Full text:\n");
+    printf("THIRD-PARTY-NOTICES.md, shipped in every release archive.\n");
+    fflush(stdout);
+}
+
 /** @brief The process entry body: dispatch a CLI subcommand if given, else run the UCI loop. */
 int uci_run(Engine *engine, int argc, char **argv)
 {
     if (argc > 1)
     {
+        // The licence and the third-party notices, above all the ODbL 1.0 notice the embedded network owes:
+        // a downloaded binary carries the Produced Work, so it carries the notice too. Printing only.
+        if (!strcmp(argv[1], "license") || !strcmp(argv[1], "licence"))
+        {
+            print_notices();
+            return 0;
+        }
         if (!strcmp(argv[1], "bench"))
         {
             return run_bench(engine,
@@ -902,7 +948,8 @@ int uci_run(Engine *engine, int argc, char **argv)
         fprintf(stderr,
                 "note: unknown subcommand \"%s\" — starting the UCI loop (subcommands: bench perft legalcheck moves "
                 "polykey "
-                "seecheck fuzzcheck bookcheck embookcheck nnuecheck nnueeval; datagen tools are separate binaries, "
+                "seecheck fuzzcheck bookcheck embookcheck nnuecheck nnueeval license; datagen tools are separate "
+                "binaries, "
                 "see `make datagen`)\n",
                 argv[1]);
     }

@@ -352,7 +352,8 @@ failure) ⇒ the build-time-embedded net.
 ## 9. Current release net
 
 `nets/reckless-lc0-runf-sb870.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads**
-SCReLU in the shared `RNNUE1` container, trained **entirely on Leela Chess Zero self-play data**. It is
+SCReLU in the shared `RNNUE1` container, trained **entirely on Leela Chess Zero self-play data** (a pool
+62.83 % `test91` and 37.17 % `test60`). It is
 embedded in every binary at build time (`Makefile NET`) from **3.0.0** onward. It is the only net in the
 tree: `zenith-cap1.nnue` and `zenith-cap2.nnue` were removed at 3.0.0 (see below), and git history
 preserves them.
@@ -375,6 +376,28 @@ The 3.0.0 net is not a product of Zenith's own trainer either, which is why it d
 name: it came from the shared Reckless NNUE training pipeline, at the shape and in the `RNNUE1` container
 every Reckless engine now reads, and `runf-sb870` names the run and checkpoint it came from. Zenith's
 PyTorch trainer in `trainer/` is unchanged and still builds nets of this shape.
+
+### Training-data attribution (ODbL 1.0) — the notice this release owes
+
+Leela Chess Zero's self-play training data (<https://storage.lczero.org/files/training_data/>) is published
+under the **Open Database License 1.0** (`ODbL-1.0`, <http://opendatacommons.org/licenses/odbl/1.0/>), with
+its contents under the **Database Contents License 1.0** (`DbCL-1.0`,
+<http://opendatacommons.org/licenses/dbcl/1.0/>). A trained network is an ODbL **Produced Work**, and
+distributing one obliges a notice naming the source:
+
+> Position data from the Leela Chess Zero self-play training data
+> (https://storage.lczero.org/files/training_data/), runs `test91` and `test60`, used under the Open
+> Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+
+Two things that notice does **not** mean. ODbL does **not** require the network to be ODbL-licensed — the
+share-alike reaches derivative *databases*, not Produced Works made from one — and the network is **not**
+GPL merely because GPLv3 code trained it or reads it. And the data is Leela's while the *network* is the
+shared Reckless pipeline's: Zenith's `datagen` and `trainer/` exist and can build a net of this shape, but
+they did not produce these weights.
+
+The authoritative copy of this notice, with every other notice Zenith owes, is
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); it ships in every release archive, and
+`./build/zenith license` prints it from the binary.
 
 Progression of the eval (each step SPRT-gated). Every measurement below stands exactly as it was made;
 everything from `pc2` to `cap2` is on the PlentyChess data, so those deltas measure architecture and

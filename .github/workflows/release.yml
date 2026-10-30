@@ -21,7 +21,9 @@
 #     carry no stapled ticket; Gatekeeper finds its ticket online, as the release checks it does.
 #   A publishing run that would ship an unsigned engine fails instead.
 #
-# The files, each archive holding the engine, README.md and LICENSE: zenith-v<version>-linux-x86-64-v2.tar.gz and
+# The files, each archive holding the engine, README.md, LICENSE and THIRD-PARTY-NOTICES.md - the embedded NNUE
+# network is an ODbL 1.0 Produced Work, so the notice naming its training data travels with the binary:
+# zenith-v<version>-linux-x86-64-v2.tar.gz and
 # -linux-x86-64-v3-pext.tar.gz, -windows-x86-64-v2.zip and -windows-x86-64-v3-pext.zip, -macos-arm64.zip, and
 # -SHA256SUMS.txt over them all. verify opens the release as a draft and each job uploads straight onto it; publish
 # writes the checksums (in a dry run too), checks every archive is on the draft as built, pushes the tag and takes the
@@ -132,8 +134,8 @@ jobs:
               echo "- **Linux (x86-64):** \`zenith-$tag-linux-x86-64-v2.tar.gz\` and \`-x86-64-v3-pext.tar.gz\`."
               echo
               echo "\`x86-64-v2\` runs on essentially any modern x86-64 (magic bitboards); \`x86-64-v3-pext\` needs AVX2 and BMI2"
-              echo "(Intel Haswell+, AMD Zen 3+) and uses faster PEXT sliding attacks. Each archive holds the engine, README.md"
-              echo "and LICENSE; verify downloads against \`zenith-$tag-SHA256SUMS.txt\`. The search is bit-identical on"
+              echo "(Intel Haswell+, AMD Zen 3+) and uses faster PEXT sliding attacks. Each archive holds the engine, README.md,"
+              echo "LICENSE and THIRD-PARTY-NOTICES.md; verify downloads against \`zenith-$tag-SHA256SUMS.txt\`. The search is bit-identical on"
               echo "every platform (the bench node signature, checked on each)."
               echo
               echo "$changes"
@@ -191,8 +193,8 @@ jobs:
         run: |
           mkdir -p out
           for variant in x86-64-v2 x86-64-v3-pext; do
-            cp README.md LICENSE "stage/$variant/"
-            tar -C "stage/$variant" --owner=0 --group=0 --numeric-owner -czf "out/zenith-$TAG-linux-$variant.tar.gz" zenith README.md LICENSE
+            cp README.md LICENSE THIRD-PARTY-NOTICES.md "stage/$variant/"
+            tar -C "stage/$variant" --owner=0 --group=0 --numeric-owner -czf "out/zenith-$TAG-linux-$variant.tar.gz" zenith README.md LICENSE THIRD-PARTY-NOTICES.md
           done
           ls -l out
       - name: Upload to the draft release
@@ -325,8 +327,8 @@ jobs:
         run: |
           mkdir -p out
           for variant in x86-64-v2 x86-64-v3-pext; do
-            cp README.md LICENSE "stage/$variant/"
-            (cd "stage/$variant" && zip -q "../../out/zenith-$TAG-windows-$variant.zip" zenith.exe README.md LICENSE)
+            cp README.md LICENSE THIRD-PARTY-NOTICES.md "stage/$variant/"
+            (cd "stage/$variant" && zip -q "../../out/zenith-$TAG-windows-$variant.zip" zenith.exe README.md LICENSE THIRD-PARTY-NOTICES.md)
           done
           ls -l out
       - name: Upload to the draft release
@@ -374,7 +376,7 @@ jobs:
         run: |
           make ARCH=
           make check ARCH=
-          mkdir -p stage && cp build/zenith stage/zenith && cp README.md LICENSE stage/
+          mkdir -p stage && cp build/zenith stage/zenith && cp README.md LICENSE THIRD-PARTY-NOTICES.md stage/
       - name: Open the signing keychain
         env:
           MACOS_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_P12 }}
