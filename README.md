@@ -283,14 +283,12 @@ verification helper (`nnueeval`); the training-data tools are separate executabl
 
 ## NNUE training pipeline
 
-Zenith's own pipeline is `datagen` (or an external dataset via `bullet2text`, which is how the nets up to
-`zenith-cap2` trained, on PlentyChess positions) → `trainer/` (PyTorch, CUDA) → a quantised
-`.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader. The shipped net
-need not come from it: any net of the shared shape loads, and **the net shipped from 3.0.0,
-`nets/reckless-lc0-runf-sb870.nnue`, is trained entirely on Leela Chess Zero self-play data** and came
-from the shared Reckless NNUE pipeline. The nets up to `zenith-cap2.nnue` trained on PlentyChess
-self-play positions instead — see
-[Provenance of earlier networks](NNUE_TRAINING.md#provenance-of-earlier-networks).
+Zenith's own pipeline is `datagen`, or an external dataset via `bullet2text`, → `trainer/` (PyTorch,
+CUDA) → a quantised `.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader.
+The shipped net need not come from it: any net of the shared shape loads, and **the net shipped from
+3.0.0, `nets/reckless-lc0-runf-sb870.nnue`, is trained entirely on Leela Chess Zero self-play data**, from
+the shared Reckless NNUE pipeline. The nets up to `zenith-cap2` took the second route, on **PlentyChess**
+positions — see [Provenance of earlier networks](NNUE_TRAINING.md#provenance-of-earlier-networks).
 The single source of truth for the feature indexing and quantisation contract is `trainer/features.py`,
 which `src/nnue.c` must reproduce byte-for-byte;
 `trainer/verify.py` enforces a **0 cp** difference between the engine's integer eval and the trainer
