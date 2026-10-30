@@ -49,7 +49,9 @@ python3 tools/uci_check.py ./build/zenith  # the UCI front end through pipes: ev
 ./build/zenith fuzzcheck     # malformed-FEN/UCI hardening (memory-safety gate; run under `make debug` for ASan)
 ./build/zenith nnuecheck <net># CRC-64/XZ check value, then incremental accumulator == full refresh
 python3 tools/stamp_net.py <net>  # (re)stamp a weight payload into the shared RNNUE1 container
-./build/zenith license       # the GPL notice + the ODbL 1.0 training-data attribution (THIRD-PARTY-NOTICES.md)
+./build/zenith license       # the GPL notice + the ODbL 1.0 training-data attribution (THIRD-PARTY-NOTICES.md);
+                             #   also a command of the UCI loop, and `licence` either way. The Reckless
+                             #   engines all carry it: a release binary embeds the net, so it embeds the notice
 ./build/zenith bookcheck     # Polyglot keys vs the 9 official spec vectors
 ./build/zenith embookcheck   # the EMBEDDED book: blob, entry invariants, probe path (11 checks)
 make baseline          # snapshot ./build/zenith -> ./build/zenith-base

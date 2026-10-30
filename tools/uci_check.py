@@ -344,6 +344,12 @@ def check_cli_misc(gate):
                 and "GNU General Public License" in out
                 and "THIRD-PARTY-NOTICES.md" in out)
         gate.report(status == 0 and owed, spelling, "the ODbL + GPL notices", "(source, both licences, the runs)")
+    # The same notice over the protocol, which is how a GUI or a harness asks for it; the engine carries on
+    # afterwards, so the command is pure printing.
+    lines = gate.session([("license", r"storage\.lczero\.org"), ("isready", r"^readyok$")])
+    joined = " ".join(lines)
+    gate.report("Open Database License 1.0" in joined and "odbl/1.0/" in joined and "readyok" in joined,
+                "license", "over the protocol", "(the notice, then the engine answers isready)")
 
 
 def check_options(gate, nnue_paths):
