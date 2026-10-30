@@ -24,13 +24,18 @@ A trained network is a **Produced Work** under ODbL 1.0, and distributing a Prod
 naming the source database and its licence. That notice is this:
 
 > Position data from the Leela Chess Zero self-play training data
-> (https://storage.lczero.org/files/training_data/), runs `test91` and `test60`, used under the Open
-> Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+> (https://storage.lczero.org/files/training_data/), run test91, used under the Open Database
+> License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
 
-The pool behind the shipped network was **62.83 % `test91`** and **37.17 % `test60`**. The per-shard
-attribution line above is the one written into every extracted shard's `.meta` provenance sidecar by the
-extractor in the shared Reckless NNUE pipeline, which records the source name, the source home, the run,
-and both licences with their URLs for each shard it writes.
+> Position data from the Leela Chess Zero self-play training data
+> (https://storage.lczero.org/files/training_data/), run test60, used under the Open Database
+> License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+
+One line per run, because a notice naming only one of the two runs the pool was drawn from is an
+incomplete notice. The pool behind the shipped network was **62.83 % `test91`** and **37.17 % `test60`**.
+Each line is the one the extractor in the shared Reckless NNUE pipeline writes into every shard's `.meta`
+provenance sidecar, which records the source name, the source home, the run, and both licences with their
+URLs for each shard it writes.
 
 **What the obligation is, and what it is not.**
 
@@ -88,3 +93,21 @@ The techniques Zenith implements — bitboards, magic bitboards, PVS, transposit
 null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP — are published and textbook (see the
 [Chess Programming Wiki](https://www.chessprogramming.org)), and are implemented here independently. Zenith
 shares no source code with any other engine.
+
+---
+
+## 5. What is and is not third-party code here
+
+Stated from the tree rather than from habit. Every file in `src/` and `datagen/` carries
+`SPDX-License-Identifier: GPL-3.0-or-later`, there is no other SPDX identifier anywhere in the repository,
+and nothing is vendored: `src/generated/*.inc` are produced from this repository's own
+`tools/generate_tables.py`. The engine links the C runtime, `libm` and the platform's threads and nothing
+else, so **no third-party code is redistributed in a release**.
+
+What *is* third-party in a release is **data**, which is why sections 1 to 3 exist: the NNUE network's
+training positions (section 1), Ethereal's perft reference counts (section 2) and the Polyglot
+specification's 781-value random array (section 3), the last two compiled into the binary.
+
+`trainer/` needs PyTorch and NumPy (`trainer/requirements.txt`) and the book tools need Python, but no
+release ships the trainer or the tools and no binary links them, so they are build-time dependencies of a
+developer's machine, not material Zenith distributes.

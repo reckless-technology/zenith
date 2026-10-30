@@ -770,8 +770,11 @@ static void print_notices(void)
     printf("there is NO WARRANTY, to the extent permitted by law.\n\n");
     printf("NNUE training data - attribution required by the Open Database License 1.0:\n\n");
     printf("  Position data from the Leela Chess Zero self-play training data\n");
-    printf("  (https://storage.lczero.org/files/training_data/), runs test91 and test60, used under\n");
-    printf("  the Open Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).\n\n");
+    printf("  (https://storage.lczero.org/files/training_data/), run test91, used under the\n");
+    printf("  Open Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).\n\n");
+    printf("  Position data from the Leela Chess Zero self-play training data\n");
+    printf("  (https://storage.lczero.org/files/training_data/), run test60, used under the\n");
+    printf("  Open Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).\n\n");
     printf("The network embedded in this binary (nets/reckless-lc0-runf-sb870.nnue) was trained entirely\n");
     printf("on that data - a pool 62.83%% test91 and 37.17%% test60 - published under the Open Database\n");
     printf("License 1.0 (ODbL-1.0, http://opendatacommons.org/licenses/odbl/1.0/) with its contents under\n");
@@ -783,7 +786,9 @@ static void print_notices(void)
     printf("Other notices: the 128-position perft reference counts are Ethereal's standard.epd\n");
     printf("(https://github.com/AndyGrant/Ethereal, GPL-3.0; test data only, no code); the Polyglot key\n");
     printf("constants are the public book-format specification's (http://hgm.nubati.net/book_format.html).\n");
-    printf("The embedded opening book is built from Zenith's own self-play. Full text:\n");
+    printf("The embedded opening book is built from Zenith's own self-play. No third-party code is\n");
+    printf("redistributed: every file of this engine is GPL-3.0-or-later and nothing is vendored. The\n");
+    printf("full text of every notice:\n");
     printf("THIRD-PARTY-NOTICES.md, shipped in every release archive.\n");
     fflush(stdout);
 }

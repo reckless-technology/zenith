@@ -386,8 +386,12 @@ its contents under the **Database Contents License 1.0** (`DbCL-1.0`,
 distributing one obliges a notice naming the source:
 
 > Position data from the Leela Chess Zero self-play training data
-> (https://storage.lczero.org/files/training_data/), runs `test91` and `test60`, used under the Open
-> Database License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+> (https://storage.lczero.org/files/training_data/), run test91, used under the Open Database
+> License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
+
+> Position data from the Leela Chess Zero self-play training data
+> (https://storage.lczero.org/files/training_data/), run test60, used under the Open Database
+> License 1.0 (http://opendatacommons.org/licenses/odbl/1.0/).
 
 Two things that notice does **not** mean. ODbL does **not** require the network to be ODbL-licensed — the
 share-alike reaches derivative *databases*, not Produced Works made from one — and the network is **not**
