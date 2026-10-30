@@ -387,8 +387,9 @@ volume within that lineage, not against the 3.0.0 net:
 
 Superseded nets are deleted from the tree once the shipped engine can no longer load them (git history
 preserves them; the `RNNUE1` header names every architecture field, so a mismatch is refused by name
-rather than inferred from a file's length). `zenith-cap1.nnue` and `zenith-cap2.nnue` were removed on the
-same grounds plus one more: they are PlentyChess-derived, and no release ships such a net.
+rather than inferred from a file's length). `zenith-cap1.nnue` and `zenith-cap2.nnue` were removed for a
+different reason — the 3.0.0 engine loads both perfectly well, they being the same shape: they are
+PlentyChess-derived, and no release ships such a net.
 
 **The new net's strength in Zenith is unmeasured, and the swap did not wait on it** — removing the data
 dependency is the point, so the measurement tells us what the change cost or gained, not whether to make
