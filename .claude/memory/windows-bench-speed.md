@@ -24,7 +24,9 @@ Hash 64: best **2.35M nps, depth 20 in 2.9 s** pinned to a P-core - within 5 % o
 Old datagen (HCE, 5000 nodes) on a P-core: **734 pos/s** - the Linux ~700. Current datagen (cap2): 318 pos/s on a
 P-core, 105 on an E-core, so 85-165 per worker was E-cores and contention.
 
-**Current figures (cap2, bench depth 13, signature 1,390,606):** native and x86-64-v3 best 1.99 Mnps pinned to a
+**Figures below are cap2's (bench depth 13, signature 1,390,606), measured before the 3.0.0 net; the
+embedded net is now `reckless-lc0-runf-sb870` at signature 1,653,778 and the Mnps have not been
+re-measured:** native and x86-64-v3 best 1.99 Mnps pinned to a
 quiet P-core (median 1.95); unpinned the same when the box is quiet; x86-64-v2 1.30-1.37. `go depth 20` from
 startpos: 4,781,569 nodes in 2.57 s, 1.86M nps. Ruled out as Windows costs: the stack probes (`___chkstk_ms`, called
 by negamax and qsearch since a Position is over 4 KB) - a build without them, on a committed 16 MB stack, benched the

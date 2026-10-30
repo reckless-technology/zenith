@@ -46,7 +46,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "trainer"))
 import rnnue1  # noqa: E402  (the shared net container; the path above is what makes it importable)
 
-NET = "nets/zenith-cap2.nnue"
+NET = "nets/reckless-lc0-runf-sb870.nnue"
 BOOK = "books/zenith-book-r5.bin"
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 TIMEOUT = 120  # seconds any one engine process may take: generous for an instrumented build on a slow runner

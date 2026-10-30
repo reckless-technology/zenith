@@ -242,12 +242,20 @@ the data stay Zenith's own.
   `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
   **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
   shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). The current best net `nets/zenith-cap2.nnue` = cap1's 1024-wide architecture
-  retrained on **2.15B** positions (the same 1.4B plus 760M disjoint offset-2 records of the same binpacks
-  — data volume the only variable): **+10 Elo fixed-depth SPRT over cap1**, val loss 0.013746 (project
-  best). Lineage: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2 (+14.7, output buckets) -> km1 (+14.3,
-  mirroring) -> cap1 (+14.7 timed, 1024 hidden) -> cap2 (+10, 2.15B data). Data returns REOPENED at 1024
-  hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
+  low-RAM, parallelizable). **The embedded net from 3.0.0 is `nets/reckless-lc0-runf-sb870.nnue`**, trained
+  entirely on **Leela Chess Zero self-play data** in the shared Reckless NNUE pipeline, not in `trainer/`
+  — hence no `zenith-` prefix. Its strength in Zenith is **NOT YET MEASURED**: it loads unchanged
+  (same shape and container; `nnuecheck` and `trainer/verify.py` clean) and moves the bench signature
+  1,390,606 -> **1,653,778**, which is an eval change, not a strength result. Figures measured for this net
+  in pawnstar are pawnstar's and do not transfer. `nets/zenith-cap2.nnue` is **kept** as that
+  measurement's baseline.
+  Every net Zenith shipped up to 2.1.x, `zenith-cap2` included, was trained on the **withdrawn**
+  third-party bulletformat dataset, which is why the shipped net was replaced; the `datagen` self-play
+  generator trained only the `v1`-`v5` pilots and the opening book. `zenith-cap2` = cap1's 1024-wide
+  architecture retrained on **2.15B** positions of that dataset: **+10 Elo fixed-depth SPRT over cap1**,
+  val loss 0.013746. Lineage, all on the withdrawn dataset: kb2 (+57, 650M) -> kb3 (+8, 1.4B) -> ob2
+  (+14.7, output buckets) -> km1 (+14.3, mirroring) -> cap1 (+14.7 timed, 1024 hidden) -> cap2 (+10, 2.15B
+  data). Data returns REOPENED at 1024 hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
   shipped engine's architecture (git history preserves them); the loader refuses a mismatch by name, from
   the header's own fields, rather than inferring it from a file's length.
 - **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
