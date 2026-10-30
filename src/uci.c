@@ -636,6 +636,8 @@ static void set_option(UciSession *session, char **save_ptr)
     // Ponder accepted and ignored.
 }
 
+static void print_notices(void); // defined beside uci_run; the `license` command and subcommand share it
+
 void uci_loop(Engine *engine)
 {
     // Startup banner (pawnstar-style): version = major.minor.<git commit count>, stamped by the Makefile.
@@ -728,6 +730,14 @@ void uci_loop(Engine *engine)
             char fen_buf[128];
             printf("%s\n", position_fen(&session.game, fen_buf));
             fflush(stdout);
+        }
+        // The licence and the third-party notices the embedded network's ODbL 1.0 training data obliges -
+        // the same text `zenith license` prints, reachable from a GUI or a harness over the protocol. It is
+        // the standard command across the Reckless engines. Printing only: no engine or search state is
+        // read or written, so it cannot move a node count.
+        else if (strcmp(token, "license") == 0 || strcmp(token, "licence") == 0)
+        {
+            print_notices();
         }
         else if (strcmp(token, "quit") == 0)
         {

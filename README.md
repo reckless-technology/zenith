@@ -286,6 +286,10 @@ The protocol loop (`uci.c`) runs the search on a coordinator thread that spawns 
 `OwnBook`/`BookFile`, plus the tunable search parameters. The same binary exposes the CLI self-tests
 (`bench`, `perft`, `legalcheck`, `seecheck`, `fuzzcheck`, `bookcheck`, `embookcheck`, `nnuecheck`) and the NNUE
 verification helper (`nnueeval`); the training-data tools are separate executables built by `make datagen`.
+`license` is a command of the protocol as well as a subcommand (`licence` is accepted for either): it prints
+the GPL notice and the ODbL 1.0 attribution the embedded network's training data obliges, so a GUI or a match
+harness can ask the binary for it. It is the standard command across the Reckless engines, and it prints
+only - no engine or search state is read or written.
 
 ## NNUE training pipeline
 

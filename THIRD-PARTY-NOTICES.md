@@ -3,7 +3,9 @@
 Zenith itself is free software under the **GNU General Public License v3.0 or later** — see
 [LICENSE](LICENSE). This file is the single home for the notices Zenith owes for third-party material it
 ships or embeds, and for the attributions it keeps on the record. It is shipped in every release archive
-beside the engine, and `./build/zenith license` prints the training-data notice from the binary itself.
+beside the engine, and `zenith license` prints the training-data notice from the binary itself - as a CLI
+subcommand and as a command of the UCI loop, `licence` accepted for either, as it is in every Reckless
+engine. A release binary embeds the network, so it has to embed the notice with it.
 
 ---
 
