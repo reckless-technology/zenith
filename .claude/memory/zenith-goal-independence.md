@@ -46,11 +46,25 @@ wrong net apart only by its file size, which is the exact failure the shared con
 
 - **The trainer is still Zenith's own** (`trainer/`, PyTorch/CUDA) — not pawnstar's `bullet`. Only the
   shape and the file format are common; nothing says the trainers must be.
-- **The data is still Zenith's own** (`datagen`, or a public dataset converted by `zenith-bullet2text`).
+- **The trainer in `trainer/` is still Zenith's own**, but **the shipped net no longer comes out of it.**
+  From 3.0.0 the embedded net is `nets/reckless-lc0-runf-sb870.nnue`, trained **entirely on Leela Chess
+  Zero self-play data** in the shared Reckless NNUE pipeline (pawnstar's `bullet`), adopted because it
+  replaces the withdrawn dataset's lineage. It loads unchanged — identical architecture and `RNNUE1`
+  header, `nnuecheck` 3/3 at `max|diff| 0` and `trainer/verify.py` 0 cp over 4,000 positions — and moves
+  the bench signature 1,390,606 -> 1,653,778. **Its strength in Zenith is NOT YET MEASURED** (Jonny is
+  running `reckless-lc0-runf-sb870` against `zenith-cap2` himself); the +9.99 Elo at 8+0.08 and +1.13 at
+  12+0.12 measured for this net are **pawnstar's numbers against pawnstar's old net** and do not transfer.
+- Zenith's `datagen` self-play generator trained only the `v1`-`v5` pilots and the opening book. **No net
+  Zenith ever released was trained on it** — the external dataset was adopted at `pc1` because it beat the
+  self-play plateau by ~154 Elo. A claim that Zenith's nets have always come from its own self-play data is
+  false, and the reason `git grep -i <dataset name>` finds nothing is commit `8900c39`, which scrubbed the
+  name on 2026-10-25, not an absence of the dependency.
 - **No pawnstar source code is reused anywhere**, in the evaluator or outside it. Zenith remains a
   from-scratch C17 engine ([[pawnstar-reference-opponent]] is an opponent, not a dependency).
-- **Never train on the withdrawn third-party dataset**, and do not extend `zenith-cap2`'s lineage. What
-  becomes of that shipped net is Jonny's call, not an agent's.
+- **Never train on the withdrawn third-party dataset**, and do not extend `zenith-cap2`'s lineage — the
+  3.0.0 net replaces it. `nets/zenith-cap2.nnue` and `zenith-cap1.nnue` stay **in the tree**: unlike the
+  pawnstar repos there is no provenance reason to delete them, and `cap2` is the baseline the new net is
+  measured against. Removing either is Jonny's call, not an agent's.
 
 **How to apply:** pipeline is `datagen/` → PyTorch trainer (`trainer/train.py`) → stamp into `RNNUE1`
 (`tools/stamp_net.py`) → engine NNUE (`src/nnue.*`) → SPRT. Every strength change is still

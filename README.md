@@ -283,8 +283,13 @@ verification helper (`nnueeval`); the training-data tools are separate executabl
 
 ## NNUE training pipeline
 
-The network is trained by Zenith's own pipeline: `datagen` (or a public dataset) → `trainer/` (PyTorch,
-CUDA) → a quantised `.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader.
+Zenith's own pipeline is `datagen` (or a public dataset) → `trainer/` (PyTorch, CUDA) → a quantised
+`.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader. The shipped net
+need not come from it: any net of the shared shape loads, and **the net shipped from 3.0.0,
+`nets/reckless-lc0-runf-sb870.nnue`, is trained entirely on Leela Chess Zero self-play data** and came
+from the shared Reckless NNUE pipeline. Earlier shipped nets, `zenith-cap2.nnue` and before, were trained
+on a third-party bulletformat dataset that has since been withdrawn — see
+[NNUE_TRAINING.md §9](NNUE_TRAINING.md#9-current-release-net).
 The single source of truth for the feature indexing and quantisation contract is `trainer/features.py`,
 which `src/nnue.c` must reproduce byte-for-byte;
 `trainer/verify.py` enforces a **0 cp** difference between the engine's integer eval and the trainer
@@ -339,9 +344,15 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
 
 - **NNUE network:** the shape Zenith designed and measured (king-bucketed, horizontally-mirrored
   768×8→1024→8 SCReLU), now the **shared Reckless NNUE** that every engine in the organisation evaluates with,
-  in the `RNNUE1` container they all read; Zenith's own trainer (`trainer/`), data and trained weights. The shipped net was
-  trained on a public bulletformat dataset, used only to train Zenith's own network; no other engine's
-  code or network is included or derived.
+  in the `RNNUE1` container they all read. **The network shipped from 3.0.0
+  (`nets/reckless-lc0-runf-sb870.nnue`) is trained entirely on Leela Chess Zero self-play data**, and comes
+  from the shared Reckless NNUE training pipeline rather than from Zenith's own trainer — which is why it
+  does not carry a `zenith-` name. The nets Zenith shipped before it, up to and including
+  `zenith-cap2.nnue`, were trained on a public third-party bulletformat dataset that has since been
+  withdrawn; that is why the shipped net was replaced. Zenith's own `datagen` self-play generator trained
+  the early pilot nets and built the opening book, but no released net was trained on it. No other
+  engine's **code** is included or derived; see
+  [NNUE_TRAINING.md §9](NNUE_TRAINING.md#9-current-release-net) for the full lineage.
 - **Opening book:** the Polyglot key constants come from the public
   [book-format specification](http://hgm.nubati.net/book_format.html); no book is bundled.
 

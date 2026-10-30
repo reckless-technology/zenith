@@ -160,4 +160,6 @@ expect smaller returns. Training-run ops: SECOND CUDA wedge (USB/network re-enum
 first attempt at epoch 6 -> train.py now checkpoints per epoch with --resume (PR #35), and
 --validation-shard pins the held-out shard (PR #34; the default last-sorted shard SILENTLY CHANGES when
 shards are added — nearly corrupted comparability). Rerun reproduced the lost curve exactly (epoch-seeded
-shuffle). Shipped as embedded default; bench 1,390,606.
+shuffle). Shipped as embedded default up to 2.1.x; bench 1,390,606. **Superseded from 3.0.0** by
+`reckless-lc0-runf-sb870` (Leela Chess Zero data, shared pipeline, bench 1,653,778) — whose strength in
+Zenith is not yet measured; cap2 is the baseline for that match and stays in the tree.

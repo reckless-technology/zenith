@@ -96,7 +96,7 @@ OUT weights: round(w × QB)      → int16   [8][2048]      (bucket-major; per b
 OUT bias   : round(b × QA × QB) → int32   [8]
 ```
 
-**File `nets/zenith-<tag>.nnue`** (little-endian): a **64-byte `RNNUE1` header**, then those four arrays
+**File `nets/<name>.nnue`** (little-endian): a **64-byte `RNNUE1` header**, then those four arrays
 back-to-back as the 12,617,760-byte payload, with nothing after it. The header describes the net rather
 than leaving it to be guessed from the file's length:
 
@@ -311,7 +311,7 @@ A verified net is only *correct*, not necessarily *stronger*. Gate it with a sel
 
 ```bash
 # new net vs the current release net
-CAND_NET=nets/zenith-new.nnue BASE_NET=nets/zenith-cap1.nnue tools/sprt.sh
+CAND_NET=nets/zenith-new.nnue BASE_NET=nets/reckless-lc0-runf-sb870.nnue tools/sprt.sh
 # new net vs the embedded net (BASE_NET unset)
 CAND_NET=nets/zenith-new.nnue tools/sprt.sh
 ```
@@ -336,17 +336,34 @@ eval wins. The full experiment log with every result and lesson is in
 - **AVX2 forward** — vectorised accumulator column add/sub and the SCReLU output dot, with a scalar fallback.
 - **Shared lockless eval cache** — memoises `evaluate()` results (biggest win: qsearch stand-pat).
 
-Load a net at runtime with `setoption name EvalFile value nets/zenith-<tag>.nnue`; unset (or a load
+Load a net at runtime with `setoption name EvalFile value nets/<name>.nnue`; unset (or a load
 failure) ⇒ the build-time-embedded net.
 
 ---
 
 ## 9. Current release net
 
-`nets/zenith-cap2.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads** SCReLU in the
-shared `RNNUE1` container, trained with the streaming trainer on **2.15B** positions from a public
-bulletformat dataset. It is embedded in every binary at build time (`Makefile NET`); `zenith-cap1.nnue`
-is kept beside it as the SPRT baseline. Progression of the eval (each step SPRT-gated):
+`nets/reckless-lc0-runf-sb870.nnue` — king-bucketed, horizontally-mirrored **768×8 → 1024 → 8 heads**
+SCReLU in the shared `RNNUE1` container, trained **entirely on Leela Chess Zero self-play data**. It is
+embedded in every binary at build time (`Makefile NET`) from **3.0.0** onward. `zenith-cap2.nnue` — the
+net shipped up to 2.1.x — and `zenith-cap1.nnue` are kept beside it as the comparison baselines.
+
+### Where the networks' data comes from
+
+**The network shipped from 3.0.0 is trained entirely on Leela Chess Zero self-play data.** The networks
+Zenith shipped before it were not: every net from `pc1` onward, up to and including `zenith-cap2`, was
+trained on a public third-party bulletformat dataset which has since been withdrawn, and replacing that
+lineage is why this net was adopted. Zenith's own `datagen` self-play generator trained the early pilot
+nets (`v1`–`v5`) and built the shipped opening book, but it did not train any net Zenith released — the
+external dataset was adopted at `pc1` precisely because it beat the self-play plateau by ~154 Elo.
+
+The net is not a product of Zenith's own trainer either, which is why it does not carry a `zenith-` name:
+it came from the shared Reckless NNUE training pipeline, at the shape and in the `RNNUE1` container every
+Reckless engine now reads, and `runf-sb870` names the run and checkpoint it came from. Zenith's PyTorch
+trainer in `trainer/` is unchanged and still builds nets of this shape.
+
+Progression of the eval (each step SPRT-gated; everything from `pc2` to `cap2` is on the withdrawn
+dataset, so those deltas measure architecture and volume within that lineage, not against this net):
 
 | net | arch / data | result |
 |---|---|---|
@@ -357,10 +374,19 @@ is kept beside it as the SPRT baseline. Progression of the eval (each step SPRT-
 | km1 | + horizontal king mirroring | +14.3 over ob2 (fixed depth) |
 | cap1 | hidden 512 → **1024** | +52 fixed depth, **+14.7 timed** over km1 |
 | cap2 | + 2.15B positions | **+10** over cap1 (fixed depth); val loss 0.013746 |
+| `reckless-lc0-runf-sb870` | same shape, Leela Chess Zero data | **not yet measured in Zenith** — see below |
 
 Superseded nets are deleted from the tree once the shipped engine can no longer load them (git history
 preserves them; the `RNNUE1` header names every architecture field, so a mismatch is refused by name
-rather than inferred from a file's length). With the current net Zenith
-beats its reference opponent (pawnstar) decisively — ~**+135 Elo** single-thread at 8+0.08, bookless on
-both sides (pawnstar's defaults `Threads=32`/`OwnBook=true` must be overridden or the measurement is
-meaningless).
+rather than inferred from a file's length). `zenith-cap2.nnue` is deliberately **kept**: it is the
+baseline the new net is measured against.
+
+**The new net's strength in Zenith is unmeasured.** It loads unchanged — same architecture, same
+container, `nnuecheck` and `trainer/verify.py` both clean — and it moves the bench node signature from
+1,390,606 to **1,653,778**, which is an eval change and says nothing about strength. The
+`reckless-lc0-runf-sb870` against `zenith-cap2` match has not been run here. Figures measured for this
+net in **pawnstar**, against *pawnstar's* old net, are not Zenith results and do not transfer.
+
+The ~**+135 Elo** single-thread at 8+0.08 over the reference opponent (pawnstar), bookless on both sides,
+was measured with `zenith-cap2` (pawnstar's defaults `Threads=32`/`OwnBook=true` must be overridden or the
+measurement is meaningless); it has not been re-measured with this net.
