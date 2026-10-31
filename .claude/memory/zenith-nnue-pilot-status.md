@@ -17,7 +17,8 @@ CORRECT and validated: 0cp gate (engine == Python reference, bit-identical), col
 hugely — one iteration added +211 Elo and flipped the timed result positive; (3) 512 hidden is the sweet
 spot for this data (768 overfits); (4) speed matters — int16+AVX2 refresh (641k->1.08M nps) added ~+41 timed.
 
-**Current best net: `nets/zenith-pc2.nnue` (committed, 512 hidden).** Trained on the public PlentyChess
+**Best net of this era: `nets/zenith-pc2.nnue` (512 hidden; no longer in the tree — from 3.0.0 the shipped
+net is `nets/reckless-lc0-runf-sb870.nnue`, 1024 wide with 8 output heads).** Trained on the public PlentyChess
 dataset (via `bullet2text`), which broke the self-play plateau: pc1 (70M) was +154 over the best self-play
 net v6; pc2 (187M) +30 more. More data then saturated the 512 net.
 

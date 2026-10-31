@@ -197,10 +197,11 @@ The export step prints how many transformer weights saturate `int16` (should be 
   intermediate — this is what keeps larger hidden sizes trainable on an 8 GB GPU.
 - **WDL blend (`--wdl-lambda`).** The training label is `λ·game_result + (1−λ)·sigmoid(score/400)`: λ→1
   trusts the eventual game outcome, λ→0 trusts the search score of the position. Mid-range values train the
-  cleanest net; the shipped net used λ=0.3.
+  cleanest net; the nets up to `zenith-cap2` used λ=0.3, and the net shipped from 3.0.0 was trained at
+  λ=0.0 — the eval sigmoid alone.
 - **Streaming vs monolithic training.** Holding the whole featurised dataset in RAM caps out around ~230M
   positions on a 62 GB box. Past that, per-shard `.npz` caches are streamed one at a time (`--shard-dir`),
-  which is how the shipped net trained on 1.4B positions. Shard-order shuffling (reseeded per epoch) plus a
+  which is how the 1.4B-position nets up to `zenith-cap2` trained. Shard-order shuffling (reseeded per epoch) plus a
   full in-shard permutation is effectively i.i.d. at ~95M-position shards.
 - **The eval is a faithful executor — fix data, not the loader.** If a *correct* net plays weakly, the cause
   is eval noise (data quantity/quality), not the engine: minimax amplifies leaf-eval noise. The lever is
@@ -341,14 +342,16 @@ eval wins. The full experiment log with every result and lesson is in
 
 - **Incremental accumulator** — embedded in `Position`; the put/remove/move primitives apply feature-column
   deltas as moves are made, so copy-make carries a ready accumulator.
-- **King-bucket refresh via a finny cache** — a king move that changes a perspective's bucket rebuilds that
-  perspective from a thread-local per-`(perspective, bucket)` cached accumulator (plus the board it was built
-  from), applying only piece diffs; a net-generation counter invalidates the cache when a new net loads.
+- **King-bucket refresh via a finny cache** — a king move that changes a perspective's bucket *or* its mirror
+  state rebuilds that perspective from a thread-local per-`(perspective, mirror, bucket)` cached accumulator
+  (plus the board it was built from), applying only piece diffs; each entry carries the net it was built for,
+  so an entry belonging to another net is simply a miss when a new net loads.
 - **AVX2 forward** — vectorised accumulator column add/sub and the SCReLU output dot, with a scalar fallback.
 - **Shared lockless eval cache** — memoises `evaluate()` results (biggest win: qsearch stand-pat).
 
-Load a net at runtime with `setoption name EvalFile value nets/<name>.nnue`; unset (or a load
-failure) ⇒ the build-time-embedded net.
+Load a net at runtime with `setoption name EvalFile value nets/<name>.nnue`; an empty value asks for the
+build-time-embedded net and gets it. A **refused** net changes nothing — the net that was playing keeps
+playing, and nothing is substituted for the one that was asked for.
 
 ---
 

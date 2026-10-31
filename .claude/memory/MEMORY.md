@@ -6,7 +6,7 @@ One line per memory. Full content lives in the linked file.
 - [pawnstar-reference-opponent](pawnstar-reference-opponent.md) — where the opponent, SPRT harness, GPU, and tooling live
 - [training-setup](training-setup.md) — venv/torch, datagen command, GitHub remote + gh CI
 - [zenith-nnue-pilot-status](zenith-nnue-pilot-status.md) — pipeline validated; pilot net loses to HCE on eval noise (not a bug)
-- [pawnstar-gap-benchmarks](pawnstar-gap-benchmarks.md) — Elo gaps vs pawnstar: −238 single-thread, −42 at 8v8; deficit is eval quality
+- [pawnstar-gap-benchmarks](pawnstar-gap-benchmarks.md) — Elo gaps vs pawnstar: Zenith ahead, +111.75 single-thread and +107.5 at 8v8; always pin pawnstar's Threads/OwnBook and match concurrency
 - [zenith-eval-experiments](zenith-eval-experiments.md) — experiment log: buckets, data scaling, pawnstar-idea adoption (techniques don't transfer; fix measured costs)
 - [search-speed-levers](search-speed-levers.md) — copy-make + 2KB accumulator is the dominant per-node cost; prune-before-make = +66 Elo
 - [spsa-tuning](spsa-tuning.md) — SPSA search-param tuner (tools/spsa.py); first pass +26.5 Elo; tune fast tc, validate at 8+0.08
