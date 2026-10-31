@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Set up a Linux or macOS machine to build, test, debug and format Zenith: the toolchain, clang-format and the editor,
-# and with --training the NNUE trainer's Python environment. Each component is checked first and installed only when it
+# Set up a Linux or macOS machine to build, test, debug and format Zenith: the toolchain, clang-format and the
+# editor. Each component is checked first and installed only when it
 # is missing, so the script is safe to run again at any time. uv and clang-format go into the user's own profile
 # (~/.local/bin); the system packages come from apt (Debian, Ubuntu, Mint: sudo asks for a password), and on macOS from
 # Xcode's command-line tools alone. tools/setup-dev.ps1 is the same for Windows. VS Code's "setup environment" and
@@ -13,32 +13,27 @@
 #   - uv, from Astral's release archive (its SHA-256 the one published beside it), into ~/.local/bin
 #   - clang-format 22.1.8 through uv, the one version the pre-commit hook and CI's format gate accept
 #   - the repo's git hooks (core.hooksPath .githooks) and the VS Code extensions .vscode/extensions.json recommends
-#   - with --training: a .venv in the repo with torch and numpy for trainer/train.py - CUDA 13.0 wheels on Linux, the
-#     default wheels (Metal) on macOS
+#   - no training environment: the NNUE trainers live in reckless-technology/nnue-training, which carries its own
+#     requirements; every Python tool left in tools/ here is stdlib-only
 #
 #   tools/setup-dev.sh                # set up
 #   tools/setup-dev.sh --check        # report only; exit 1 if anything is missing
 #   tools/setup-dev.sh --no-persist   # add nothing to the shell profile's PATH (a test run in a scratch HOME)
-#   tools/setup-dev.sh --training     # and the trainer's .venv (with --check: check it)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 check=0
 persist=1
-training=0
 for arg in "$@"; do
     case "$arg" in
         --check) check=1 ;;
         --no-persist) persist=0 ;;
-        --training) training=1 ;;
-        -h | --help) sed -n '2,23p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,22p' "$0"; exit 0 ;;
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
 
 clang_format_version=22.1.8 # CI's format gate (.github/workflows/ci.yml) and the pre-commit hook
-trainer_python=3.13
-torch_index=https://download.pytorch.org/whl/cu130
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Helpers (the same in every reckless-technology repo's setup script).
@@ -142,7 +137,7 @@ case "$os" in
     *) echo "unsupported system: $os (tools/setup-dev.ps1 is the Windows script)" >&2; exit 2 ;;
 esac
 
-# uv, which installs clang-format (and, with --training, the trainer's Python): Astral's installer's directory.
+# uv, which installs clang-format: Astral's installer's directory.
 uv_bin="${XDG_BIN_HOME:-$HOME/.local/bin}"
 [ -x "$uv_bin/uv" ] && add_to_path "$uv_bin"
 if have uv; then ok 'uv' "$(uv --version)"
@@ -189,40 +184,6 @@ fi
 
 set_git_hooks
 install_vscode_extensions
-
-# The NNUE trainer's .venv: torch and numpy at trainer/requirements.txt's floors - on Linux from PyTorch's CUDA 13.0
-# index (with PyPI for everything that index lacks), on macOS PyPI's own wheels, which run on Metal.
-if [ "$training" = 1 ]; then
-    venv_python=.venv/bin/python
-    probe="import torch, numpy
-c = torch.cuda.is_available()
-m = torch.backends.mps.is_available()
-print(torch.__version__, numpy.__version__, 'CUDA on ' + torch.cuda.get_device_name(0) if c else ('Metal' if m else ''), sep='|')"
-    state=""
-    [ -x "$venv_python" ] && state=$("$venv_python" -c "$probe" 2>/dev/null | tail -1 || true)
-    if [ -z "$state" ] && [ "$check" = 0 ]; then
-        have uv || { echo 'uv is needed for the trainer .venv' >&2; exit 1; }
-        if [ ! -x "$venv_python" ]; then
-            installing 'trainer .venv' "Python $trainer_python through uv"
-            uv venv .venv --python "$trainer_python"
-        fi
-        if [ "$os" = Darwin ]; then
-            installing 'trainer .venv' 'torch and numpy, from trainer/requirements.txt'
-            uv pip install --python "$venv_python" -r trainer/requirements.txt
-        else
-            installing 'trainer .venv' 'torch (CUDA 13.0) and numpy, from trainer/requirements.txt'
-            uv pip install --python "$venv_python" -r trainer/requirements.txt --index-url "$torch_index" \
-                --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
-        fi
-        state=$("$venv_python" -c "$probe" 2>/dev/null | tail -1 || true)
-    fi
-    if [ -z "$state" ]; then miss 'trainer .venv' '.venv with torch and numpy (tools/setup-dev.sh --training)'
-    else
-        IFS='|' read -r torch_version numpy_version accelerator <<<"$state"
-        if [ -n "$accelerator" ]; then ok 'trainer .venv' "torch $torch_version, numpy $numpy_version, $accelerator"
-        else caution 'trainer .venv' "torch $torch_version, numpy $numpy_version, but no GPU: training runs on the CPU"; fi
-    fi
-fi
 
 if [ "$check" = 1 ]; then
     if [ "$missing" -gt 0 ]; then echo "$missing missing: run tools/setup-dev.sh (VS Code: the 'setup environment' task)."; exit 1; fi

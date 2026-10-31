@@ -17,7 +17,7 @@
 #include <immintrin.h>
 #endif
 
-/** @brief Architecture / quantisation contract — must match trainer/features.py exactly. */
+/** @brief Architecture / quantisation contract — must match nnue-training's pytorch/features.py. */
 enum
 {
     HIDDEN_SIZE       = NNUE_HIDDEN, // 1024
@@ -125,7 +125,7 @@ _Static_assert(sizeof(((struct NnueNetwork *)0)->feature_transformer_weight) +
  * every bucket trains on both wings. Held as the one array the evaluator itself indexes, and digested into
  * the header from that same array: the whole point of `king_bucket_map_crc` is that there is no second
  * representation of the map to drift out of step with this one. Must match king_bucket() in
- * trainer/features.py, which generates this table.
+ * nnue-training's pytorch/features.py, which generates this table.
  */
 static const uint8_t KING_BUCKET_MAP[64] = {
     0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0,

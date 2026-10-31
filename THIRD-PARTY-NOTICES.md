@@ -45,10 +45,13 @@ URLs for each shard it writes.
 - The network is **not** GPL merely because GPLv3 code was used to train it or reads it. Training weights is
   not a derivative work of the training program, and the weights are a data file the engine loads; Zenith's
   *source code* is GPLv3-or-later, and that is a separate matter from the network's status.
-- The network is **not** a product of Zenith's own `trainer/`. Zenith has its own `datagen` and `trainer/`,
-  and they can train a net of this shape, but **they did not produce the shipped weights**: those came from
-  the shared Reckless NNUE training pipeline, which is why the file does not carry a `zenith-` name. The
-  *data* is Leela's, under ODbL; the *network* came from the shared Reckless pipeline.
+- The network was **not** trained in this repository. Zenith has no trainer of its own: the trainers, the
+  architecture and the `RNNUE1` container live in
+  [`nnue-training`](https://github.com/reckless-technology/nnue-training), the single source for the
+  Reckless NNUE, and this engine is a consumer that loads a net and verifies it. Zenith's `datagen` can
+  generate training data, but **it did not produce the shipped weights**, which is why the file does not
+  carry a `zenith-` name. The *data* is Leela's, under ODbL; the *network* came from the shared Reckless
+  pipeline.
 
 See [NNUE_TRAINING.md §9](NNUE_TRAINING.md#9-current-release-net) for the net's architecture, lineage and
 measurements.
@@ -108,6 +111,16 @@ What *is* third-party in a release is **data**, which is why sections 1 to 3 exi
 training positions (section 1), Ethereal's perft reference counts (section 2) and the Polyglot
 specification's 781-value random array (section 3), the last two compiled into the binary.
 
-`trainer/` needs PyTorch and NumPy (`trainer/requirements.txt`) and the book tools need Python, but no
-release ships the trainer or the tools and no binary links them, so they are build-time dependencies of a
-developer's machine, not material Zenith distributes.
+The net and book tools in `tools/` need Python — and nothing else: every one of them is **stdlib-only**,
+including `tools/rnnue1.py`, which is a verbatim copy of `nnue-training/spec/rnnue1.py` (GPL-3.0-or-later,
+Copyright (C) 2026 Jonny Reckless, the same licence and author as this repository, so it is a sibling copy
+and not third-party material). No release ships those tools and no binary links them, so Python is a
+build-time dependency of a developer's machine, not material Zenith distributes. The trainers that need
+PyTorch are in `nnue-training` and are not in this tree at all.
+
+**On bullet, and why no MIT notice is owed here.** `./build/zenith-bullet2text` (`datagen/datagen.c`)
+reads the 32-byte `bulletformat::ChessBoard` record that the [bullet](https://github.com/jw1912/bullet)
+trainer writes. That is **format compatibility, independently implemented from the record layout** — no
+bullet code is included, derived from or linked here, so bullet's MIT licence attaches nothing to this
+repository. (`nnue-training`, which does start two files from bullet's own examples, carries the MIT
+notice bullet is owed; it is owed there and not here.)

@@ -4,23 +4,31 @@ Zenith evaluates positions with the **shared Reckless NNUE**: one network shape 
 (`RNNUE1`) for every chess engine in the organisation, so a net trained once loads in all of them and a new
 evaluation function is developed once rather than once per engine (Jonny, 2026-10-27). The shape is
 Zenith's own — its two additions over the pawnstar engines' were measured and SPRT-gated here — and the
-container is pawnstar's, extended with the bucket map's contents and an integrity check. Zenith keeps its
-own trainer (`trainer/`, PyTorch) and its own data; the skill `reckless-nnue` is the specification. This
-document is the reference for how the network is built and how to train a new one.
+container is pawnstar's, extended with the bucket map's contents and an integrity check.
+
+**The trainers, the container's definition and the data pipeline live in
+[`nnue-training`](https://github.com/reckless-technology/nnue-training)** — the single source for the
+Reckless NNUE — and Zenith is one of its consumers. The split is **producer asserts, consumer verifies**:
+that repository produces a net and asserts what it is; this engine checks every header field against its
+own compiled constants and refuses loudly, with no fallback, on any mismatch. So this document is the
+reference for the network Zenith *loads* — its shape, what the loader checks, how a net is verified and
+strength-gated here, and the record of every net Zenith has shipped. **How to train one is
+`nnue-training`'s document, not this one.** The skill `reckless-nnue` is the specification both sides
+implement.
 
 The pipeline is four stages:
 
 ```
-   data                             trainer (PyTorch/CUDA)             engine (C)
+   data                             nnue-training (shared)             engine (C)
  ┌──────────────────────┐  text     ┌──────────────────────┐  .nnue   ┌────────────────────┐
- │ ./build/             │ ────────▶ │ trainer/train.py     │ ───────▶ │ src/nnue.c loader  │
+ │ ./build/             │ ────────▶ │ the shared trainer   │ ───────▶ │ src/nnue.c loader  │
  │  zenith-datagen      │  fen;     │  featurise → SCReLU  │  RNNUE1  │  + integer forward │
  │  (self-play)         │  score;   │  net → quantise      │          │  behind evaluate() │
  │  OR                  │  wdl      │                      │          │                    │
  │ ./build/             │           └──────────────────────┘          └────────────────────┘
  │  zenith-bullet2text  │                      │                                │
- │  (public data)       │                      └────── trainer/verify.py ───────┘
- └──────────────────────┘                  engine int eval == trainer ref (0 cp)
+ │  (public data)       │                      └────── pytorch/verify.py ───────┘
+ └──────────────────────┘                   engine int eval == Python ref (0 cp)
 ```
 
 `evaluate()` in `src/eval.c` is the single seam: it is always the NNUE forward pass. Every engine holds a
@@ -59,12 +67,17 @@ network only ever learns "from the side to move's point of view." Horizontal kin
 board's left/right symmetry the same way: instead of spending 4 of 8 buckets on kingside king placements,
 mirrored positions share weights, so every bucket trains on twice the effective data at the same file size.
 
-The feature-index convention lives in **`trainer/features.py`** (`feature_index`, `king_bucket`,
-`king_mirror`) and is the single source of truth; `src/nnue.c` reproduces it exactly. The architecture's
-numbers, the king-bucket map and the container itself live one level down in **`trainer/rnnue1.py`**, which
-is stdlib-only so that every tool can import it; `features.py` takes its constants from there, and
-`src/nnue.c`'s `KING_BUCKET_MAP` is a copy of the same 64 entries the container digests. Feature layout
-within one king bucket:
+The feature-index convention lives in **`nnue-training`'s `pytorch/features.py`** (`feature_index`,
+`king_bucket`, `king_mirror`) and is the single source of truth; `src/nnue.c` reproduces it exactly. The
+architecture's numbers, the king-bucket map and the container itself live one level down in
+**`nnue-training/spec/rnnue1.py`**, which is stdlib-only so that every tool can import it. Zenith carries
+a **verbatim copy** of that one file at **`tools/rnnue1.py`** (SHA-256
+`90472ea1863cd394faac23f8175761bbc9003bda36ccf75ba6f747e5d116e3fa`), because `tools/stamp_net.py`,
+`tools/make_test_net.py` and `tools/uci_check.py` import it and have to run on a CI runner with no network
+and no trainer environment — **change it in both repositories or in neither; the copies agreeing is the
+audit**, exactly as the pawnstar repositories hold `new-shape-signature.sh`. `src/nnue.c`'s
+`KING_BUCKET_MAP` is a copy of the same 64 entries the container digests. Feature layout within one king
+bucket:
 
 ```
 index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  +  rel_square
@@ -74,14 +87,14 @@ index = king_bucket(rel_king) × 768  +  rel_color × 384  +  piece_type × 64  
         piece_type = 0..5  (pawn..king, 0-based on the wire)
 ```
 
-Hidden size is a knob in the trainer (`--hidden-size`), but the shared container fixes it at **1024**
+Hidden size is a knob in the shared trainer, but the container fixes it at **1024**
 along with everything else above: a net of any other width carries a header the engines refuse.
 
 ---
 
 ## 2. Quantisation & on-disk format (`RNNUE1`)
 
-The trainer exports a fixed-point `int16` network; the engine loads it directly and does an all-integer
+The shared trainer exports a fixed-point `int16` network; the engine loads it directly and does an all-integer
 forward pass (a float `.pt` checkpoint is saved alongside for inspection only).
 
 ```
@@ -129,8 +142,8 @@ nothing appended, then `payload_crc`). The map's digest is there because `king_b
 map's *contents* differed used to load cleanly and evaluate from the wrong weight bank — which is also why
 turning mirroring on moves the format version rather than only a flag.
 
-Nets are stamped by **`tools/stamp_net.py`**, which writes the header from `trainer/rnnue1.py`'s own
-constants and never from an argument, so a payload of the wrong shape gets a header every engine refuses
+Nets are stamped by **`tools/stamp_net.py`**, which writes the header from `tools/rnnue1.py`'s own
+constants (`nnue-training/spec/stamp_net.py` is the same tool on the producer's side) and never from an argument, so a payload of the wrong shape gets a header every engine refuses
 instead of one that describes it. Never hand-edit a net file.
 
 The retired `ZNNUE5`, `ZNNUE4` and `ZNNUE3` formats are **no longer read** (2026-10-27). They carried an
@@ -139,8 +152,8 @@ ever existed in `ZNNUE4` or `ZNNUE3` was 512 wide and so was already refused on 
 1024-wide engine. A `ZNNUE5` net re-stamps losslessly — the payload layout is identical, output bias
 included — with `python3 tools/stamp_net.py <net>`.
 
-The integer forward (identical in `integer_eval` of `trainer/features.py` and `src/nnue.c`; `b` = the
-position's output bucket):
+The integer forward (identical in `integer_eval` of `nnue-training`'s `pytorch/features.py` and
+`src/nnue.c`; `b` = the position's output bucket):
 
 ```
 acc = FT_bias + Σ FT_weight[active feature]        (per perspective; int16 columns, int64 accumulation)
@@ -178,9 +191,10 @@ The export step prints how many transformer weights saturate `int16` (should be 
   activation share one constant.
 - **Hidden size 1024.** Bigger accumulators improve eval but cost proportional per-node time and training
   memory. 512 was the shipped balance until 1.4B positions saturated it: at that scale 1024 gained +52 Elo
-  at fixed depth and **+14.7 at time control** (cap1) — the eval gain outran the doubled per-node cost. The trainer uses an `EmbeddingBag(mode="sum")` feature
-  transformer so a batch never materialises a `[batch, 32, hidden]` intermediate — this is what keeps larger
-  hidden sizes trainable on an 8 GB GPU.
+  at fixed depth and **+14.7 at time control** (cap1) — the eval gain outran the doubled per-node cost.
+  `nnue-training`'s PyTorch trainer (whose knobs the rest of this list names) uses an
+  `EmbeddingBag(mode="sum")` feature transformer so a batch never materialises a `[batch, 32, hidden]`
+  intermediate — this is what keeps larger hidden sizes trainable on an 8 GB GPU.
 - **WDL blend (`--wdl-lambda`).** The training label is `λ·game_result + (1−λ)·sigmoid(score/400)`: λ→1
   trusts the eventual game outcome, λ→0 trusts the search score of the position. Mid-range values train the
   cleanest net; the shipped net used λ=0.3.
@@ -196,12 +210,13 @@ The export step prints how many transformer weights saturate `int16` (should be 
 
 ## 4. The contract & verification gates
 
-`trainer/features.py` is the **single source of truth** for feature indexing and quantisation; `src/nnue.c`
-must reproduce `feature_index`, `king_bucket`, and `integer_eval` byte-for-byte. Two gates enforce this and
-are never skipped:
+`nnue-training`'s `pytorch/features.py` is the **single source of truth** for feature indexing and
+quantisation; `src/nnue.c` must reproduce `feature_index`, `king_bucket`, and `integer_eval`
+byte-for-byte. Two gates enforce this and are never skipped:
 
-- **0-cp trainer parity** — `trainer/verify.py` loads a `.nnue`, evaluates a FEN set with the Python
-  reference `integer_eval`, runs the same FENs through `./build/zenith nnueeval <net>`, and requires
+- **0-cp trainer parity** — `nnue-training`'s `pytorch/verify.py` loads a `.nnue`, evaluates a FEN set
+  with the Python reference `integer_eval`, runs the same FENs through `./build/zenith nnueeval <net>`,
+  and requires
   `max|engine − reference| == 0 cp`. Any nonzero diff means the loader or forward diverged from the export
   contract.
 - **Incremental == refresh** — `./build/zenith nnuecheck <net>` walks a perft-like tree and checks the
@@ -217,22 +232,19 @@ Every net change is then **SPRT-gated** like any strength change (see §7).
 
 - **Hardware used:** NVIDIA RTX 4070 Laptop GPU (8 GB) + 32 CPU cores. Datagen and SPRT are CPU-bound;
   training is the GPU job — they can run concurrently.
-- **Python env** (venv is `.venv`, git-ignored): `tools/setup-dev.sh --training` (Windows:
-  `tools\setup-dev.ps1 -Training`) makes it with uv - torch from PyTorch's CUDA 13.0 index on Linux and Windows, PyPI's
-  Metal build on macOS - and reports whether torch sees the GPU; by hand:
-  ```bash
-  python3 -m venv .venv && . .venv/bin/activate
-  pip install -r trainer/requirements.txt      # torch>=2.3 (CUDA build on Linux) + numpy>=1.26
-  ```
-- The trainer imports `features.py` as a top-level module, so run it with `PYTHONPATH=trainer` (or from
-  inside `trainer/`). `data/` and `nets/` are git-ignored; commit a chosen release net with `git add -f`.
+- **The training environment belongs to `nnue-training`**, not here. Clone it and install its own
+  `pytorch/requirements.txt` (torch + numpy) for the PyTorch route, or run its `bullet/setup_bullet.sh`
+  for the production bullet route. Nothing in Zenith needs torch any more, which is why `tools/setup-dev`
+  no longer has a `--training` / `-Training` option: every Python tool left in `tools/` is stdlib-only
+  and runs on a bare CI runner with no network.
+- `data/` and `nets/` are git-ignored here; commit a chosen release net with `git add -f`.
 
 ---
 
 ## 6. Training a new network — step by step
 
-There are two data sources; both produce the same `fen;stm_score_cp;wdl` text the trainer consumes, so the
-train / verify / SPRT steps afterwards are identical.
+There are two data sources; both produce the same `fen;stm_score_cp;wdl` text the shared trainer
+consumes, so the train / verify / SPRT steps afterwards are identical.
 
 ### Data, option A — Zenith self-play (fully independent)
 
@@ -269,40 +281,31 @@ Convert each bulletformat shard to Zenith's text format, subsampling with a stri
 
 ### Train
 
-**Monolithic** (whole dataset in RAM, ≲230M positions). `--cache` writes/loads a featurised `.npz` so
-re-runs skip featurisation:
+**Training happens in a `nnue-training` clone, not here**, and that repository's README is the reference
+for it: the production **bullet** route on CUDA, and the **PyTorch** route (`pytorch/train.py`), which
+reads the same `fen;score;wdl` text the tools above emit. Zenith's own PyTorch trainer *was* that
+pipeline — it was removed on 2026-10-31, being a byte-for-byte duplicate of it. Either route writes a
+quantised payload, which `nnue-training/spec/stamp_net.py` — or `tools/stamp_net.py` here, the same tool
+over the same constants — wraps in the `RNNUE1` container.
 
-```bash
-PYTHONPATH=trainer python trainer/train.py \
-    --data 'data/run1/shard_*.txt' --out nets/zenith-new.nnue --cache data/run1.npz \
-    --epochs 30 --batch-size 16384 --lr 1e-3 --wdl-lambda 0.5 --hidden-size 512 --device cuda
-```
-
-**Streaming** (past the RAM ceiling — required at the ~1.4B-position scale). First featurise each text shard
-to a `.npz` (chunked, low-RAM, safe to run several in parallel), then stream-train over the directory (the
-last shard is held out as the validation probe):
-
-```bash
-# featurise shards -> data/shards/*.npz  (parallelise across shards; resumable, skips existing)
-for s in data/bullet/shard*.txt; do
-    PYTHONPATH=trainer python trainer/train.py --featurise-shard "$s" "data/shards/$(basename "${s%.txt}").npz"
-done
-
-PYTHONPATH=trainer python trainer/train.py \
-    --shard-dir data/shards --out nets/zenith-new.nnue \
-    --hidden-size 512 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3 --device cuda
-```
-
-Training prints per-epoch `train`/`val` loss (AdamW + cosine LR decay). Falling val loss that then flattens
-is the signal to stop; rising val loss is overfit. Output: `nets/zenith-new.nnue` plus a `.pt` checkpoint.
+Two levers worth carrying into a run, both measured on this project's hardware: the whole featurised
+dataset holds in RAM only to about **230M positions** on a 62 GB box, past which the PyTorch route
+streams per-shard caches one at a time (which is how the 1.4B-position nets trained); and the WDL blend
+`λ·game_result + (1−λ)·sigmoid(score/400)` trains cleanest mid-range — the nets up to `zenith-cap2` used
+**λ=0.3**. Falling validation loss that then flattens is the signal to stop; rising is overfit.
 
 ### Verify (never skip)
 
 ```bash
-PYTHONPATH=trainer python trainer/verify.py --net nets/zenith-new.nnue --fens data/run1/shard_01.txt --count 2000
+# the 0-cp gate: this engine's integer eval against the Python reference. Run from a nnue-training clone
+python3 pytorch/verify.py --net nets/zenith-new.nnue --fens data/run1/shard_01.txt --count 2000 \
+    --engine /path/to/zenith/build/zenith
+# the engine-side gate: incremental accumulator == full refresh. No Python, and part of `make check`
 ./build/zenith nnuecheck nets/zenith-new.nnue
 ```
-Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for strength.
+Both must pass (`0 cp`, `0 mismatches`) before the net is worth testing for strength. The second is
+Zenith's own and answers the question only this engine can; the first is the shared trainer's gate on the
+contract between them, and is the one check that wants both repositories to hand.
 
 ---
 
@@ -372,10 +375,12 @@ trained on that data, and the record should show where they came from.
 from that data. Zenith's own `datagen` generator is option A above and can train a net, but the shipped
 nets took option B.
 
-The 3.0.0 net is not a product of Zenith's own trainer either, which is why it does not carry a `zenith-`
-name: it came from the shared Reckless NNUE training pipeline, at the shape and in the `RNNUE1` container
-every Reckless engine now reads, and `runf-sb870` names the run and checkpoint it came from. Zenith's
-PyTorch trainer in `trainer/` is unchanged and still builds nets of this shape.
+The 3.0.0 net is not a product of a Zenith-only trainer either, which is why it does not carry a
+`zenith-` name: it came from the shared Reckless NNUE training pipeline, at the shape and in the `RNNUE1`
+container every Reckless engine now reads, and `runf-sb870` names the run and checkpoint it came from.
+Zenith has **no trainer of its own any more**: `trainer/` was removed on 2026-10-31, being a duplicate of
+[`nnue-training`](https://github.com/reckless-technology/nnue-training)'s, which is where every Reckless
+net is now trained and where a net of this shape is still built.
 
 ### Training-data attribution (ODbL 1.0) — the notice this release owes
 
@@ -396,8 +401,8 @@ distributing one obliges a notice naming the source:
 Two things that notice does **not** mean. ODbL does **not** require the network to be ODbL-licensed — the
 share-alike reaches derivative *databases*, not Produced Works made from one — and the network is **not**
 GPL merely because GPLv3 code trained it or reads it. And the data is Leela's while the *network* is the
-shared Reckless pipeline's: Zenith's `datagen` and `trainer/` exist and can build a net of this shape, but
-they did not produce these weights.
+shared Reckless pipeline's: Zenith's `datagen` can generate training data of its own, but it did not
+produce these weights, and the trainer that did lives in `nnue-training`.
 
 The authoritative copy of this notice, with every other notice Zenith owes, is
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); it ships in every release archive, and
@@ -426,8 +431,8 @@ PlentyChess-derived, and no release ships such a net.
 
 **The new net's strength in Zenith is unmeasured, and the swap did not wait on it** — removing the data
 dependency is the point, so the measurement tells us what the change cost or gained, not whether to make
-it. The net loads unchanged (same architecture, same container, `nnuecheck` and `trainer/verify.py` both
-clean) and it moves the bench node signature from 1,390,606 to **1,653,778**, which is an eval change and
+it. The net loads unchanged (same architecture, same container, `nnuecheck` and the shared
+`pytorch/verify.py` both clean) and it moves the bench node signature from 1,390,606 to **1,653,778**, which is an eval change and
 says nothing about strength. Figures measured for this net in **pawnstar**, against *pawnstar's* old net,
 are not Zenith results and do not transfer.
 

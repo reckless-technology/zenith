@@ -163,8 +163,8 @@ check: $(BIN)
 # CI's threaded UCI smoke, each process writing build/cov/<pid>.profraw, then merged into build/cov/zenith.profdata and
 # reported over src/: the table on stdout, build/cov/lcov.info for an editor or a coverage service, and an HTML tree
 # under build/cov/html/. It fails when the lines covered fall under COVERAGE_MIN per cent of src/'s (CI's coverage job
-# runs it on Linux). src/ is the engine every release ships; the developer tools no release ships - datagen/, trainer/,
-# tools/ - are not measured. nnuecheck is the slowest gate instrumented (6.6 million nodes, each checked against a full
+# runs it on Linux). src/ is the engine every release ships; the developer tools no release ships - datagen/
+# and tools/ - are not measured. nnuecheck is the slowest gate instrumented (6.6 million nodes, each checked against a full
 # refresh: some 30 s on an i9-13900HX), and the only one into most of nnue.c's incremental updates and the finny cache.
 # The bench gate still asserts its node signature: the instrumentation counts, it changes nothing the search computes.
 # Needs clang and its profile runtime (compiler-rt) and llvm-profdata / llvm-cov: on macOS Xcode's, through xcrun; on

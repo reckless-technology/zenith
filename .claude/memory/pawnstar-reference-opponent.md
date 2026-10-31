@@ -16,6 +16,9 @@ Reference opponent + tooling on this box:
   must NOT be used for training.** It is not pawnstar's own data, and it is off-limits: do not convert,
   featurise or train on it, and do not reproduce a net from it. Zenith's nets up to `zenith-cap2` were
   trained on it; the net shipped from 3.0.0 is trained on Leela Chess Zero self-play data instead.
-- Off-limits for independence: pawnstar's engine code/nets and its `bullet` trainer (Zenith uses its own).
+- Off-limits: pawnstar's engine code and its nets. **Its `bullet` trainer is no longer off-limits** — the
+  trainers were gathered into `nnue-training` as the shared single source (and Zenith's duplicate
+  `trainer/` was removed on 2026-10-31), so bullet is the production route for every Reckless net now.
+  The engine source stays independent; see [[zenith-goal-independence]].
 
 Related: [[zenith-goal-independence]] [[training-setup]]

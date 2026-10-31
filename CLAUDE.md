@@ -16,9 +16,9 @@ tested configuration. Read [README.md](README.md) for the architecture and
 building, testing, debugging and formatting need - on Windows MSYS2 at `C:\msys64` with its CLANG64 clang, lld,
 compiler-rt, llvm-tools, python and gdb, and make, git and zip; on Linux apt's clang, make, python3, git, zip and gdb;
 on macOS Xcode's command-line tools - plus clang-format 22.1.8 through uv, the git hooks and the recommended VS Code
-extensions, checking each first, so they are safe to run again; `-Check` / `--check` only reports, and `-Training` /
-`--training` also makes the NNUE trainer's `.venv` (torch and numpy; CUDA 13.0 wheels on Windows and Linux, Metal on
-macOS). In VS Code they are the `setup environment` and `check environment` tasks.
+extensions, checking each first, so they are safe to run again; `-Check` / `--check` only reports. In VS Code they
+are the `setup environment` and `check environment` tasks. There is no training environment to install here any
+more: the trainers live in `nnue-training`, which carries its own `pytorch/requirements.txt`.
 
 ```bash
 make            # -> ./build/zenith   (clang -std=c17, -O3 -flto -march=native, whole-program single-shot compile)
@@ -34,7 +34,7 @@ make check             # run EVERY gate below (perft, bench-signature, legalchec
                        #   bookcheck, embookcheck, the UCI front end, nnuecheck) — mirrors CI; any failure aborts
 make coverage          # LLVM source-based line coverage of src/ by those gates (+ CI's threaded UCI smoke), FAILING
                        #   under COVERAGE_MIN (90; CI's `coverage` job, Linux): instrumented engine in build/cov/,
-                       #   report on stdout, build/cov/lcov.info + html/; src/ only — datagen/, trainer/, tools/ are
+                       #   report on stdout, build/cov/lcov.info + html/; src/ only — datagen/ and tools/ are
                        #   developer tools no release ships and are not measured; needs llvm-profdata/llvm-cov
                        #   (xcrun on macOS, MSYS2 llvm-tools, Linux: on PATH or clang's version, LLVM_SUFFIX=-18)
 python3 tools/uci_check.py ./build/zenith  # the UCI front end through pipes: every option (shown to reach the
@@ -231,29 +231,45 @@ detection breaks.
 out-of-line `is_checkmated`) before `position_is_draw` can call it the fifty-move draw, so a mate on the hundredth ply
 is found and played. `tools/uci_check.py` holds it ("mate on the 100th ply").
 
-## NNUE training pipeline (Zenith's own trainer and data, on the shared network and net format)
+## NNUE training pipeline (the trainer is shared; the loader and its gates are Zenith's)
 
-`datagen` (C) → `trainer/train.py` (PyTorch, CUDA) → quantised `.nnue` → `src/nnue.c` (engine). The
-venv is `.venv` (torch + numpy, gitignored); `data/` and `nets/` are gitignored.
+`datagen` (C) → the shared trainer in **[`nnue-training`](https://github.com/reckless-technology/nnue-training)**
+→ quantised `.nnue` → `src/nnue.c` (engine). `data/` and `nets/` are gitignored.
 
-**The network shape and the net container are shared with every other Reckless chess engine** (Jonny,
-2026-10-27; skill `reckless-nnue`), so an architecture change here is a change owed to all of them — see
-`.claude/memory/zenith-goal-independence.md` for what that supersedes and why. The shape is Zenith's
-(mirroring and output buckets were measured here); the container is `RNNUE1`, defined for the Python side
-in **`trainer/rnnue1.py`** (stdlib-only: the architecture's numbers, the king-bucket map, CRC-64/XZ and
-the header) and stamped by **`tools/stamp_net.py`**, which writes the header from those constants rather
-than from anything passed in. `trainer/features.py` takes its constants from `rnnue1.py`. The trainer and
-the data stay Zenith's own.
+**`nnue-training` is the single source for the NNUE** — the architecture, the king-bucket map, the
+`RNNUE1` container, both trainers (bullet and PyTorch) and the data pipeline. Zenith is a consumer of it.
+The split is **producer asserts, consumer verifies**: the trainer asserts what a net is, and this engine
+verifies every header field against its own compiled constants and refuses loudly with no fallback. So
+what lives here is the **loader** (`src/nnue.*`, with `src/crc64.h`), the stamper and net tools in
+`tools/`, and the gates that answer the one question only this engine can — does this net load *and play*
+here. Zenith's `trainer/` directory is **gone** (2026-10-31): its four files were byte-identical, or
+one import line away from byte-identical, to `nnue-training`'s `spec/rnnue1.py` and its
+`pytorch/features.py`, `train.py` and `verify.py` — exactly the duplication that repository exists to end. The venv and
+`tools/setup-dev --training` went with it; make the training environment in a `nnue-training` clone, from
+its own `pytorch/requirements.txt`.
 
-- **The contract is `trainer/features.py`** — feature indexing + quantisation (QA=255, QB=64, scale=400,
-  king-bucketed 768×8→1024→8 output heads, horizontal king mirroring, SCReLU). `src/nnue.c` must reproduce
-  `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and `integer_eval` **byte-for-byte**. Train two ways: monolithic (`--cache`, ≤~230M positions in RAM) or
-  **streaming** (`--shard-dir` of per-shard `.npz` caches, one ~95M shard in RAM at a time — this is how the
-  shipped net trained on 650M+ positions). Build shard caches with `--featurise-shard TEXT NPZ` (chunked,
-  low-RAM, parallelizable). **The embedded net from 3.0.0 is `nets/reckless-lc0-runf-sb870.nnue`**, trained
-  entirely on **Leela Chess Zero self-play data** in the shared Reckless NNUE pipeline, not in `trainer/`
+**The one deliberate copy** is `tools/rnnue1.py`, verbatim `nnue-training/spec/rnnue1.py` (SHA-256
+`90472ea1863cd394faac23f8175761bbc9003bda36ccf75ba6f747e5d116e3fa`) — **change it in both or in neither,
+because the copies agreeing is the audit**, the same arrangement the three pawnstar repositories have
+with `new-shape-signature.sh`. It is here because three of this repo's own tools import it and must run
+on a GitHub-hosted runner with no network and no trainer environment: `tools/make_test_net.py` (CI's
+synthetic net, two jobs), `tools/uci_check.py` (an independent reader of the header, to check the
+engine's loader against), and `tools/stamp_net.py`, which writes a header from those constants and never
+from an argument. It is stdlib-only for exactly that reason.
+
+The shape is Zenith's (mirroring and output buckets were measured here) and the container is pawnstar's,
+shared with every other Reckless chess engine (Jonny, 2026-10-27; skill `reckless-nnue`), so an
+architecture change here is a change owed to all of them — see
+`.claude/memory/zenith-goal-independence.md` for what that supersedes and why.
+
+- **The contract is `nnue-training`'s `pytorch/features.py`** — feature indexing + quantisation (QA=255,
+  QB=64, scale=400, king-bucketed 768×8→1024→8 output heads, horizontal king mirroring, SCReLU).
+  `src/nnue.c` must reproduce `feature_index`, `king_bucket`, `king_mirror`, `output_bucket`, and
+  `integer_eval` **byte-for-byte**; how a net is trained is that repository's document, not this one.
+  **The embedded net from 3.0.0 is `nets/reckless-lc0-runf-sb870.nnue`**, trained
+  entirely on **Leela Chess Zero self-play data** in the shared Reckless NNUE pipeline
   — hence no `zenith-` prefix. Its strength in Zenith is **NOT YET MEASURED**: it loads unchanged
-  (same shape and container; `nnuecheck` and `trainer/verify.py` clean) and moves the bench signature
+  (same shape and container; `nnuecheck` and the shared `verify.py` clean) and moves the bench signature
   1,390,606 -> **1,653,778**, which is an eval change, not a strength result. Figures measured for this net
   in pawnstar are pawnstar's and do not transfer. **The swap did not wait on that measurement**: the nets
   up to `zenith-cap2` were trained on **PlentyChess** self-play positions (by Yoshie2000, up to 2.15B),
@@ -270,8 +286,10 @@ the data stay Zenith's own.
   data). Data returns REOPENED at 1024 hidden after saturating at 512. Superseded nets are deleted from the tree once incompatible with the
   shipped engine's architecture (git history preserves them); the loader refuses a mismatch by name, from
   the header's own fields, rather than inferring it from a file's length.
-- **Verification gate (never skip):** `trainer/verify.py` runs `./build/zenith nnueeval` and diffs against the
-  Python reference — must be **0 cp** (bit-identical). Also check symmetry: `eval(pos) == eval(color-mirror)`.
+- **Verification gate (never skip):** `nnue-training`'s `pytorch/verify.py --engine ./build/zenith` runs
+  `nnueeval` and diffs against the Python reference — must be **0 cp** (bit-identical). Also check
+  symmetry: `eval(pos) == eval(color-mirror)`. `./build/zenith nnuecheck <net>` is the engine-side gate
+  and runs with no Python at all.
 - **The trained net is a faithful executor** — if the engine plays badly, suspect the *net/data* (eval
   noise), not the loader. The pilot net loses to HCE because minimax amplifies leaf-eval noise; see the
   `zenith-nnue-pilot-status` memory. Fix = more/cleaner data + better training, not engine code.

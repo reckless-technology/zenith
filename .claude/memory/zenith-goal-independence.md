@@ -1,6 +1,6 @@
 ---
 name: zenith-goal-independence
-description: Zenith's independence constraint (own arch, trainer, data, net format) is SUPERSEDED for the network and the net format - one shared NNUE evaluator across all the engines - and still stands for the trainer, the data and the search
+description: Zenith's independence constraint (own arch, trainer, data, net format) is SUPERSEDED for the network, the net format AND the trainer - one shared NNUE evaluator and one shared trainer in nnue-training - and still stands for the search and the engine source
 metadata:
   type: project
 ---
@@ -23,7 +23,10 @@ stoopid chess. This will rationalize and simplify the process of developing new 
 
 So the network **shape** and the **net container** are now shared across every Reckless chess engine, and
 an architecture change in one is a change owed to all of them. The specification is the `reckless-nnue`
-skill; the engine side here is `src/nnue.c` plus `src/crc64.h`, the Python side `trainer/rnnue1.py`.
+skill; the engine side here is `src/nnue.c` plus `src/crc64.h`, and the Python side is
+`nnue-training/spec/rnnue1.py`, carried here verbatim as `tools/rnnue1.py` (SHA-256
+`90472ea1863cd394faac23f8175761bbc9003bda36ccf75ba6f747e5d116e3fa`) because three tools in `tools/`
+import it and must run on a CI runner with no network — change it in both repositories or in neither.
 
 **Why the constraint could go, rather than merely being overridden.** Independence was never about
 independence for its own sake — it was about being able to say Zenith beat pawnstar *fairly*, on its own
@@ -44,14 +47,21 @@ wrong net apart only by its file size, which is the exact failure the shared con
 
 ## What still stands
 
-- **The trainer is still Zenith's own** (`trainer/`, PyTorch/CUDA), and nothing says the trainers must be
-  common — but **the shipped net no longer comes out of it**, so "Zenith's nets are trained by Zenith's
-  trainer" is no longer true of the net that ships.
+- **The trainer is shared too, as of 2026-10-31, and `trainer/` is GONE from this repository.**
+  `nnue-training` (public) was created as the single source for the NNUE — architecture, container, both
+  trainers, data pipeline — and Zenith's `trainer/` was a *duplicate* of it: `rnnue1.py` byte-identical
+  to `spec/rnnue1.py`, and `features.py`, `train.py` and `verify.py` one added `import spec_path` line
+  away from `pytorch/`'s. Maintaining it in two places is what that repository exists to end, so it was
+  removed and the documents now point there. The split kept is **producer asserts, consumer verifies**:
+  the trainers and the container are theirs; the loader (`src/nnue.*`), the net tools in `tools/`,
+  `nnuecheck` and the "does this net load *and play* here" gates are Zenith's. `tools/setup-dev`'s
+  `--training` / `-Training` option went with it — make the training environment in a `nnue-training`
+  clone, from its own `pytorch/requirements.txt`.
   From 3.0.0 the embedded net is `nets/reckless-lc0-runf-sb870.nnue`, trained **entirely on Leela Chess
   Zero self-play data** in the shared Reckless NNUE pipeline (pawnstar's `bullet`), adopted because it
   replaces the PlentyChess lineage, and the swap did **not** wait on an A/B result — removing the data
   dependency is the point. It loads unchanged — identical architecture and `RNNUE1`
-  header, `nnuecheck` 3/3 at `max|diff| 0` and `trainer/verify.py` 0 cp over 4,000 positions — and moves
+  header, `nnuecheck` 3/3 at `max|diff| 0` and the shared `pytorch/verify.py` 0 cp over 4,000 positions — and moves
   the bench signature 1,390,606 -> 1,653,778. **Its strength in Zenith is NOT YET MEASURED** (Jonny is
   running `reckless-lc0-runf-sb870` against `zenith-cap2` himself); the +9.99 Elo at 8+0.08 and +1.13 at
   12+0.12 measured for this net are **pawnstar's numbers against pawnstar's old net** and do not transfer.
@@ -71,7 +81,7 @@ wrong net apart only by its file size, which is the exact failure the shared con
   NNUE_TRAINING.md deliberately: those nets were measurably stronger for that data and the record should
   show where they came from. Credit and fact only — no rights or legal argument anywhere.
 
-**How to apply:** pipeline is `datagen/` → PyTorch trainer (`trainer/train.py`) → stamp into `RNNUE1`
+**How to apply:** pipeline is `datagen/` → the shared trainer in `nnue-training` → stamp into `RNNUE1`
 (`tools/stamp_net.py`) → engine NNUE (`src/nnue.*`) → SPRT. Every strength change is still
 perft/bench/SPRT-gated, and a change to the shape must land in the other engines too and reproduce their
 bench signatures. Related: [[pawnstar-reference-opponent]] [[training-setup]] [[zenith-eval-experiments]]

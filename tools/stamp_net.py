@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Jonny Reckless
 """Stamp a weight payload into the shared Reckless `RNNUE1` net container.
 
-The header is written by `trainer/rnnue1.py` from its own constants — the architecture fields, the
+The header is written by `tools/rnnue1.py` from its own constants — the architecture fields, the
 king-bucket map's digest and the payload length all come from there, never from an argument. A payload of
 any other shape therefore gets a header that describes *this* architecture and is refused by every
 engine, rather than a header that describes the payload and loads the wrong weights.
@@ -20,11 +20,9 @@ arrays in exactly this order, with the output bias already int32 and no trailing
 cross over byte for byte and the engine's evaluation does not move. `nnuecheck` and the bench signature
 are what prove that.
 """
-import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "trainer"))
-import rnnue1  # noqa: E402  (the path above is what makes this importable)
+import rnnue1  # the shared net container, beside this script in tools/
 
 RETIRED_MAGICS = (b"ZNNUE5\0\0", b"ZNNUE4\0\0", b"ZNNUE3\0\0")
 

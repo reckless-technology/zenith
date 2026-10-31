@@ -9,18 +9,16 @@ well-formed file — so CI can exercise the whole NNUE path (loader, accumulator
 cache, integer forward, UCI EvalFile) without committing a real 12.6MB network. Weights are kept small
 (|w| <= 50) so accumulator sums stay far from int16 range regardless of position.
 
-The shape and the container both come from `trainer/rnnue1.py`, which is stdlib-only for exactly this
+The shape and the container both come from `tools/rnnue1.py`, which is stdlib-only for exactly this
 reason: CI runs this script on a machine with no trainer environment.
 
 Usage: python3 tools/make_test_net.py <out.nnue>
 """
-import os
 import random
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "trainer"))
-import rnnue1  # noqa: E402  (the path above is what makes this importable)
+import rnnue1  # the shared net container, beside this script in tools/
 
 
 def main():

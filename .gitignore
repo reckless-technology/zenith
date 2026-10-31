@@ -2,7 +2,7 @@
 /build/
 *.o
 
-# Python training environment (not source; recreated via trainer/requirements)
+# A Python environment, if one is made here. Training itself lives in reckless-technology/nnue-training
 /.venv/
 
 # Training artifacts: self-play datasets and net checkpoints (large / regenerable)
@@ -11,7 +11,7 @@
 __pycache__/
 *.pyc
 
-# NNUE nets are built by the trainer; commit a chosen release net explicitly with `git add -f`
+# NNUE nets come from the shared trainer (nnue-training); commit a chosen release net with `git add -f`
 *.nnue
 
 # fastchess writes this into the working directory when running matches
