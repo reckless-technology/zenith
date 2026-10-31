@@ -24,8 +24,9 @@ typedef struct NnueRefreshCache NnueRefreshCache; ///< per-thread accumulator re
  * Maintained incrementally by add_piece/remove_piece/move_piece (so make_move and set_fen keep it in sync). Eval reads
  * values[stm] as "own" and values[~stm] as "opponent".
  *
- * The accumulator also carries its bindings: the net it is maintained against (NULL = no net, HCE eval — the
- * incremental updates become no-ops) and an optional per-thread refresh cache used when a king-bucket change
+ * The accumulator also carries its bindings: the net it is maintained against (NULL = no net bound, as for a
+ * position that is never evaluated — the incremental updates become no-ops) and an optional per-thread
+ * refresh cache used when a king-bucket change
  * forces a perspective rebuild. Both pointers sit in the struct's pre-existing alignment padding, so
  * embedding them costs no Position bytes, and copy-make propagates them to children for free.
  */
@@ -35,7 +36,7 @@ typedef struct NnueAccumulator
     /// Cached king-input bucket per perspective, set by nnue_refresh / refresh_perspective. Incremental
     /// updates use these; a king move that changes a side's bucket refreshes that perspective.
     int king_bucket[2];
-    /// Whether each perspective is horizontally mirrored (king on files e-h; v5 nets only). Cached like the
+    /// Whether each perspective is horizontally mirrored (king on files e-h). Cached like the
     /// bucket: incremental updates read it, and a king move that flips it refreshes that perspective.
     uint8_t            king_mirror[2];
     const NnueNetwork *net;   ///< the net this accumulator tracks (NULL = none; position_init binds it)

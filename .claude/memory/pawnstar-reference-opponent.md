@@ -7,10 +7,11 @@ metadata:
 
 Reference opponent + tooling on this box:
 - **Pawnstar C++** engine: `/home/jonny/work/pawnstar` (build binary `build/pawnstar`, embedded net
-  `nnue/pawnstar-v12.bin`; header-only C++23, Lazy SMP, lockless TT). Siblings: `pawnstar-go`, `pawnstar-rs`.
+  `nnue/pawnstar-v20.bin` from 2.0.0, `nnue/pawnstar-v12.bin` before it; header-only C++23, Lazy SMP,
+  lockless TT). Siblings: `pawnstar-go`, `pawnstar-rs`.
 - **SPRT harness:** `~/pawnstar_nnue/fastchess` (fastchess binary). Openings book
-  `~/pawnstar_nnue/openings.epd` (174MB EPD). NOTE: `cutechess-cli` is NOT installed, but `tools/sprt.sh`
-  assumes it — use fastchess or adapt the harness.
+  `~/pawnstar_nnue/openings.epd` (174MB EPD). NOTE: `cutechess-cli` is NOT installed; `tools/sprt.sh` runs
+  fastchess, found on the PATH or at `~/pawnstar_nnue/fastchess/fastchess`.
 - **Hardware:** NVIDIA RTX 4070 Laptop GPU (8GB); 32 CPU cores; clang++ 18, g++ 13.
 - **`~/pawnstar_nnue/data/*.data` holds the public PlentyChess bulletformat dataset (by Yoshie2000), which
   must NOT be used for training.** It is not pawnstar's own data, and it is off-limits: do not convert,

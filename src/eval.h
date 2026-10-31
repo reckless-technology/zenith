@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Jonny Reckless
 /**
  * @file
- * @brief The evaluation seam: NNUE when a net is loaded, else the PeSTO tapered HCE.
+ * @brief The evaluation seam: always the NNUE forward pass — an engine always holds a net.
  */
 #pragma once
 #include "position.h"
