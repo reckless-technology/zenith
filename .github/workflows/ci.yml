@@ -168,7 +168,7 @@ jobs:
 
   # Line coverage of src/ by every gate (`make coverage`: LLVM source-based, nnuecheck and the front-end gate included,
   # the latter's pseudo-terminal check too), failing under the Makefile's COVERAGE_MIN (90 %). src/ is what a release
-  # ships; datagen/, trainer/ and tools/ are developer tools and are not measured. It needs clang with its profile
+  # ships; datagen/ and tools/ are developer tools and are not measured. It needs clang with its profile
   # runtime and the llvm-profdata / llvm-cov of the same LLVM: Ubuntu 24.04's clang and llvm (18) from apt, the tools
   # found by the Makefile (on the PATH, or llvm-profdata-18 beside clang 18).
   coverage:

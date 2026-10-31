@@ -782,7 +782,7 @@ static void print_notices(void)
     printf("A trained network is an ODbL Produced Work: the obligation is this notice. ODbL does NOT\n");
     printf("require the network itself to be ODbL-licensed, and the network is NOT GPL merely because\n");
     printf("GPLv3 code trained it or reads it. The data is Leela's; the network came from the shared\n");
-    printf("Reckless NNUE pipeline, not from Zenith's own trainer/, which did not produce these weights.\n\n");
+    printf("Reckless NNUE pipeline (reckless-technology/nnue-training), which is where the trainers live.\n\n");
     printf("Other notices: the 128-position perft reference counts are Ethereal's standard.epd\n");
     printf("(https://github.com/AndyGrant/Ethereal, GPL-3.0; test data only, no code); the Polyglot key\n");
     printf("constants are the public book-format specification's (http://hgm.nubati.net/book_format.html).\n");

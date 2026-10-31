@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Set up a Windows machine to build, test, debug and format Zenith: MSYS2's CLANG64 toolchain, clang-format and the
-  editor, and with -Training the NNUE trainer's Python environment.
+  editor.
 
 .DESCRIPTION
   Each component is checked first and installed only when it is missing or not the version the repo wants, so the
@@ -19,7 +19,8 @@
     - clang-format 22.1.8 through uv, the one version the pre-commit hook and CI's format gate accept, first on the
       PATH and, through MSYS2's ~/.bash_profile, ahead of the clang-format MSYS2's clang package carries
     - the repo's git hooks (core.hooksPath .githooks) and the VS Code extensions .vscode/extensions.json recommends
-    - with -Training: a .venv in the repo with torch (CUDA 13.0 wheels) and numpy, for trainer/train.py
+    - no training environment: the NNUE trainers live in reckless-technology/nnue-training, which carries its own
+      requirements; every Python tool left in tools/ here is stdlib-only
 
 .PARAMETER Check
   Report what is present and what is missing, install nothing, and exit 1 if anything is missing.
@@ -28,9 +29,6 @@
   Do not add anything to the user's PATH for good (only to this process's): for a test run in a scratch profile.
   MSYS2's own ~/.bash_profile, under its root, is still written.
 
-.PARAMETER Training
-  Also set up (or with -Check, check) the NNUE trainer's .venv: torch and numpy, and whether torch sees a CUDA GPU.
-
 .PARAMETER Msys2Root
   Where MSYS2 is, or is installed to. C:\msys64 is what the README, the VS Code tasks and CI's Windows job use; another
   folder is for a test run that must leave the machine's own MSYS2 alone.
@@ -38,9 +36,8 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\setup-dev.ps1             # set up
   powershell -ExecutionPolicy Bypass -File tools\setup-dev.ps1 -Check      # report only
-  powershell -ExecutionPolicy Bypass -File tools\setup-dev.ps1 -Training   # and the trainer's .venv
 #>
-param([switch]$Check, [switch]$NoPersist, [switch]$Training, [string]$Msys2Root = 'C:\msys64')
+param([switch]$Check, [switch]$NoPersist, [string]$Msys2Root = 'C:\msys64')
 # Continue, not Stop: Windows PowerShell 5.1 makes a native command's stderr a terminating error under Stop, even
 # redirected (pacman and uv print their progress there). The cmdlets that must stop say so; native commands' exit codes
 # are checked.
@@ -50,8 +47,6 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $clangFormatVersion = '22.1.8'   # CI's format gate (.github/workflows/ci.yml) and the pre-commit hook
-$trainerPython = '3.13'
-$torchIndex = 'https://download.pytorch.org/whl/cu130'
 $msysPackages = @(
   'mingw-w64-clang-x86_64-clang', 'mingw-w64-clang-x86_64-lld', 'mingw-w64-clang-x86_64-compiler-rt',
   'mingw-w64-clang-x86_64-llvm-tools', 'mingw-w64-clang-x86_64-python', 'mingw-w64-clang-x86_64-gdb',
@@ -220,7 +215,7 @@ if (Test-Path $pacman) {
   }
 }
 
-# uv, which installs clang-format (and, with -Training, the trainer's Python).
+# uv, which installs clang-format.
 $uvBin = Get-UvBinDir
 if (Test-Path (Join-Path $uvBin 'uv.exe')) { Add-ToPath $uvBin }
 if (Get-Command uv -ErrorAction SilentlyContinue) { Write-Ok 'uv' (uv --version) }
@@ -303,32 +298,6 @@ $gitExe = (Get-Command git -ErrorAction SilentlyContinue | Select-Object -First 
 if (-not $gitExe -and (Test-Path (Join-Path $Msys2Root 'usr\bin\git.exe'))) { $gitExe = Join-Path $Msys2Root 'usr\bin\git.exe' }
 Set-GitHooks $gitExe
 Install-VSCodeExtensions
-
-# The NNUE trainer's .venv: torch from PyTorch's CUDA 13.0 index (with PyPI for everything that index lacks) and numpy,
-# at trainer/requirements.txt's floors.
-if ($Training) {
-  $venvPython = Join-Path (Get-Location) '.venv\Scripts\python.exe'
-  $probe = "import torch, numpy; c = torch.cuda.is_available(); print(torch.__version__, numpy.__version__, int(c), torch.cuda.get_device_name(0) if c else '', sep='|')"
-  $state = if (Test-Path $venvPython) { (& $venvPython -c $probe 2>$null) | Select-Object -Last 1 } else { '' }
-  if (-not $state -and -not $Check) {
-    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { throw 'uv is needed for the trainer .venv' }
-    if (-not (Test-Path $venvPython)) {
-      Write-Installing 'trainer .venv' "Python $trainerPython through uv"
-      uv venv .venv --python $trainerPython
-      if ($LASTEXITCODE -ne 0) { throw "uv venv exited with $LASTEXITCODE" }
-    }
-    Write-Installing 'trainer .venv' "torch (CUDA 13.0) and numpy, from trainer/requirements.txt"
-    uv pip install --python $venvPython -r trainer/requirements.txt --index-url $torchIndex --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
-    if ($LASTEXITCODE -ne 0) { throw "uv pip install exited with $LASTEXITCODE" }
-    $state = (& $venvPython -c $probe 2>$null) | Select-Object -Last 1
-  }
-  if (-not $state) { Write-Missing 'trainer .venv' '.venv with torch and numpy (tools\setup-dev.ps1 -Training)' }
-  else {
-    $torch, $numpy, $cuda, $device = $state.Split('|')
-    if ($cuda -eq '1') { Write-Ok 'trainer .venv' "torch $torch, numpy $numpy, CUDA on $device" }
-    else { Write-Caution 'trainer .venv' "torch $torch, numpy $numpy, but no CUDA GPU: training runs on the CPU" }
-  }
-}
 
 if ($Check) {
   if ($script:missing) { Write-Host "$($script:missing) missing: run tools\setup-dev.ps1 (VS Code: the 'setup environment' task)."; exit 1 }

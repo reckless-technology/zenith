@@ -1,7 +1,7 @@
 # Zenith
 
-An independent UCI chess engine in **C17** — its own search, move generation, data generation and
-trainer, written from scratch rather than ported — evaluating with the shared Reckless NNUE network.
+An independent UCI chess engine in **C17** — its own search, move generation and data generation,
+written from scratch rather than ported — evaluating with the shared Reckless NNUE network.
 
 The source code was written by Claude Code under the close supervision and direction of Jonny Reckless.
 
@@ -9,8 +9,9 @@ Zenith pairs a modern alpha-beta search — iterative deepening, principal-varia
 transposition table, the full pruning/reduction stack, and Lazy SMP — with a king-bucketed neural
 network evaluation: the **shared Reckless NNUE**, which every chess engine in the organisation now
 evaluates with, trained on Leela Chess Zero self-play data. The network shape is Zenith's own design,
-measured here; the weights it ships are not trained by `trainer/`, and the nets it shipped before 3.0.0
-were trained on PlentyChess positions — see
+measured here; the weights it ships come from the shared trainer in
+[`nnue-training`](https://github.com/reckless-technology/nnue-training), and the nets it shipped before
+3.0.0 were trained on PlentyChess positions — see
 [Provenance of earlier networks](NNUE_TRAINING.md#provenance-of-earlier-networks).
 
 Goals for the project were:
@@ -31,9 +32,9 @@ portable; `-march=native` is for local dev — a release build would fan out per
 building, testing, debugging and formatting need - on Windows MSYS2 at `C:\msys64` with its CLANG64 clang, lld,
 compiler-rt, llvm-tools, python and gdb, and make, git and zip; on Linux apt's clang, make, python3, git, zip and gdb;
 on macOS Xcode's command-line tools - plus clang-format 22.1.8 through uv, the git hooks and the recommended VS Code
-extensions, checking each first, so they are safe to run again; `-Check` / `--check` only reports, and `-Training` /
-`--training` also makes the NNUE trainer's `.venv` (torch and numpy; CUDA 13.0 wheels on Windows and Linux, Metal on
-macOS). In VS Code they are the `setup environment` and `check environment` tasks.
+extensions, checking each first, so they are safe to run again; `-Check` / `--check` only reports. In VS Code they
+are the `setup environment` and `check environment` tasks. There is no training environment to install here any
+more — the trainers live in `nnue-training`, which carries its own `pytorch/requirements.txt`.
 
 ```bash
 make                 # -> ./build/zenith        (release: clang -std=c17, -O3 -flto -march=native, whole-program LTO)
@@ -112,7 +113,7 @@ plus CI's threaded UCI smoke, every process merging its counts into one profile 
 (`LLVM_PROFILE_FILE=build/cov/zenith-%m.profraw`: a file per pid lost profiles on Windows, which reuses pids within a
 run), then prints `llvm-cov report` over `src/`, leaving `build/cov/lcov.info` and `build/cov/html/index.html` beside
 it. The figure is `src/` alone - the engine every release ships, its UCI front end and its headers; the developer
-tools no release ships, `datagen/` (zenith-datagen, bullet2text), `trainer/` and `tools/`, are not measured. The bench
+tools no release ships, `datagen/` (zenith-datagen, bullet2text) and `tools/`, are not measured. The bench
 gate still holds its node signature: instrumentation counts and changes nothing the search computes. It needs clang
 with its profile runtime and `llvm-profdata` / `llvm-cov`: Xcode's through `xcrun` on macOS, MSYS2 CLANG64's
 `llvm-tools` on Windows (`tools/setup-dev.ps1` installs them), and on Linux `llvm-profdata` on the PATH or, failing
@@ -293,32 +294,41 @@ only - no engine or search state is read or written.
 
 ## NNUE training pipeline
 
-Zenith's own pipeline is `datagen`, or an external dataset via `bullet2text`, → `trainer/` (PyTorch,
-CUDA) → a quantised `.nnue` in the shared `RNNUE1` container (`tools/stamp_net.py`) → the engine loader.
-The shipped net need not come from it: any net of the shared shape loads, and **the net shipped from
+**The trainers live in [`nnue-training`](https://github.com/reckless-technology/nnue-training)** — the
+single source for the Reckless NNUE: the architecture, the king-bucket map, the `RNNUE1` container, both
+trainers and the data pipeline. Zenith is one of its consumers, and the split is *producer asserts,
+consumer verifies* — that repository asserts what a net is, and this engine checks every header field
+against its own compiled constants and refuses loudly, with no fallback, on a mismatch. What lives here
+is the loader (`src/nnue.*`), the net tools in `tools/`, and the engine-side gates.
+
+So the pipeline is `datagen` (or an external dataset via `bullet2text`) → the shared trainer → a quantised
+`.nnue` in the `RNNUE1` container (`tools/stamp_net.py`) → the engine loader. The shipped net need not come
+from Zenith's own data: any net of the shared shape loads, and **the net shipped from
 3.0.0, `nets/reckless-lc0-runf-sb870.nnue`, is trained entirely on Leela Chess Zero self-play data**, from
 the shared Reckless NNUE pipeline — data published under the **Open Database License 1.0**, whose
 attribution notice is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and printed by
-`./build/zenith license`. The nets up to `zenith-cap2` took the second route, on **PlentyChess**
+`./build/zenith license`. The nets up to `zenith-cap2` were trained on **PlentyChess**
 positions — see [Provenance of earlier networks](NNUE_TRAINING.md#provenance-of-earlier-networks).
-The single source of truth for the feature indexing and quantisation contract is `trainer/features.py`,
-which `src/nnue.c` must reproduce byte-for-byte;
-`trainer/verify.py` enforces a **0 cp** difference between the engine's integer eval and the trainer
-reference. See [NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract and workflow.
+
+The single source of truth for the feature indexing and quantisation contract is `nnue-training`'s
+`pytorch/features.py`, which `src/nnue.c` must reproduce byte-for-byte; its `pytorch/verify.py` enforces a
+**0 cp** difference between the engine's integer eval and the Python reference. One file is deliberately
+copied into this repository — `tools/rnnue1.py`, verbatim `nnue-training/spec/rnnue1.py`, because three
+tools here import it and must run on a CI runner with no network: change it in both or in neither. See
+[NNUE_TRAINING.md](NNUE_TRAINING.md) for the full contract, and `nnue-training`'s README for how to train.
 
 ```bash
-# convert public bulletformat data to text, featurise to shard caches, then stream-train
+# the engine's side: data in, net verified and gated here
 make datagen         # -> ./build/zenith-datagen + ./build/zenith-bullet2text
-./build/zenith-bullet2text <shard.data> data/bullet/shard.txt 0 4
-PYTHONPATH=trainer python trainer/train.py --featurise-shard data/bullet/shard.txt data/shards/s00.npz
-PYTHONPATH=trainer python trainer/train.py --shard-dir data/shards --out nets/zenith.nnue \
-    --hidden-size 1024 --epochs 8 --batch-size 32768 --lr 1.2e-3 --wdl-lambda 0.3
-PYTHONPATH=trainer python trainer/verify.py --net nets/zenith.nnue --fens <fens> --engine ./build/zenith
+./build/zenith-bullet2text <shard.data> data/bullet/shard.txt 0 4   # bulletformat -> text
+tools/datagen_parallel.sh 20000 data/run1 32 5000 8                 # or Zenith's own self-play
+./build/zenith nnuecheck nets/zenith.nnue                           # incremental == full refresh
+# the 0-cp contract gate, run from a nnue-training clone:
+python3 pytorch/verify.py --net nets/zenith.nnue --fens <fens> --engine /path/to/zenith/build/zenith
 ```
 
-The streaming trainer (`--shard-dir`, one shard in RAM at a time) is what allows training on datasets far
-larger than memory. `./build/zenith-datagen` can also generate the engine's own self-play data
-(`fen;stm_score;wdl` records) across all cores via `tools/datagen_parallel.sh`.
+`./build/zenith-datagen` generates the engine's own self-play data (`fen;stm_score;wdl` records) across all
+cores via `tools/datagen_parallel.sh`; `bullet2text` converts a bulletformat dataset to the same text.
 
 ## Opening book
 
@@ -357,8 +367,8 @@ tables, null-move/LMR/futility pruning, SEE, NNUE, Lazy SMP (see the
   768×8→1024→8 SCReLU), now the **shared Reckless NNUE** that every engine in the organisation evaluates with,
   in the `RNNUE1` container they all read. **The network shipped from 3.0.0
   (`nets/reckless-lc0-runf-sb870.nnue`) is trained entirely on Leela Chess Zero self-play data**, and comes
-  from the shared Reckless NNUE training pipeline rather than from Zenith's own trainer — which is why it
-  does not carry a `zenith-` name. No other engine's **code** is included or derived.
+  from the shared Reckless NNUE training pipeline (`nnue-training`) rather than from any trainer of
+  Zenith's own — which is why it does not carry a `zenith-` name. No other engine's **code** is included or derived.
 
   **Training-data attribution (ODbL 1.0).** That data is published at
   <https://storage.lczero.org/files/training_data/> under the **Open Database License 1.0**, with its

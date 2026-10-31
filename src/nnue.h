@@ -7,7 +7,8 @@
  * Position embeds an NnueAccumulator that add_piece/remove_piece/move_piece update, so make_move/set_fen keep it in
  * sync and eval is a cheap forward pass (no per-node full refresh). The accumulator carries the net it
  * tracks (NULL = HCE) — there is no global network. The integer forward stays byte-identical to the
- * integer_eval reference in trainer/features.py (0 cp gate); `nnuecheck` verifies incremental == refresh.
+ * integer_eval reference in nnue-training's pytorch/features.py (0 cp gate); `nnuecheck` verifies
+ * incremental == refresh.
  */
 #pragma once
 #include "accumulator.h"

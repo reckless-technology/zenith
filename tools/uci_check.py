@@ -43,8 +43,7 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "trainer"))
-import rnnue1  # noqa: E402  (the shared net container; the path above is what makes it importable)
+import rnnue1  # noqa: E402  (the shared net container, beside this script in tools/)
 
 NET = "nets/reckless-lc0-runf-sb870.nnue"
 BOOK = "books/zenith-book-r5.bin"
